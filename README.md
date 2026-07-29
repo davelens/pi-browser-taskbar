@@ -40,3 +40,7 @@ bin/build
 See [contributing](docs/contributing.md) and the
 [requirement traceability index](contract/traceability.md) for the acceptance seams established by
 this foundation.
+
+## License
+
+Pi Browser Taskbar is available under the [MIT License](LICENSE).

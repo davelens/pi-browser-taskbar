@@ -9,11 +9,11 @@ Gem::Specification.new do |spec|
   spec.summary = "Development-only Pi browser taskbar adapter for Rails"
   spec.description = "A self-contained Rails adapter for the private Pi Browser Taskbar client."
   spec.homepage = "https://github.com/davelens/pi-browser-taskbar"
-  spec.licenses = ["Nonstandard"]
+  spec.licenses = ["MIT"]
   spec.required_ruby_version = ">= 2.7"
 
   spec.files = Dir.chdir(__dir__) do
-    Dir["CHANGELOG.md", "README.md", "lib/**/*.rb", "lib/**/*.css", "lib/**/*.js"]
+    Dir["CHANGELOG.md", "LICENSE", "README.md", "lib/**/*.rb", "lib/**/*.css", "lib/**/*.js"]
   end
   spec.require_paths = ["lib"]
 

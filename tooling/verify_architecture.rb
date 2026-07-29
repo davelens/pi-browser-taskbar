@@ -77,6 +77,10 @@ class ArchitectureVerifier
     error("Phoenix package version #{phoenix.inspect} differs from #{version}") unless phoenix == version
     error("Rails changelog has no #{version} entry") unless rails_changelog.include?("## #{version}")
     error("Phoenix changelog has no #{version} entry") unless phoenix_changelog.include?("## #{version}")
+
+    license = @root.join("LICENSE").read
+    error("Rails packaged license differs from root LICENSE") unless @root.join("packages/rails/LICENSE").read == license
+    error("Phoenix packaged license differs from root LICENSE") unless @root.join("packages/phoenix/LICENSE").read == license
   end
 
   def verify_ownership

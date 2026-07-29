@@ -33,6 +33,7 @@ class ArtifactVerifier
       files = package.spec.files
       asset = "lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js"
       verify_contents("Rails", files, asset)
+      verify_license("Rails", File.read(File.join(directory, "LICENSE")))
       verify_bootstrap("Rails", File.read(File.join(directory, asset)), "rails")
     end
   end
@@ -46,6 +47,7 @@ class ArtifactVerifier
     files = tar_entries(StringIO.new(Zlib::GzipReader.new(StringIO.new(contents)).read))
     asset = "priv/static/pi_browser_taskbar.js"
     verify_contents("Phoenix", files.keys, asset)
+    verify_license("Phoenix", files.fetch("LICENSE"))
     verify_bootstrap("Phoenix", files.fetch(asset), "phoenix")
 
     mix = files.fetch("mix.exs")
@@ -61,10 +63,16 @@ class ArtifactVerifier
 
   def verify_contents(label, files, asset)
     raise "#{label} artifact omits #{asset}" unless files.include?(asset)
+    raise "#{label} artifact omits LICENSE" unless files.include?("LICENSE")
     raise "#{label} artifact unexpectedly requires Node" if files.any? { |file| File.basename(file) == "package.json" }
 
     forbidden = files.grep(%r{(^|/)(examples|tooling|browser-client|node_modules)(/|$)})
     raise "#{label} artifact leaks monorepo files: #{forbidden.join(", ")}" unless forbidden.empty?
+  end
+
+  def verify_license(label, contents)
+    root_license = File.read(File.join(@root, "LICENSE"))
+    raise "#{label} artifact license differs from root LICENSE" unless contents == root_license
   end
 
   def verify_bootstrap(label, source, framework)

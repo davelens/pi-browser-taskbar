@@ -19,8 +19,16 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
 
   defp package do
     [
-      files: ["lib", "priv", ".formatter.exs", "mix.exs", "README.md", "CHANGELOG.md"],
-      licenses: ["Nonstandard"],
+      files: [
+        "lib",
+        "priv",
+        ".formatter.exs",
+        "mix.exs",
+        "README.md",
+        "CHANGELOG.md",
+        "LICENSE"
+      ],
+      licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/davelens/pi-browser-taskbar"}
     ]
   end
