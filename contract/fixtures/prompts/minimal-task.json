@@ -1,0 +1,7 @@
+{
+  "contract_version": 1,
+  "name": "separate instruction from browser reference data",
+  "instruction": "Explain the cards page.",
+  "context_fixture": "fixtures/browser-context/minimal-whole-page.json",
+  "expected": "Explain the cards page.\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n{\"contract_version\":1,\"focus_points\":[],\"location\":{\"origin\":\"http://localhost:4000\",\"path\":\"/cards\",\"query_names\":[\"page\"]},\"route\":null,\"snapshot\":{\"children\":[{\"children\":[],\"tag\":\"h1\",\"text\":\"Cards\"}],\"name\":\"Cards\",\"tag\":\"main\"},\"truncation\":[]}\n--- END UNTRUSTED BROWSER CONTEXT ---"
+}

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+printf '%s\n' '==> Validate shell entry points'
+bash -n bin/build bin/verify tooling/build_packages.sh
+
+printf '%s\n' '==> Validate executable contracts'
+ruby tooling/contract_validator.rb
+ruby -Itooling/test tooling/test/fake_pi_rpc_test.rb
+
+printf '%s\n' '==> Enforce ownership and version boundaries'
+ruby tooling/verify_architecture.rb
+
+printf '%s\n' '==> Check generated Browser Client assets'
+node tooling/build_browser_assets.mjs --check
+node --test tooling/test/browser_assets_test.mjs
+
+printf '%s\n' '==> Run native adapter package tests'
+ruby packages/rails/test/package_test.rb
+(
+  cd packages/phoenix
+  mix format --check-formatted
+  mix test --warnings-as-errors
+)
+
+printf '%s\n' '==> Build and inspect ecosystem artifacts'
+tooling/build_packages.sh
+ruby tooling/verify_artifacts.rb
+
+printf '%s\n' 'verification passed'

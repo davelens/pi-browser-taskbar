@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "id": "browser-client",
+      "source_roots": ["packages/browser-client"],
+      "runtime_dependencies": [],
+      "build_dependencies": [],
+      "test_dependencies": []
+    },
+    {
+      "id": "conformance-contract",
+      "source_roots": ["contract"],
+      "runtime_dependencies": [],
+      "build_dependencies": [],
+      "test_dependencies": []
+    },
+    {
+      "id": "rails-adapter",
+      "source_roots": ["packages/rails"],
+      "runtime_dependencies": [],
+      "build_dependencies": ["browser-client"],
+      "test_dependencies": ["conformance-contract"]
+    },
+    {
+      "id": "phoenix-adapter",
+      "source_roots": ["packages/phoenix"],
+      "runtime_dependencies": [],
+      "build_dependencies": ["browser-client"],
+      "test_dependencies": ["conformance-contract"]
+    },
+    {
+      "id": "examples",
+      "source_roots": ["examples"],
+      "runtime_dependencies": ["rails-adapter", "phoenix-adapter"],
+      "build_dependencies": [],
+      "test_dependencies": []
+    },
+    {
+      "id": "root-tooling",
+      "source_roots": ["bin", "tooling", ".github/workflows"],
+      "runtime_dependencies": [],
+      "build_dependencies": [
+        "browser-client",
+        "conformance-contract",
+        "rails-adapter",
+        "phoenix-adapter",
+        "examples"
+      ],
+      "test_dependencies": []
+    }
+  ]
+}

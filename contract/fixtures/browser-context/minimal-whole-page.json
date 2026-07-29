@@ -1,0 +1,22 @@
+{
+  "contract_version": 1,
+  "location": {
+    "origin": "http://localhost:4000",
+    "path": "/cards",
+    "query_names": ["page"]
+  },
+  "route": null,
+  "snapshot": {
+    "tag": "main",
+    "name": "Cards",
+    "children": [
+      {
+        "tag": "h1",
+        "text": "Cards",
+        "children": []
+      }
+    ]
+  },
+  "focus_points": [],
+  "truncation": []
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi-browser-taskbar.dev/contract/schemas/task-request.v1.schema.json",
+  "title": "Task request v1",
+  "type": "object",
+  "required": ["prompt", "context"],
+  "properties": {
+    "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "context": {
+      "$ref": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json"
+    }
+  },
+  "additionalProperties": false
+}

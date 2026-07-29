@@ -1,0 +1,7 @@
+:host {
+  --pi-browser-taskbar-font: system-ui, sans-serif;
+}
+
+[hidden] {
+  display: none !important;
+}

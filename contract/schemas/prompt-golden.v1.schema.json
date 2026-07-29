@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi-browser-taskbar.dev/contract/schemas/prompt-golden.v1.schema.json",
+  "title": "Prompt golden v1",
+  "type": "object",
+  "required": ["contract_version", "name", "instruction", "context_fixture", "expected"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "instruction": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "context_fixture": {"type": "string", "minLength": 1, "pattern": "^fixtures/"},
+    "expected": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

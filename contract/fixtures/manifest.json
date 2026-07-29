@@ -1,0 +1,42 @@
+{
+  "contract_version": 1,
+  "fixtures": [
+    {
+      "id": "minimal-whole-page",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/minimal-whole-page.json",
+      "expected_valid": true
+    },
+    {
+      "id": "reject-unknown-context-field",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/unknown-field.json",
+      "expected_valid": false,
+      "error_contains": "unknown property raw_html"
+    },
+    {
+      "id": "minimal-task-request",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/task-request.v1.schema.json",
+      "path": "fixtures/tasks/minimal-task.json",
+      "expected_valid": true
+    },
+    {
+      "id": "foundation-http-state",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/foundation-state.json",
+      "expected_valid": true
+    },
+    {
+      "id": "startup-rpc-success",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/startup-success.json",
+      "expected_valid": true
+    },
+    {
+      "id": "minimal-prompt-golden",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/prompt-golden.v1.schema.json",
+      "path": "fixtures/prompts/minimal-task.json",
+      "expected_valid": true
+    }
+  ]
+}

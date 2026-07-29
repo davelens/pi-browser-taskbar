@@ -1,0 +1,7 @@
+/build/
+/packages/phoenix/_build/
+/packages/phoenix/cover/
+/packages/phoenix/doc/
+/packages/phoenix/*.tar
+/packages/rails/*.gem
+.DS_Store

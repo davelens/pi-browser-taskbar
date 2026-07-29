@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+  "title": "HTTP conformance scenario v1",
+  "type": "object",
+  "required": ["contract_version", "name", "request", "response"],
+  "properties": {
+    "contract_version": {"const": 1},
+    "name": {"type": "string", "minLength": 1},
+    "request": {
+      "type": "object",
+      "required": ["method", "path"],
+      "properties": {
+        "method": {"type": "string", "enum": ["GET", "POST", "DELETE"]},
+        "path": {"type": "string", "minLength": 1, "pattern": "^/"}
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "required": ["status", "body"],
+      "properties": {
+        "status": {"type": "integer", "minimum": 100, "maximum": 599},
+        "body": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

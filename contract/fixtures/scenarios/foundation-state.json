@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "name": "read canonical state",
+  "request": {
+    "method": "GET",
+    "path": "/state"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "contract_version": 1
+    }
+  }
+}

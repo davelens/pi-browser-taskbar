@@ -1,0 +1,25 @@
+{
+  "contract_version": 1,
+  "name": "establish session identity",
+  "steps": [
+    {
+      "direction": "receive",
+      "message": {
+        "type": "get_state",
+        "id": "state-1"
+      }
+    },
+    {
+      "direction": "send",
+      "message": {
+        "type": "response",
+        "id": "state-1",
+        "success": true,
+        "data": {
+          "sessionId": "fixture-session",
+          "model": "fixture-model"
+        }
+      }
+    }
+  ]
+}
