@@ -8,6 +8,8 @@ class RailsTaskTest < Minitest::Test
   FIXTURE = File.expand_path("../../../contract/fixtures/tasks/minimal-task.json", __dir__)
   GOLDEN = File.expand_path("../../../contract/fixtures/prompts/minimal-task.json", __dir__)
   RICH_CONTEXT = File.expand_path("../../../contract/fixtures/browser-context/rich-whole-page.json", __dir__)
+  ONE_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/one-focus-unavailable.json", __dir__)
+  EIGHT_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/eight-focus-unavailable.json", __dir__)
   RICH_GOLDEN = File.expand_path("../../../contract/fixtures/prompts/rich-whole-page.json", __dir__)
   CONTRACT = File.expand_path("../../../contract", __dir__)
 
@@ -38,7 +40,22 @@ class RailsTaskTest < Minitest::Test
     ), task.pi_prompt
   end
 
+  def test_accepts_one_and_eight_ordered_advisory_focus_points
+    [ONE_FOCUS, EIGHT_FOCUS].each do |fixture|
+      context = JSON.parse(File.read(fixture))
+      task = Pi::Browser::Taskbar::Rails::Task.parse("prompt" => "Improve the marks.", "context" => context)
+
+      assert_equal context, task.context
+      assert task.context.fetch("focus_points").all? { |point| point.fetch("source_status") == "unavailable" }
+    end
+  end
+
   def test_rejects_duplicate_and_out_of_allocation_context
+    value = JSON.parse(File.read(FIXTURE))
+    point = JSON.parse(File.read(ONE_FOCUS)).fetch("focus_points").first
+    value["context"]["focus_points"] = [point, Marshal.load(Marshal.dump(point))]
+    assert_invalid(value, "focus_points selectors must be unique")
+
     value = JSON.parse(File.read(FIXTURE))
     value["context"]["location"]["query_names"] = ["page", "page"]
     assert_invalid(value, "location.query_names is invalid")

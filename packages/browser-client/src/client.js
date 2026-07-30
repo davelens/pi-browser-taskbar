@@ -21,8 +21,13 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
     const controls = {
       activity: shadow.querySelector("[data-activity]"),
+      clear: shadow.querySelector("[data-clear]"),
       error: shadow.querySelector("[data-error]"),
+      hoverOutline: shadow.querySelector("[data-hover-outline]"),
+      mark: shadow.querySelector("[data-mark]"),
+      marks: shadow.querySelector("[data-marks]"),
       output: shadow.querySelector("[data-output]"),
+      overlays: shadow.querySelector("[data-overlays]"),
       panel: shadow.querySelector("[data-panel]"),
       prompt: shadow.querySelector("[data-prompt]"),
       run: shadow.querySelector("[data-run]"),
@@ -32,6 +37,8 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     };
     const fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
     const pageLocation = bootstrap.location || globalThis.location;
+    const marks = [];
+    let selecting = false;
     let snapshot = null;
     let pollTimer = null;
     let snapshotGeneration = 0;
@@ -41,15 +48,28 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       controls.toggle.setAttribute("aria-expanded", String(!controls.panel.hidden));
       if (!controls.panel.hidden) controls.prompt.focus?.();
     });
+    controls.mark.addEventListener("click", () => setSelecting(!selecting));
+    controls.clear.addEventListener("click", clearMarks);
     controls.run.addEventListener("click", () => submit(controls.prompt.value).catch(showError));
     controls.prompt.addEventListener("input", renderControls);
+    document.addEventListener?.("pointermove", hoverSelection, true);
+    document.addEventListener?.("click", selectElement, true);
+    document.addEventListener?.("keydown", (event) => {
+      if (selecting && event.key === "Escape") {
+        event.preventDefault?.();
+        setSelecting(false);
+        controls.mark.focus?.();
+      }
+    }, true);
+    document.defaultView?.addEventListener?.("resize", positionMarkOutlines);
+    document.defaultView?.addEventListener?.("scroll", positionMarkOutlines, true);
 
     async function submit(prompt) {
       const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
       if (!normalizedPrompt) throw new TypeError("A prompt is required");
       if (utf8Size(normalizedPrompt) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
 
-      const context = wholePageContext(document, pageLocation, host, bootstrap.route);
+      const context = browserContext(document, pageLocation, host, bootstrap.route, marks, contextProvider);
       const generation = ++snapshotGeneration;
 
       try {
@@ -113,21 +133,113 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       const task = snapshot?.task;
       controls.status.textContent = visibleStatus(session, task);
       controls.status.setAttribute("data-state", task?.status || session.status);
-      controls.scope.textContent = "Whole page · bounded structural context";
       controls.activity.textContent = task?.activity || connectingActivity(session);
       controls.activity.hidden = !controls.activity.textContent;
       controls.output.textContent = task?.output || "";
       controls.output.hidden = !controls.output.textContent;
       controls.error.textContent = task?.error || session.error || "";
       controls.error.hidden = !controls.error.textContent;
+      renderMarks();
       renderControls();
     }
 
     function renderControls() {
       const busy = active(snapshot);
+      if (busy && selecting) setSelecting(false);
       controls.prompt.disabled = busy;
+      controls.mark.disabled = busy || (!selecting && marks.length >= 8);
+      controls.clear.disabled = busy;
       controls.run.disabled = busy || !String(controls.prompt.value || "").trim();
       controls.run.textContent = busy ? "Working…" : "Run with Pi";
+    }
+
+    function setSelecting(next) {
+      selecting = Boolean(next) && !active(snapshot) && marks.length < 8;
+      controls.mark.setAttribute("aria-pressed", String(selecting));
+      controls.mark.textContent = selecting ? "Selecting…" : "Mark element";
+      host.toggleAttribute?.("data-selecting", selecting);
+      if (!selecting) controls.hoverOutline.hidden = true;
+      renderControls();
+    }
+
+    function hoverSelection(event) {
+      if (!selecting) return;
+      const element = selectionTarget(event.target, host, document);
+      if (!element) {
+        controls.hoverOutline.hidden = true;
+        return;
+      }
+      controls.hoverOutline.hidden = false;
+      positionOutline(controls.hoverOutline, element);
+    }
+
+    function selectElement(event) {
+      if (!selecting) return;
+      const element = selectionTarget(event.target, host, document);
+      if (!element) return;
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+
+      const selector = selectorFor(element, document);
+      if (!selector) {
+        showError(new Error("This element could not be identified uniquely"));
+        setSelecting(false);
+        return;
+      }
+      if (!marks.some((mark) => mark.element === element || mark.selector === selector)) {
+        marks.push({ element, selector });
+      }
+      setSelecting(false);
+      renderMarks();
+    }
+
+    function clearMarks() {
+      if (active(snapshot)) return;
+      marks.splice(0);
+      setSelecting(false);
+      renderMarks();
+    }
+
+    function removeMark(index) {
+      if (active(snapshot)) return;
+      marks.splice(index, 1);
+      renderMarks();
+    }
+
+    function renderMarks() {
+      controls.scope.textContent = marks.length === 0
+        ? "Whole page · bounded structural context"
+        : `${marks.length} marked element${marks.length === 1 ? "" : "s"} · advisory focus with whole-page surroundings`;
+      controls.clear.hidden = marks.length === 0;
+      controls.marks.replaceChildren?.();
+      marks.forEach((mark, index) => {
+        const chip = document.createElement("span");
+        chip.setAttribute("data-mark-chip", "");
+        const label = document.createElement("span");
+        label.textContent = `${index + 1}. ${mark.selector}`;
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.textContent = "×";
+        remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
+        remove.addEventListener("click", () => removeMark(index));
+        chip.appendChild(label);
+        chip.appendChild(remove);
+        controls.marks.appendChild?.(chip);
+      });
+      positionMarkOutlines();
+      renderControls();
+    }
+
+    function positionMarkOutlines() {
+      controls.overlays.replaceChildren?.();
+      marks.forEach((mark, index) => {
+        const outline = document.createElement("div");
+        outline.setAttribute("data-mark-outline", "");
+        outline.setAttribute("aria-hidden", "true");
+        outline.textContent = String(index + 1);
+        positionOutline(outline, mark.element);
+        controls.overlays.appendChild?.(outline);
+      });
     }
 
     function schedulePoll(delay) {
@@ -152,31 +264,101 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
 const truncationReasonOrder = ["bytes", "nodes", "depth", "string"];
 const safeAttributeNames = ["name", "type", "placeholder", "data-testid"];
+const maximumContextBytes = 96 * 1024;
+const maximumFocusBytes = 48 * 1024;
+const maximumPageBytes = 48 * 1024;
 
-function wholePageContext(document, location, taskbarHost, route) {
-  const state = { nodes: 0, reasons: [] };
-  const snapshot = captureSnapshot(document.body, taskbarHost, state, document, location);
-  enforceSnapshotBytes(snapshot, state, 48 * 1024);
-  const normalizedLocation = sanitizedLocation(location, state) || {
-    origin: "http://localhost",
-    path: "/",
-    query_names: [],
-  };
-  const normalizedRouteMetadata = normalizedRoute(route, state);
-  const reasons = truncationReasonOrder.filter((reason) => state.reasons.includes(reason));
-
-  return {
+function browserContext(document, location, taskbarHost, route, marks, contextProvider) {
+  const sharedState = { reasons: [] };
+  const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider);
+  const pageState = { nodes: 0, reasons: sharedState.reasons };
+  const snapshot = captureSnapshot(document.body, taskbarHost, pageState, document, location, 750, 12);
+  enforceSnapshotBytes(snapshot, pageState, maximumPageBytes);
+  const context = {
     contract_version: 1,
-    location: normalizedLocation,
-    route: normalizedRouteMetadata,
+    location: sanitizedLocation(location, sharedState) || {
+      origin: "http://localhost",
+      path: "/",
+      query_names: [],
+    },
+    route: normalizedRoute(route, sharedState),
     snapshot,
-    focus_points: [],
-    truncation: reasons.length > 0 ? [{ section: "page", reasons }] : [],
+    focus_points: focus.points,
+    truncation: [],
   };
+
+  context.truncation = truncationEntries(pageState, focus.states);
+  while (utf8Size(JSON.stringify(context)) > maximumContextBytes && trimSnapshot(snapshot)) {
+    pageState.reasons.push("bytes");
+    context.truncation = truncationEntries(pageState, focus.states);
+  }
+  return context;
 }
 
-function captureSnapshot(root, taskbarHost, state, document, location) {
-  if (!root?.localName || excluded(root, document)) return { tag: "body", children: [] };
+function captureFocusPoints(marks, taskbarHost, document, location, contextProvider) {
+  if (marks.length === 0) return { points: [], states: [] };
+  const baseAllocation = Math.floor((maximumFocusBytes - 2 - (marks.length - 1)) / marks.length);
+  const remainder = maximumFocusBytes - 2 - (marks.length - 1) - (baseAllocation * marks.length);
+  const states = [];
+  const points = marks.map((mark, index) => {
+    const state = { nodes: 0, reasons: [] };
+    states.push(state);
+    const point = {
+      selector: mark.selector,
+      source_status: sourceStatus(contextProvider.sourceHint(mark.element)),
+      ancestors: captureAncestors(mark.element, state, document),
+      subtree: captureSnapshot(mark.element, taskbarHost, state, document, location, 100, 6),
+    };
+    enforceFocusPointBytes(point, state, baseAllocation + (index < remainder ? 1 : 0));
+    return point;
+  });
+  return { points, states };
+}
+
+function captureAncestors(element, state, document) {
+  const ancestors = [];
+  let current = element?.parentElement;
+  while (current?.localName && ancestors.length < 8) {
+    if (!excluded(current, document)) ancestors.push(current);
+    current = current.parentElement;
+  }
+  return ancestors.reverse().map((ancestor) => captureNodeSummary(ancestor, state, document));
+}
+
+function captureNodeSummary(element, state, document) {
+  const summary = { tag: normalizedText(String(element.localName).toLowerCase(), 64, state) || "div" };
+  const role = normalizedText(element.getAttribute?.("role"), 64, state);
+  const name = accessibleName(element, state, document);
+  const identifier = normalizedText(element.getAttribute?.("id"), 256, state);
+  if (role) summary.role = role;
+  if (name) summary.name = name;
+  if (identifier) summary.id = identifier;
+  return summary;
+}
+
+function sourceStatus(hint) {
+  return ["available", "ambiguous", "external", "unavailable"].includes(hint?.status)
+    ? hint.status
+    : "unavailable";
+}
+
+function truncationEntries(pageState, focusStates) {
+  const entries = [];
+  const pageReasons = orderedReasons(pageState.reasons);
+  if (pageReasons.length > 0) entries.push({ section: "page", reasons: pageReasons });
+  focusStates.forEach((state, index) => {
+    const reasons = orderedReasons(state.reasons);
+    if (reasons.length > 0) entries.push({ section: `focus:${index + 1}`, reasons });
+  });
+  return entries;
+}
+
+function orderedReasons(reasons) {
+  return truncationReasonOrder.filter((reason) => reasons.includes(reason));
+}
+
+function captureSnapshot(root, taskbarHost, state, document, location, maximumNodes, maximumDepth) {
+  if (!root?.localName || excluded(root, document)) return { tag: "div", children: [] };
 
   const snapshot = captureNodeFields(root, state, document, location);
   const queue = [{ depth: 0, element: root, node: snapshot }];
@@ -186,11 +368,11 @@ function captureSnapshot(root, taskbarHost, state, document, location) {
     const current = queue.shift();
     for (const child of Array.from(current.element.children || [])) {
       if (child === taskbarHost || excluded(child, document)) continue;
-      if (current.depth >= 12) {
+      if (current.depth >= maximumDepth) {
         state.reasons.push("depth");
         continue;
       }
-      if (state.nodes >= 750) {
+      if (state.nodes >= maximumNodes) {
         state.reasons.push("nodes");
         return snapshot;
       }
@@ -440,14 +622,42 @@ function normalizedText(value, maximumBytes, state) {
 }
 
 function enforceSnapshotBytes(snapshot, state, maximumBytes) {
-  while (utf8Size(JSON.stringify(snapshot)) > maximumBytes) {
-    const removable = collectRemovableNodes(snapshot);
-    const candidate = removable.at(-1);
-    if (!candidate) break;
-    const index = candidate.parent.children.indexOf(candidate.node);
-    if (index >= 0) candidate.parent.children.splice(index, 1);
+  while (utf8Size(JSON.stringify(snapshot)) > maximumBytes && trimSnapshot(snapshot)) {
     state.reasons.push("bytes");
   }
+}
+
+function enforceFocusPointBytes(point, state, maximumBytes) {
+  while (utf8Size(JSON.stringify(point)) > maximumBytes) {
+    if (trimSnapshot(point.subtree)) {
+      state.reasons.push("bytes");
+      continue;
+    }
+    if (point.ancestors.length > 0) {
+      point.ancestors.shift();
+      state.reasons.push("bytes");
+      continue;
+    }
+    break;
+  }
+}
+
+function trimSnapshot(snapshot) {
+  const removable = collectRemovableNodes(snapshot);
+  const candidate = removable.at(-1);
+  if (candidate) {
+    const index = candidate.parent.children.indexOf(candidate.node);
+    if (index >= 0) candidate.parent.children.splice(index, 1);
+    return true;
+  }
+
+  for (const field of ["text", "name", "classes", "attributes", "state", "href", "src", "id", "role"]) {
+    if (Object.hasOwn(snapshot, field)) {
+      delete snapshot[field];
+      return true;
+    }
+  }
+  return false;
 }
 
 function collectRemovableNodes(root) {
@@ -465,6 +675,79 @@ function collectRemovableNodes(root) {
 
 function utf8Size(value) {
   return new TextEncoder().encode(value).byteLength;
+}
+
+function selectionTarget(target, taskbarHost, document) {
+  if (!target?.localName || target === taskbarHost || taskbarHost.contains?.(target)) return null;
+  return excluded(target, document) ? null : target;
+}
+
+function selectorFor(element, document) {
+  for (const name of ["data-testid", "id"]) {
+    const value = normalizedText(element.getAttribute?.(name), 256);
+    if (!value) continue;
+    const selector = `[${name}="${cssString(value)}"]`;
+    if (uniqueSelector(selector, document)) return selector;
+  }
+
+  const segments = [];
+  let fallback = null;
+  let current = element;
+  while (current?.localName) {
+    segments.unshift(selectorSegment(current));
+    const selector = segments.join(" > ");
+    if (utf8Size(selector) > 1000) return fallback;
+    if (!fallback && uniqueSelector(selector, document)) fallback = selector;
+
+    current = current.parentElement;
+    const stable = current && stableSelector(current, document);
+    if (stable) {
+      const anchored = [stable, ...segments].join(" > ");
+      if (utf8Size(anchored) <= 1000 && uniqueSelector(anchored, document)) return anchored;
+    }
+  }
+  return fallback;
+}
+
+function stableSelector(element, document) {
+  for (const name of ["data-testid", "id"]) {
+    const value = normalizedText(element.getAttribute?.(name), 256);
+    if (!value) continue;
+    const selector = `[${name}="${cssString(value)}"]`;
+    if (uniqueSelector(selector, document)) return selector;
+  }
+  return null;
+}
+
+function selectorSegment(element) {
+  const tag = String(element.localName).toLowerCase();
+  const siblings = Array.from(element.parentElement?.children || [])
+    .filter((candidate) => String(candidate.localName).toLowerCase() === tag);
+  return siblings.length <= 1 ? tag : `${tag}:nth-of-type(${siblings.indexOf(element) + 1})`;
+}
+
+function uniqueSelector(selector, document) {
+  try {
+    return document.querySelectorAll?.(selector).length === 1;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function cssString(value) {
+  return String(value).replace(/\\/gu, "\\\\").replace(/"/gu, '\\"').replace(/[\n\r\f]/gu, " ");
+}
+
+function positionOutline(outline, element) {
+  const rectangle = element?.getBoundingClientRect?.();
+  if (!rectangle) {
+    outline.hidden = true;
+    return;
+  }
+  outline.style.left = `${rectangle.left}px`;
+  outline.style.top = `${rectangle.top}px`;
+  outline.style.width = `${rectangle.width}px`;
+  outline.style.height = `${rectangle.height}px`;
 }
 
 function active(snapshot) {
@@ -491,13 +774,20 @@ function markup() {
     <style>${taskbarStyles}</style>
     <section data-panel hidden aria-label="Pi browser task">
       <header><strong>PI / PAGE TASK</strong><span data-status aria-live="polite">Connecting</span></header>
-      <p data-scope>Whole page · bounded structural context</p>
+      <div data-focus-row>
+        <p data-scope>Whole page · bounded structural context</p>
+        <button data-mark type="button" aria-pressed="false">Mark element</button>
+      </div>
+      <div data-marks aria-label="Marked focus points"></div>
+      <button data-clear type="button" hidden>Clear marks</button>
       <label>What should change?<textarea data-prompt maxlength="4000" rows="3"></textarea></label>
       <p data-activity aria-live="polite"></p>
       <pre data-output hidden></pre>
       <p data-error hidden role="alert"></p>
       <button data-run type="button" disabled>Run with Pi</button>
     </section>
+    <div data-hover-outline hidden aria-hidden="true"></div>
+    <div data-overlays aria-hidden="true"></div>
     <button data-toggle type="button" aria-expanded="false" aria-label="Open Pi browser taskbar">π <span>Page task</span></button>
   `;
 }

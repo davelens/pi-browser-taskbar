@@ -1,0 +1,19 @@
+{
+  "contract_version": 1,
+  "name": "submit an advisory focused task through either adapter",
+  "request": {
+    "method": "POST",
+    "path": "/tasks",
+    "body_fixture": "fixtures/tasks/focused-task.json"
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "contract_version": 1,
+      "session_status": "busy",
+      "task_status": "running",
+      "terminal_task_status": "completed",
+      "terminal_output": "Implemented the whole-page request."
+    }
+  }
+}

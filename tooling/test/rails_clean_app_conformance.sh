@@ -29,6 +29,8 @@ cp "$root/packages/rails/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
 chmod +x "$tmp/fake_pi_rpc"
 cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.json"
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
+cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
+cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
 
 cat >"$app/config/application.rb" <<'RUBY'
 require "rails"
@@ -87,6 +89,8 @@ export PI_BROWSER_TASKBAR_EXECUTABLE="$tmp/fake_pi_rpc"
 export XDG_RUNTIME_DIR="$runtime_root"
 export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
+export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
+export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/rails.json"
 
 (
@@ -147,6 +151,29 @@ module CleanRailsConformance
     end
     assert completed.dig("task", "output") == expected.dig("body", "terminal_output"), "fake output differed"
 
+    focused_scenario = JSON.parse(File.read(ENV.fetch("PI_BROWSER_TASKBAR_FOCUSED_SCENARIO")))
+    focused_task = JSON.parse(File.read(ENV.fetch("PI_BROWSER_TASKBAR_FOCUSED_TASK")))
+    session.post "/dev/pi-browser-taskbar#{focused_scenario.dig("request", "path")}", params: JSON.generate(focused_task),
+      headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+    assert session.response.status == focused_scenario.dig("response", "status"), "focused task was not accepted"
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      JSON.parse(session.response.body).dig("task", "status") == focused_scenario.dig("response", "body", "terminal_task_status")
+    end
+    assert JSON.parse(session.response.body).dig("task", "output") == focused_scenario.dig("response", "body", "terminal_output"), "focused fake output differed"
+
+    duplicate = Marshal.load(Marshal.dump(focused_task))
+    duplicate.dig("context", "focus_points") << Marshal.load(Marshal.dump(duplicate.dig("context", "focus_points", 0)))
+    invalid_structure = Marshal.load(Marshal.dump(focused_task))
+    invalid_structure.dig("context", "focus_points", 0)["source_status"] = "guessed"
+    focus_rejections = [duplicate, invalid_structure].map do |invalid_task|
+      session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(invalid_task),
+        headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+      body = JSON.parse(session.response.body)
+      assert session.response.status == 422 && body.dig("error", "code") == "invalid_task", "invalid focus was accepted"
+      {"status" => session.response.status, "code" => body.dig("error", "code")}
+    end
+
     remote = ActionDispatch::Integration::Session.new(Rails.application)
     remote.host! "localhost"
     remote.get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "192.0.2.2"}
@@ -169,7 +196,8 @@ module CleanRailsConformance
     assert second.response.status == 409 && JSON.parse(second.response.body).dig("error", "code") == "busy", "admission was not atomic"
     assert created.dig("session", "id") == JSON.parse(second.response.body).dig("snapshot", "session", "id"), "Rails clients did not share one broker session"
 
-    semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200, "completed" => completed}
+    semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200,
+      "completed" => completed, "focus_rejections" => focus_rejections}
     File.write(ENV.fetch("PI_BROWSER_TASKBAR_SEMANTICS"), JSON.pretty_generate(semantic))
     spec = Gem.loaded_specs.fetch("pi-browser-taskbar-rails")
     assert spec.full_gem_path.start_with?(ENV.fetch("GEM_HOME")), "adapter loaded from source workspace"

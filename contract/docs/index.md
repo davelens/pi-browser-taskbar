@@ -32,8 +32,10 @@ constructing prompts.
 ## Normalized browser context
 
 A browser context declares its contract version, sanitized location, optional confident route
-metadata, structural page snapshot, zero to eight advisory focus points, and explicit truncation
-records. A zero-length focus list means a whole-page task.
+metadata, structural page snapshot, zero to eight ordered, selector-unique advisory focus points,
+and explicit truncation records. A zero-length focus list means a whole-page task. Every focus point
+retains its stable selector, conservative source classification, up to eight outer-to-inner ancestor
+summaries, and a bounded subtree; focus never removes the whole-page snapshot.
 
 Location retains only an HTTP(S) origin, path, and unique query names in encounter order. URL
 credentials, fragments, and query values are forbidden. Route metadata is either `null` or the
@@ -47,14 +49,17 @@ content, arbitrary attributes, iframe contents, and nested Shadow DOM. It never 
 
 Normalized lengths are measured in UTF-8 bytes: request 128 KiB, context 96 KiB, prompt 4,000,
 page snapshot 48 KiB/750 nodes/depth 12, and combined focus detail 48 KiB. Focus subtrees are
-limited to 100 nodes/depth 6. Strings use the bounds encoded by `x-maxUtf8Bytes` in the schema.
-Truncation occurs only at Unicode code-point boundaries, retains page nodes breadth-first, and
-reports affected page or focus sections with canonical `bytes`, `nodes`, `depth`, and `string`
-reasons.
+limited to 100 nodes/depth 6. Focus selectors and source classifications are reserved before detail;
+the remaining focus allocation is shared evenly in mark order, then the page receives the remaining
+context allocation up to its own bound. Strings use the bounds encoded by `x-maxUtf8Bytes` in the
+schema. Truncation occurs only at Unicode code-point boundaries, retains page and focused subtree
+nodes breadth-first, and reports affected page or `focus:1` through `focus:8` sections with canonical
+`bytes`, `nodes`, `depth`, and `string` reasons.
 
 Both adapters independently normalize NFC Unicode, line endings, controls, structural whitespace,
 tag/method case, optional empty fields, and truncation order before validation. Unknown fields,
-duplicates, malformed shapes, unsafe locations, and values outside any allocation are invalid.
+duplicate query names or focus selectors, malformed focus structures, unsafe locations, and values
+outside any allocation are invalid.
 
 ## Fixture manifest
 

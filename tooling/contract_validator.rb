@@ -119,6 +119,11 @@ module ContractValidation
       if schema["uniqueItems"] && value.map { |item| JSON.generate(item) }.uniq.length != value.length
         errors << "#{path}: expected unique items"
       end
+      if schema["x-uniqueBy"]
+        key = schema.fetch("x-uniqueBy")
+        values = value.filter_map { |item| item[key] if item.is_a?(Hash) }
+        errors << "#{path}: expected unique #{key}" if values.uniq.length != values.length
+      end
       if schema["items"]
         value.each_with_index do |child, index|
           errors.concat(validate(child, schema.fetch("items"), path: "#{path}[#{index}]", root_schema: root_schema))

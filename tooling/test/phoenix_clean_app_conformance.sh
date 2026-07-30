@@ -17,6 +17,8 @@ cp "$root/packages/phoenix/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
 chmod +x "$tmp/fake_pi_rpc"
 cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.json"
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
+cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
+cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
 
 cat >"$app/mix.exs" <<EOF
 defmodule Demo.MixProject do
@@ -150,13 +152,37 @@ defmodule CleanAppConformance do
     completed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
     assert!(completed["task"]["output"] == expected["terminal_output"], "fake output differed")
 
+    focused_scenario = System.fetch_env!("PI_BROWSER_TASKBAR_FOCUSED_SCENARIO") |> File.read!() |> Jason.decode!()
+    focused_task = System.fetch_env!("PI_BROWSER_TASKBAR_FOCUSED_TASK") |> File.read!() |> Jason.decode!()
+    focused = request(:post, "/dev/pi-browser-taskbar" <> focused_scenario["request"]["path"], focused_task)
+    assert!(focused.status == focused_scenario["response"]["status"], "focused task was not accepted")
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(
+        PiBrowserTaskbarPhoenix.Names.runtime(:demo)
+      ).task.status == focused_scenario["response"]["body"]["terminal_task_status"]
+    end)
+    focused_completed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
+    assert!(focused_completed["task"]["output"] == focused_scenario["response"]["body"]["terminal_output"], "focused fake output differed")
+
+    [duplicate, invalid_structure] = [
+      put_in(focused_task, ["context", "focus_points"], focused_task["context"]["focus_points"] ++ focused_task["context"]["focus_points"]),
+      put_in(focused_task, ["context", "focus_points", Access.at(0), "source_status"], "guessed")
+    ]
+    focus_rejections = Enum.map([duplicate, invalid_structure], fn invalid_task ->
+      response = request(:post, "/dev/pi-browser-taskbar/tasks", invalid_task)
+      body = response_json(response)
+      assert!(response.status == 422 && body["error"]["code"] == "invalid_task", "invalid focus was accepted")
+      %{"status" => response.status, "code" => body["error"]["code"]}
+    end)
+
     if path = System.get_env("PI_BROWSER_TASKBAR_SEMANTICS") do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, Jason.encode!(%{
         "created_status" => created.status,
         "created" => created_json,
         "completed_status" => 200,
-        "completed" => completed
+        "completed" => completed,
+        "focus_rejections" => focus_rejections
       }, pretty: true))
     end
 
@@ -226,6 +252,8 @@ EOF
 export PI_BROWSER_TASKBAR_FAKE="$tmp/fake_pi_rpc"
 export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
+export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
+export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
 
 (

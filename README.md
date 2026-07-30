@@ -14,9 +14,10 @@ package do not need Node or a JavaScript package manager.
 
 The executable foundation contains versioned contract schemas and fixtures, native package
 artifacts, deterministic browser asset generation, and automated ownership checks. The Phoenix
-and Rails adapters now include equivalent bounded whole-page flows: deterministic sanitized Browser
-Client capture, independent native normalization, native HTTP security, canonical Pi ownership, and
-completed fake-Pi output. Rails uses one external
+and Rails adapters now include equivalent bounded whole-page flows with up to eight advisory marked
+focus points: deterministic sanitized Browser Client capture, fair focus truncation, independent
+native normalization, native HTTP security, canonical Pi ownership, and completed fake-Pi output.
+Rails uses one external
 checkout-scoped broker; Phoenix uses one supervised runtime.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The

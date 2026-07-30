@@ -1,0 +1,217 @@
+{
+  "contract_version": 1,
+  "location": {
+    "origin": "http://localhost:4000",
+    "path": "/cards",
+    "query_names": [
+      "page"
+    ]
+  },
+  "route": null,
+  "snapshot": {
+    "tag": "main",
+    "name": "Cards",
+    "children": [
+      {
+        "tag": "h1",
+        "text": "Cards",
+        "children": []
+      }
+    ]
+  },
+  "focus_points": [
+    {
+      "selector": "[data-testid=\"card-1\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 1",
+        "attributes": {
+          "data-testid": "card-1"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-2\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 2",
+        "attributes": {
+          "data-testid": "card-2"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-3\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 3",
+        "attributes": {
+          "data-testid": "card-3"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-4\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 4",
+        "attributes": {
+          "data-testid": "card-4"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-5\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 5",
+        "attributes": {
+          "data-testid": "card-5"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-6\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 6",
+        "attributes": {
+          "data-testid": "card-6"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-7\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 7",
+        "attributes": {
+          "data-testid": "card-7"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    },
+    {
+      "selector": "[data-testid=\"card-8\"]",
+      "source_status": "unavailable",
+      "ancestors": [
+        {
+          "tag": "main",
+          "name": "Cards"
+        }
+      ],
+      "subtree": {
+        "tag": "article",
+        "name": "Card 8",
+        "attributes": {
+          "data-testid": "card-8"
+        },
+        "children": [
+          {
+            "tag": "button",
+            "text": "Open",
+            "children": []
+          }
+        ]
+      }
+    }
+  ],
+  "truncation": []
+}

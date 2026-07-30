@@ -12,7 +12,12 @@ The client may call that interface but must not recognize Rails, Phoenix, Ruby, 
 providers may depend on this interface during asset composition; the Browser Client never imports
 an adapter.
 
-Whole-page submission captures a deterministic breadth-first structural snapshot. It retains only
-the contract allowlist, sanitizes URL references, truncates on Unicode code-point boundaries, and
-reports every applied bound. A programmatic mount may supply confident normalized route metadata as
-`route`; absent or incomplete metadata becomes `null`.
+Submission always captures a deterministic breadth-first whole-page structural snapshot. Developers
+may add up to eight ordered advisory focus points; the client prefers unique `data-testid`/`id`
+anchors, otherwise builds a unique ancestry selector. Each focus includes conservative provider
+classification, outer-to-inner ancestor summaries, and a bounded subtree. Focus detail is shared
+fairly before the page receives the remaining context allocation.
+
+Capture retains only the contract allowlist, sanitizes URL references, truncates on Unicode
+code-point boundaries, and reports every applied bound. A programmatic mount may supply confident
+normalized route metadata as `route`; absent or incomplete metadata becomes `null`.

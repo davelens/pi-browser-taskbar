@@ -9,6 +9,14 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
                   "../../../contract/fixtures/browser-context/rich-whole-page.json",
                   __DIR__
                 )
+  @one_focus Path.expand(
+               "../../../contract/fixtures/browser-context/one-focus-unavailable.json",
+               __DIR__
+             )
+  @eight_focus Path.expand(
+                 "../../../contract/fixtures/browser-context/eight-focus-unavailable.json",
+                 __DIR__
+               )
   @rich_golden Path.expand("../../../contract/fixtures/prompts/rich-whole-page.json", __DIR__)
   @contract Path.expand("../../../contract", __DIR__)
 
@@ -52,8 +60,26 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
     assert Task.to_prompt(task) == expected_prompt
   end
 
+  test "accepts one and eight ordered advisory focus points" do
+    Enum.each([@one_focus, @eight_focus], fn fixture ->
+      context = fixture |> File.read!() |> Jason.decode!()
+
+      assert {:ok, task} = Task.new(%{"prompt" => "Improve the marks.", "context" => context})
+      assert task.context == context
+      assert Enum.all?(task.context["focus_points"], &(&1["source_status"] == "unavailable"))
+    end)
+  end
+
   test "rejects duplicate and out-of-allocation context" do
     params = @fixture |> File.read!() |> Jason.decode!()
+
+    point =
+      @one_focus |> File.read!() |> Jason.decode!() |> get_in(["focus_points", Access.at(0)])
+
+    assert {:error, :invalid_task, "focus_points selectors must be unique"} =
+             params
+             |> put_in(["context", "focus_points"], [point, point])
+             |> Task.new()
 
     assert {:error, :invalid_task, "location.query_names is invalid"} =
              params

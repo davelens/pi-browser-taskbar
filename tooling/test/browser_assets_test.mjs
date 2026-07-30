@@ -245,6 +245,137 @@ test("Browser Client retains page nodes in breadth-first order when byte-truncat
   assert.deepEqual(requestBody.context.truncation, [{ section: "page", reasons: ["bytes", "string"] }]);
 });
 
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client marks, removes, clears, and submits up to eight advisory focuses`, async () => {
+    const document = fakeDocument();
+    const container = document.createElement("section");
+    container.setAttribute("id", "cards");
+    document.body.appendChild(container);
+    const fallbackFirst = document.createElement("button");
+    const fallbackSecond = document.createElement("button");
+    container.appendChild(fallbackFirst);
+    container.appendChild(fallbackSecond);
+    const stable = Array.from({ length: 8 }, (_value, index) => {
+      const element = document.createElement("article");
+      element.setAttribute("data-testid", `card-${index + 1}`);
+      element.childNodes.push({ nodeType: 3, nodeValue: `Card ${index + 1}` });
+      document.body.appendChild(element);
+      return element;
+    });
+
+    const requests = [];
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, assets[framework]), "utf8"), sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      csrfToken: "token",
+      document,
+      fetch: async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+        };
+      },
+      location: { origin: "http://localhost:4000", pathname: "/cards", search: "" },
+    });
+    const shadow = mounted.element.shadowRoot;
+    const mark = shadow.querySelector("[data-mark]");
+
+    mark.dispatchEvent({ type: "click" });
+    assert.equal(mark.getAttribute("aria-pressed"), "true");
+    document.dispatch("pointermove", fallbackSecond);
+    assert.equal(shadow.querySelector("[data-hover-outline]").hidden, false);
+    document.dispatch("keydown", document.body, { key: "Escape" });
+    assert.equal(mark.getAttribute("aria-pressed"), "false");
+    assert.equal(shadow.querySelector("[data-hover-outline]").hidden, true);
+
+    select(mark, document, fallbackSecond);
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
+    assert.equal(shadow.querySelector("[data-overlays]").children.length, 1);
+    assert.match(shadow.querySelector("[data-scope]").textContent, /^1 marked element/);
+    await mounted.submit("Improve this control.");
+    assert.equal(requests[0].context.focus_points.length, 1);
+    assert.match(requests[0].context.focus_points[0].selector, /^\[id="cards"\] > button:nth-of-type\(2\)$/u);
+    assert.equal(requests[0].context.focus_points[0].source_status, "unavailable");
+    assert.deepEqual(requests[0].context.focus_points[0].ancestors.map((node) => node.tag), ["body", "section"]);
+    assert.equal(requests[0].context.snapshot.tag, "body");
+
+    select(mark, document, fallbackSecond);
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
+    shadow.querySelector("[data-marks]").children[0].children[1].dispatchEvent({ type: "click" });
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · bounded structural context");
+
+    stable.forEach((element) => select(mark, document, element));
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 8);
+    assert.equal(mark.disabled, true);
+    await mounted.submit("Improve all cards.");
+    assert.deepEqual(
+      requests[1].context.focus_points.map((point) => point.selector),
+      stable.map((_element, index) => `[data-testid="card-${index + 1}"]`),
+    );
+    shadow.querySelector("[data-clear]").dispatchEvent({ type: "click" });
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · bounded structural context");
+  });
+}
+
+test("Browser Client shares focus detail fairly before allocating the whole-page remainder", async () => {
+  const document = fakeDocument();
+  const focuses = [1, 2].map((number) => {
+    const element = document.createElement("section");
+    element.setAttribute("data-testid", `focus-${number}`);
+    for (let index = 0; index < 99; index += 1) {
+      const child = document.createElement("p");
+      child.childNodes.push({ nodeType: 3, nodeValue: `${number}-${index}`.padEnd(1000, "x") });
+      element.appendChild(child);
+    }
+    document.body.appendChild(element);
+    return element;
+  });
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+      };
+    },
+    location: { origin: "http://localhost:4000", pathname: "/", search: "" },
+  });
+  const mark = mounted.element.shadowRoot.querySelector("[data-mark]");
+  focuses.forEach((element) => select(mark, document, element));
+
+  await mounted.submit("Compare both focused sections.");
+
+  const points = requestBody.context.focus_points;
+  assert.equal(points.length, 2);
+  assert.ok(points.every((point) => point.subtree.children.length > 0));
+  assert.ok(points.every((point) => point.subtree.children.length < 99));
+  assert.ok(Math.abs(Buffer.byteLength(JSON.stringify(points[0])) - Buffer.byteLength(JSON.stringify(points[1]))) < 1100);
+  assert.ok(Buffer.byteLength(JSON.stringify(points), "utf8") <= 48 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(requestBody.context), "utf8") <= 96 * 1024);
+  assert.deepEqual(
+    requestBody.context.truncation.filter((entry) => entry.section.startsWith("focus:")).map((entry) => entry.reasons),
+    [["bytes"], ["bytes"]],
+  );
+  assert.equal(requestBody.context.snapshot.tag, "body");
+});
+
+function select(markButton, document, element) {
+  markButton.dispatchEvent({ type: "click" });
+  document.dispatch("click", element);
+}
+
 test("Browser Client discards an older state read after task submission", async () => {
   const document = fakeDocument();
   let resolveInitialRefresh;
@@ -301,24 +432,48 @@ function fakeDocument() {
       this.listeners = {};
       this.attributes = new Map();
       this.classList = [];
+      this.style = {};
     }
 
-    addEventListener(name, listener) { this.listeners[name] = listener; }
+    addEventListener(name, listener) { (this.listeners[name] ||= []).push(listener); }
     appendChild(child) { this.childNodes.push(child); this.children.push(child); child.parentElement = this; return child; }
     attachShadow() { this.shadowRoot = new FakeShadowRoot(); return this.shadowRoot; }
+    contains(candidate) {
+      return candidate === this || this.children.some((child) => child.contains?.(candidate));
+    }
+    dispatchEvent(event) {
+      event.target ||= this;
+      for (const listener of this.listeners[event.type] || []) listener(event);
+    }
+    focus() { this.focused = true; }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
+    getBoundingClientRect() { return this.rectangle || { left: 10, top: 20, width: 100, height: 30 }; }
     hasAttribute(name) { return this.attributes.has(name); }
+    removeAttribute(name) { this.attributes.delete(name); }
+    replaceChildren(...children) {
+      this.childNodes = [];
+      this.children = [];
+      children.forEach((child) => this.appendChild(child));
+    }
     setAttribute(name, value) {
       this.attributes.set(name, String(value));
       if (name === "class") this.classList = String(value).split(/\s+/u).filter(Boolean);
       else this[name] = String(value);
+    }
+    toggleAttribute(name, force) {
+      if (force) this.setAttribute(name, ""); else this.removeAttribute(name);
+      return force;
     }
   }
 
   class FakeShadowRoot {
     constructor() {
       this.elements = new Map();
-      for (const selector of ["[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]", "[data-run]", "[data-output]", "[data-activity]", "[data-error]"]) {
+      for (const selector of [
+        "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
+        "[data-run]", "[data-output]", "[data-activity]", "[data-error]", "[data-mark]",
+        "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
+      ]) {
         this.elements.set(selector, new FakeElement());
       }
     }
@@ -327,23 +482,60 @@ function fakeDocument() {
   }
 
   const body = new FakeElement("body");
-  return {
+  const listeners = {};
+  const allElements = () => {
+    const result = [];
+    const queue = [body];
+    while (queue.length > 0) {
+      const element = queue.shift();
+      result.push(element);
+      queue.push(...element.children);
+    }
+    return result;
+  };
+  const matches = (element, segment) => {
+    const attribute = segment.match(/^\[([a-z-]+)="(.*)"\]$/u);
+    if (attribute) return element.getAttribute(attribute[1]) === attribute[2].replace(/\\"/gu, '"').replace(/\\\\/gu, "\\");
+    const parsed = segment.match(/^([a-z][a-z0-9-]*)(?::nth-of-type\(([0-9]+)\))?$/u);
+    if (!parsed || element.localName !== parsed[1]) return false;
+    if (!parsed[2]) return true;
+    const siblings = element.parentElement.children.filter((candidate) => candidate.localName === element.localName);
+    return siblings.indexOf(element) + 1 === Number(parsed[2]);
+  };
+  const document = {
     body,
     defaultView: {
+      addEventListener() {},
       getComputedStyle(element) {
         return element.computedStyle || { display: "block", visibility: "visible", contentVisibility: "visible" };
       },
     },
-    createElement(localName) { return new FakeElement(localName); },
-    getElementById(id) {
-      const queue = [body];
-      while (queue.length > 0) {
-        const element = queue.shift();
-        if (element.getAttribute?.("id") === id) return element;
-        queue.push(...element.children);
-      }
-      return null;
+    addEventListener(name, listener) { (listeners[name] ||= []).push(listener); },
+    dispatch(name, target, extra = {}) {
+      const event = {
+        type: name,
+        target,
+        preventDefault() { this.defaultPrevented = true; },
+        stopImmediatePropagation() { this.propagationStopped = true; },
+        ...extra,
+      };
+      for (const listener of listeners[name] || []) listener(event);
+      return event;
     },
+    createElement(localName) { return new FakeElement(localName); },
+    getElementById(id) { return allElements().find((element) => element.getAttribute?.("id") === id) || null; },
     querySelector() { return null; },
+    querySelectorAll(selector) {
+      const segments = selector.split(" > ");
+      return allElements().filter((element) => {
+        let current = element;
+        for (let index = segments.length - 1; index >= 0; index -= 1) {
+          if (!current || !matches(current, segments[index])) return false;
+          current = current.parentElement;
+        }
+        return true;
+      });
+    },
   };
+  return document;
 }

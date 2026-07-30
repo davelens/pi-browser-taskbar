@@ -14,6 +14,32 @@
       "expected_valid": true
     },
     {
+      "id": "one-focus-unavailable",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/one-focus-unavailable.json",
+      "expected_valid": true
+    },
+    {
+      "id": "eight-focus-unavailable",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/eight-focus-unavailable.json",
+      "expected_valid": true
+    },
+    {
+      "id": "reject-duplicate-focus-selectors",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/duplicate-focus-selectors.json",
+      "expected_valid": false,
+      "error_contains": "expected unique selector"
+    },
+    {
+      "id": "reject-invalid-focus-status",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/invalid-focus-status.json",
+      "expected_valid": false,
+      "error_contains": "expected one of"
+    },
+    {
       "id": "reject-unknown-context-field",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
       "path": "fixtures/browser-context/unknown-field.json",
@@ -97,6 +123,12 @@
       "expected_valid": true
     },
     {
+      "id": "focused-task-request",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/task-request.v1.schema.json",
+      "path": "fixtures/tasks/focused-task.json",
+      "expected_valid": true
+    },
+    {
       "id": "foundation-http-state",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
       "path": "fixtures/scenarios/foundation-state.json",
@@ -106,6 +138,12 @@
       "id": "phoenix-whole-page-http",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
       "path": "fixtures/scenarios/phoenix-whole-page.json",
+      "expected_valid": true
+    },
+    {
+      "id": "focused-task-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/focused-task.json",
       "expected_valid": true
     },
     {

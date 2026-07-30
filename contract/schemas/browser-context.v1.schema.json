@@ -29,6 +29,7 @@
       "type": "array",
       "maxItems": 8,
       "x-maxJsonUtf8Bytes": 49152,
+      "x-uniqueBy": "selector",
       "items": {"$ref": "#/$defs/focusPoint"}
     },
     "truncation": {
