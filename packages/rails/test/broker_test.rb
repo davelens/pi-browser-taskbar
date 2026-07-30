@@ -278,7 +278,7 @@ class RailsBrokerTest < Minitest::Test
       sleep 5
     RUBY
       wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
-      assert_equal "Pi protocol failed", runtime.snapshot.dig("session", "error")
+      assert_equal "Pi could not be restarted", runtime.snapshot.dig("session", "error")
     end
   end
 
@@ -292,7 +292,7 @@ class RailsBrokerTest < Minitest::Test
       sleep 5
     RUBY
       wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
-      assert_equal "Pi returned invalid startup state", runtime.snapshot.dig("session", "error")
+      assert_equal "Pi could not be restarted", runtime.snapshot.dig("session", "error")
       assert_equal :unavailable, runtime.submit(JSON.parse(File.read(TASK))).first
     end
   end
@@ -316,6 +316,141 @@ class RailsBrokerTest < Minitest::Test
       assert_equal "failed", task["status"]
       assert_equal "Pi stopped unexpectedly", task["error"]
       refute_nil task["finished_at"]
+    end
+  end
+
+  def test_timeout_and_abort_deadline_replace_and_reap_the_owned_process_tree
+    source = <<~RUBY
+      #!/usr/bin/env ruby
+      require "json"
+      trap("TERM", "IGNORE")
+      child_file = File.join(Dir.pwd, "owned-child")
+      $stdin.each_line do |line|
+        command = JSON.parse(line)
+        if command.fetch("type") == "get_state"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+            data: {sessionId: "session-\#{Process.pid}", model: "fake"})
+        elsif command.fetch("type") == "prompt"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+          child = fork { trap("TERM", "IGNORE"); sleep 60 }
+          File.write(child_file, child)
+        elsif command.fetch("type") == "abort"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+        end
+        $stdout.flush
+      end
+    RUBY
+
+    with_runtime_fake(source, task_timeout: 0.04, abort_timeout: 0.04, termination_timeout: 0.04) do |runtime, project|
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      first_session = runtime.snapshot.dig("session", "id")
+      old_pid = runtime.instance_variable_get(:@wait_thread).pid
+      assert_equal :accepted, runtime.submit(JSON.parse(File.read(TASK)).merge("prompt" => "timeout scenario")).first
+      wait_until { runtime.snapshot.dig("task", "status") == "failed" }
+      timed_out = runtime.snapshot
+      assert_equal "Pi task exceeded the configured time limit", timed_out.dig("task", "error")
+      assert_equal "starting", timed_out.dig("session", "status")
+      assert_nil timed_out.dig("session", "id")
+      child = File.read(File.join(project, "owned-child")).to_i
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      refute_equal first_session, runtime.snapshot.dig("session", "id")
+      refute process_alive?(old_pid)
+      refute process_alive?(child)
+
+      second_session = runtime.snapshot.dig("session", "id")
+      running = runtime.submit(JSON.parse(File.read(TASK)).merge("prompt" => "abort deadline scenario"))
+      assert_equal :accepted, runtime.cancel(running.dig(1, "task", "id")).first
+      wait_until { runtime.snapshot.dig("task", "status") == "cancelled" }
+      cancelled = runtime.snapshot
+      assert_equal "Pi did not stop before the cancellation deadline", cancelled.dig("task", "error")
+      assert_nil cancelled.dig("session", "id")
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      refute_equal second_session, runtime.snapshot.dig("session", "id")
+    end
+  end
+
+  def test_crash_recovery_preserves_evidence_and_restart_exhaustion_is_bounded
+    source = <<~RUBY
+      #!/usr/bin/env ruby
+      require "json"
+      count_file = File.join(Dir.pwd, "start-count")
+      count = File.exist?(count_file) ? File.read(count_file).to_i + 1 : 1
+      File.write(count_file, count)
+      startup = JSON.parse($stdin.gets)
+      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true,
+        data: {sessionId: "session-\#{count}", model: "fake"})
+      $stdout.flush
+      if count == 1
+        prompt = JSON.parse($stdin.gets)
+        puts JSON.generate(type: "response", id: prompt.fetch("id"), success: true)
+        puts JSON.generate(type: "message_update",
+          assistantMessageEvent: {type: "text_delta", delta: "useful partial output"})
+        $stdout.flush
+        exit! 7
+      end
+      sleep 60
+    RUBY
+
+    with_runtime_fake(source, restart_delay: 0.08) do |runtime, project|
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      old_session = runtime.snapshot.dig("session", "id")
+      assert_equal :accepted, runtime.submit(JSON.parse(File.read(TASK)).merge("prompt" => "crash during work")).first
+      wait_until { runtime.snapshot.dig("task", "status") == "failed" }
+      crashed = runtime.snapshot
+      assert_equal "useful partial output", crashed.dig("task", "output")
+      assert_equal "Pi stopped unexpectedly", crashed.dig("task", "error")
+      assert_equal "starting", crashed.dig("session", "status")
+      assert_nil crashed.dig("session", "id")
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      refute_equal old_session, runtime.snapshot.dig("session", "id")
+      assert_equal "2", File.read(File.join(project, "start-count"))
+    end
+
+    exhausted = <<~RUBY
+      #!/usr/bin/env ruby
+      File.open(File.join(Dir.pwd, "start-count"), "a") { |file| file.puts(Process.pid) }
+      exit! 9
+    RUBY
+    with_runtime_fake(exhausted, max_restart_attempts: 2, restart_delay: 0.01) do |runtime, project|
+      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+      assert_equal "Pi could not be restarted", runtime.snapshot.dig("session", "error")
+      assert_equal 2, File.readlines(File.join(project, "start-count")).length
+    end
+  end
+
+  def test_idle_crash_recovers_and_non_executable_pi_does_not_crash_the_host
+    source = <<~RUBY
+      #!/usr/bin/env ruby
+      require "json"
+      count_file = File.join(Dir.pwd, "start-count")
+      count = File.exist?(count_file) ? File.read(count_file).to_i + 1 : 1
+      File.write(count_file, count)
+      startup = JSON.parse($stdin.gets)
+      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true,
+        data: {sessionId: "session-\#{count}", model: "fake"})
+      $stdout.flush
+      count == 1 ? sleep(0.08) : sleep(60)
+    RUBY
+    with_runtime_fake(source, restart_delay: 0.08) do |runtime, _project|
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      old_session = runtime.snapshot.dig("session", "id")
+      wait_until { runtime.snapshot.dig("session", "status") == "starting" }
+      assert_nil runtime.snapshot.dig("session", "id")
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      refute_equal old_session, runtime.snapshot.dig("session", "id")
+      assert_nil runtime.snapshot["task"]
+    end
+
+    Dir.mktmpdir("broker-nonexec") do |directory|
+      executable = File.join(directory, "pi")
+      File.write(executable, "not executable")
+      runtime = Broker::Runtime.new(project_root: directory, executable: executable,
+        max_restart_attempts: 2, restart_delay: 0.01)
+      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+      assert_equal "Pi could not be restarted", runtime.snapshot.dig("session", "error")
+      assert_equal :unavailable, runtime.submit(JSON.parse(File.read(TASK))).first
+    ensure
+      runtime.close if runtime
     end
   end
 
@@ -404,15 +539,15 @@ class RailsBrokerTest < Minitest::Test
     JSON.parse(peer.gets)
   end
 
-  def with_runtime_fake(source)
+  def with_runtime_fake(source, **options)
     Dir.mktmpdir("broker-runtime-fake") do |directory|
       project = File.join(directory, "project")
       Dir.mkdir(project)
       executable = File.join(directory, "fake-pi")
       File.write(executable, source)
       File.chmod(0o700, executable)
-      runtime = Broker::Runtime.new(project_root: project, executable: executable)
-      yield runtime
+      runtime = Broker::Runtime.new(project_root: project, executable: executable, **options)
+      yield runtime, project
     ensure
       runtime.close if runtime
     end
@@ -442,6 +577,13 @@ class RailsBrokerTest < Minitest::Test
         thread.join(2) if thread
       end
     end
+  end
+
+  def process_alive?(pid)
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH
+    false
   end
 
   def wait_until(attempts = 300)

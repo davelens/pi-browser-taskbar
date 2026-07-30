@@ -12,3 +12,4 @@
 - Add idempotent task cancellation with stable HTTP errors and settled terminal state.
 - Add confirmed in-process session reset with retained-state rejection and process-recovery fallback.
 - Report Pi progress, bounded UTF-8 output, cancelled extension dialogs, and safe recoverable protocol failures.
+- Recover from task and abort deadlines, startup failures, and process exits with bounded process-tree replacement.

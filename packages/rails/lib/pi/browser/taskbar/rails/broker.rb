@@ -20,6 +20,10 @@ module Pi
           MAX_RECORD_BYTES = 1_000_000
           MAX_OUTPUT_BYTES = 32 * 1024
           DIALOG_METHODS = %w[select confirm input editor].freeze
+          DEFAULT_ABORT_TIMEOUT = 5
+          DEFAULT_TERMINATION_TIMEOUT = 1
+          DEFAULT_RESTART_ATTEMPTS = 3
+          DEFAULT_RESTART_DELAY = 0.1
 
           class Unavailable < StandardError; end
 
@@ -96,10 +100,18 @@ module Pi
           end
 
           class Runtime
-            def initialize(project_root:, executable:, task_timeout: 1_800)
+            def initialize(project_root:, executable:, task_timeout: 1_800,
+              abort_timeout: DEFAULT_ABORT_TIMEOUT,
+              termination_timeout: DEFAULT_TERMINATION_TIMEOUT,
+              max_restart_attempts: DEFAULT_RESTART_ATTEMPTS,
+              restart_delay: DEFAULT_RESTART_DELAY)
               @project_root = project_root
               @executable = executable
               @task_timeout = task_timeout
+              @abort_timeout = abort_timeout
+              @termination_timeout = termination_timeout
+              @max_restart_attempts = max_restart_attempts
+              @restart_delay = restart_delay
               @mutex = Mutex.new
               @write_mutex = Mutex.new
               @session_id = nil
@@ -110,6 +122,8 @@ module Pi
               @reset_condition = ConditionVariable.new
               @reset_result = nil
               @reset_recovering = false
+              @restart_attempts = 0
+              @closed = false
               start_pi
             end
 
@@ -139,7 +153,9 @@ module Pi
                 end
                 [:accepted, snapshot_unlocked]
               rescue IOError, SystemCallError
-                unavailable_unlocked("Pi became unavailable before accepting the task")
+                restart_after_protocol_failure_unlocked(
+                  "Pi stopped unexpectedly", "Pi became unavailable before accepting the task"
+                )
                 [:unavailable, snapshot_unlocked]
               end
             rescue Task::Invalid => error
@@ -156,6 +172,10 @@ module Pi
                   write(type: "abort", id: @task["abort_command_id"])
                   @task["status"] = "cancelling"
                   @task["activity"] = "Stopping Pi"
+                  Thread.new do
+                    sleep @abort_timeout
+                    abort_timeout(id)
+                  end
                   [:accepted, snapshot_unlocked]
                 when "cancelling"
                   [:accepted, snapshot_unlocked]
@@ -165,7 +185,9 @@ module Pi
                   [:not_cancellable, snapshot_unlocked]
                 end
               rescue IOError, SystemCallError
-                unavailable_unlocked("Pi became unavailable before accepting cancellation")
+                restart_after_protocol_failure_unlocked(
+                  "Pi stopped unexpectedly", "Pi became unavailable before accepting cancellation"
+                )
                 [:unavailable, snapshot_unlocked]
               end
             end
@@ -182,13 +204,16 @@ module Pi
                 rescue IOError, SystemCallError
                   recover_reset_unlocked
                 end
-                @reset_condition.wait(@mutex) while @phase == "resetting"
+                @reset_condition.wait(@mutex) while @reset_result.nil?
                 [@reset_result, snapshot_unlocked]
               end
             end
 
             def close
-              @mutex.synchronize { stop_pi_unlocked }
+              @mutex.synchronize do
+                @closed = true
+                stop_pi_unlocked
+              end
             rescue IOError, SystemCallError
               nil
             end
@@ -196,7 +221,12 @@ module Pi
             private
 
             def start_pi
-              @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(@executable, "--mode", "rpc", chdir: @project_root)
+              return if @closed
+
+              @restart_attempts += 1
+              @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(
+                @executable, "--mode", "rpc", chdir: @project_root, pgroup: true
+              )
               stdout = @stdout
               stderr = @stderr
               @stderr_reader = Thread.new { drain_stderr(stderr) }
@@ -204,8 +234,7 @@ module Pi
               write(type: "get_state", id: @startup_id)
               @reader = Thread.new { read_events(stdout) }
             rescue IOError, SystemCallError
-              unavailable_unlocked("Pi executable was not found or could not be started")
-              finish_reset_unlocked(:unavailable) if @reset_recovering
+              retry_startup_unlocked("Pi executable was not found or could not be started")
             end
 
             def drain_stderr(stderr)
@@ -254,11 +283,10 @@ module Pi
                     @phase = "ready"
                   end
                 else
-                  unavailable_unlocked(event["success"] == false ? "Pi rejected its startup handshake" : "Pi returned invalid startup state")
-                  finish_reset_unlocked(:unavailable) if @reset_recovering
+                  retry_startup_unlocked(event["success"] == false ? "Pi rejected its startup handshake" : "Pi returned invalid startup state")
                 end
               elsif event["type"] == "response" && @phase == "starting"
-                unavailable_unlocked("Pi returned an unexpected RPC response")
+                retry_startup_unlocked("Pi returned an unexpected RPC response")
               elsif @phase == "resetting"
                 consume_reset_unlocked(event)
               elsif @phase == "busy"
@@ -406,12 +434,21 @@ module Pi
               @pi_session_id = data["sessionId"]
               @session_id = SecureRandom.urlsafe_base64(18, false)
               @error = nil
+              @restart_attempts = 0
             end
 
             def timeout(id)
               @mutex.synchronize do
-                return unless @phase == "busy" && @task["id"] == id
+                return unless @phase == "busy" && @task["id"] == id && @task["status"] == "running"
                 restart_after_protocol_failure_unlocked("Pi task exceeded the configured time limit", "Pi is restarting")
+              end
+            end
+
+            def abort_timeout(id)
+              @mutex.synchronize do
+                return unless @phase == "busy" && @task["id"] == id && @task["status"] == "cancelling"
+                finish_unlocked("cancelled", "Pi did not stop before the cancellation deadline")
+                replace_pi_unlocked("Pi is restarting")
               end
             end
 
@@ -423,7 +460,7 @@ module Pi
                 if %w[busy ready].include?(@phase)
                   restart_after_protocol_failure_unlocked(message)
                 else
-                  unavailable_unlocked("Pi protocol failed")
+                  retry_startup_unlocked("Pi protocol failed")
                 end
               end
             end
@@ -437,17 +474,38 @@ module Pi
                 if %w[busy ready].include?(@phase)
                   restart_after_protocol_failure_unlocked("Pi stopped unexpectedly", "Pi stopped unexpectedly")
                 else
-                  unavailable_unlocked("Pi stopped unexpectedly")
+                  retry_startup_unlocked("Pi stopped during startup")
                 end
               end
             end
 
             def restart_after_protocol_failure_unlocked(task_message, session_message = "Pi protocol failed")
               finish_unlocked("failed", task_message) if @phase == "busy"
-              unavailable_unlocked(session_message)
+              replace_pi_unlocked(session_message)
+            end
+
+            def replace_pi_unlocked(message)
               stop_pi_unlocked
+              @session_id = @pi_session_id = @model = nil
               @phase = "starting"
+              @error = message
+              @restart_attempts = 0
               start_pi
+            end
+
+            def retry_startup_unlocked(message)
+              stop_pi_unlocked
+              if @restart_attempts < @max_restart_attempts && !@closed
+                @phase = "starting"
+                @error = message
+                Thread.new do
+                  sleep @restart_delay
+                  @mutex.synchronize { start_pi if @phase == "starting" && !@wait_thread }
+                end
+              else
+                unavailable_unlocked("Pi could not be restarted")
+                finish_reset_unlocked(:unavailable) if @reset_recovering
+              end
             end
 
             def finish_unlocked(status, error)
@@ -469,6 +527,8 @@ module Pi
               @reset_command_id = nil
               @reset_state_id = nil
               stop_pi_unlocked
+              @session_id = @pi_session_id = @model = nil
+              @restart_attempts = 0
               @phase = "resetting"
               start_pi
             end
@@ -487,9 +547,35 @@ module Pi
               wait_thread = @wait_thread
               @stdin = @stdout = @stderr = @wait_thread = nil
               stdin.close unless stdin.nil? || stdin.closed?
-              Process.kill("TERM", wait_thread.pid) if wait_thread&.alive?
+              return unless wait_thread
+
+              signal_process_group("TERM", wait_thread.pid)
+              wait_for_process_group(wait_thread.pid, @termination_timeout)
+              signal_process_group("KILL", wait_thread.pid) if process_group_alive?(wait_thread.pid)
+              wait_for_process_group(wait_thread.pid, @termination_timeout)
+              wait_thread.join(@termination_timeout)
             rescue IOError, SystemCallError
               nil
+            end
+
+            def signal_process_group(signal, pid)
+              Process.kill(signal, -pid)
+            rescue Errno::ESRCH
+              nil
+            end
+
+            def wait_for_process_group(pid, timeout)
+              deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+              while process_group_alive?(pid) && Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+                sleep 0.01
+              end
+            end
+
+            def process_group_alive?(pid)
+              Process.kill(0, -pid)
+              true
+            rescue Errno::ESRCH
+              false
             end
 
             def unavailable_unlocked(message)

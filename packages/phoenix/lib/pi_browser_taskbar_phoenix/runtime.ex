@@ -12,13 +12,22 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   @max_record_bytes 1_000_000
   @max_output_bytes 32 * 1024
   @dialog_methods ~w(select confirm input editor)
+  @default_abort_timeout 5_000
+  @default_termination_timeout 1_000
+  @default_restart_attempts 3
+  @default_restart_delay 100
 
   defstruct [
     :name,
     :port,
+    :port_pid,
     :executable,
     :project_root,
     :task_timeout,
+    :abort_timeout,
+    :termination_timeout,
+    :max_restart_attempts,
+    :restart_delay,
     :startup_id,
     :session_id,
     :pi_session_id,
@@ -29,6 +38,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     :reset_state_id,
     :reset_from,
     reset_recovering: false,
+    restart_attempts: 0,
     allowed_hosts: [],
     buffer: "",
     phase: :starting
@@ -75,11 +85,17 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     state = %__MODULE__{
       name: Keyword.fetch!(opts, :name),
       executable: resolve_executable(Keyword.get(opts, :executable, "pi")),
       project_root: Keyword.fetch!(opts, :project_root),
       task_timeout: Keyword.get(opts, :task_timeout, 30 * 60_000),
+      abort_timeout: Keyword.get(opts, :abort_timeout, @default_abort_timeout),
+      termination_timeout: Keyword.get(opts, :termination_timeout, @default_termination_timeout),
+      max_restart_attempts: Keyword.get(opts, :max_restart_attempts, @default_restart_attempts),
+      restart_delay: Keyword.get(opts, :restart_delay, @default_restart_delay),
       allowed_hosts: Keyword.get(opts, :allowed_hosts, [])
     }
 
@@ -133,7 +149,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
         {:reply, {:ok, public_snapshot(next)}, next}
 
       {:error, :closed} ->
-        next = unavailable(state, "Pi became unavailable before accepting the task")
+        next = begin_recovery(state, "Pi became unavailable before accepting the task")
         {:reply, {:error, :unavailable, public_snapshot(next)}, next}
     end
   end
@@ -166,11 +182,16 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
             activity: "Stopping Pi"
         }
 
+        Process.send_after(self(), {:abort_timeout, state.task.id}, state.abort_timeout)
         next = %{state | task: task}
         {:reply, {:ok, :accepted, public_snapshot(next)}, next}
 
       {:error, :closed} ->
-        next = unavailable(state, "Pi became unavailable before accepting cancellation")
+        next =
+          state
+          |> fail_active_task("Pi stopped unexpectedly")
+          |> begin_recovery("Pi became unavailable before accepting cancellation")
+
         {:reply, {:error, :unavailable, public_snapshot(next)}, next}
     end
   end
@@ -196,9 +217,12 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   end
 
   def handle_info(:start_port, state) do
+    state = %{state | restart_attempts: state.restart_attempts + 1}
+
     case open_port(state) do
       {:ok, port} ->
         startup_id = "startup-#{opaque_id()}"
+        port_pid = port_os_pid(port)
 
         case send_command(port, %{type: "get_state", id: startup_id}) do
           :ok ->
@@ -206,6 +230,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
              %{
                state
                | port: port,
+                 port_pid: port_pid,
                  startup_id: startup_id,
                  phase: :starting,
                  buffer: "",
@@ -213,13 +238,12 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
              }}
 
           {:error, :closed} ->
-            close_port(port)
-            {:noreply, unavailable(state, "Pi stopped during startup")}
+            terminate_port(port, state.termination_timeout, nil)
+            {:noreply, retry_startup(state, "Pi stopped during startup")}
         end
 
       {:error, _reason} ->
-        next = unavailable(state, "Pi could not be started")
-        {:noreply, fail_reset(next)}
+        {:noreply, retry_startup(state, "Pi could not be started")}
     end
   end
 
@@ -236,34 +260,43 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     {:noreply, restart_after_protocol_failure(state, "Pi sent an unterminated RPC record")}
   end
 
-  def handle_info({port, {:exit_status, _status}}, %{port: port} = state) do
-    state =
-      state
-      |> fail_active_task("Pi stopped unexpectedly")
-      |> unavailable("Pi stopped unexpectedly")
-
-    if state.phase == :unavailable and is_nil(state.session_id) do
-      {:noreply, %{state | port: nil}}
-    else
-      Process.send_after(self(), :start_port, 1_000)
-      {:noreply, %{state | port: nil}}
-    end
+  def handle_info({port, {:exit_status, _status}}, %{port: port, phase: :starting} = state) do
+    {:noreply, retry_startup(%{state | port: nil}, "Pi stopped during startup")}
   end
 
-  def handle_info({:task_timeout, id}, %{phase: :busy, task: %{id: id}} = state) do
-    close_port(state.port)
+  def handle_info({port, {:exit_status, _status}}, %{port: port} = state) do
+    state = fail_active_task(state, "Pi stopped unexpectedly")
+    {:noreply, begin_recovery(%{state | port: nil}, "Pi stopped unexpectedly")}
+  end
 
-    state =
-      state
-      |> fail_active_task("Pi task exceeded the configured time limit")
-      |> unavailable("Pi is restarting")
+  def handle_info({:EXIT, port, _reason}, %{port: port} = state) do
+    handle_info({port, {:exit_status, 1}}, state)
+  end
 
-    Process.send_after(self(), :start_port, 100)
-    {:noreply, %{state | port: nil}}
+  def handle_info(
+        {:task_timeout, id},
+        %{phase: :busy, task: %{id: id, status: :running}} = state
+      ) do
+    state = fail_active_task(state, "Pi task exceeded the configured time limit")
+    {:noreply, begin_recovery(state, "Pi is restarting")}
+  end
+
+  def handle_info(
+        {:abort_timeout, id},
+        %{phase: :busy, task: %{id: id, status: :cancelling}} = state
+      ) do
+    state = finish_task(state, :cancelled, "Pi did not stop before the cancellation deadline")
+    {:noreply, begin_recovery(state, "Pi is restarting")}
   end
 
   def handle_info({:task_timeout, _id}, state), do: {:noreply, state}
+  def handle_info({:abort_timeout, _id}, state), do: {:noreply, state}
   def handle_info(_message, state), do: {:noreply, state}
+
+  @impl true
+  def terminate(_reason, state) do
+    terminate_port(state.port, state.termination_timeout, state.port_pid)
+  end
 
   defp open_port(state) do
     {:ok,
@@ -357,7 +390,8 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
             session_id: opaque_id(),
             pi_session_id: pi_session_id,
             model: model,
-            error: nil
+            error: nil,
+            restart_attempts: 0
         }
 
         if state.reset_from, do: complete_reset(ready), else: ready
@@ -366,19 +400,15 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   defp handle_event(state, %{"type" => "response", "id" => id, "success" => false})
        when id == state.startup_id do
-    state
-    |> unavailable("Pi rejected its startup handshake")
-    |> fail_reset()
+    retry_startup(state, "Pi rejected its startup handshake")
   end
 
   defp handle_event(state, %{"type" => "response", "id" => id}) when id == state.startup_id do
-    state
-    |> unavailable("Pi returned invalid startup state")
-    |> fail_reset()
+    retry_startup(state, "Pi returned invalid startup state")
   end
 
   defp handle_event(%{phase: :starting} = state, %{"type" => "response"}) do
-    unavailable(state, "Pi returned an unexpected RPC response")
+    retry_startup(state, "Pi returned an unexpected RPC response")
   end
 
   defp handle_event(%{phase: :resetting, reset_command_id: command_id} = state, %{
@@ -652,16 +682,46 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     do: recover_reset(state)
 
   defp restart_after_protocol_failure(%{phase: :starting} = state, _message) do
-    close_port(state.port)
-    %{unavailable(state, "Pi protocol failed") | port: nil, buffer: ""}
+    retry_startup(state, "Pi protocol failed")
   end
 
   defp restart_after_protocol_failure(state, message) do
-    close_port(state.port)
-    Process.send_after(self(), :start_port, 100)
+    state
+    |> fail_active_task(message)
+    |> begin_recovery("Pi protocol failed")
+  end
 
-    failed = state |> fail_active_task(message) |> unavailable("Pi protocol failed")
-    %{failed | port: nil, buffer: ""}
+  defp begin_recovery(state, message) do
+    terminate_port(state.port, state.termination_timeout, state.port_pid)
+    Process.send_after(self(), :start_port, state.restart_delay)
+
+    %{
+      state
+      | port: nil,
+        port_pid: nil,
+        startup_id: nil,
+        session_id: nil,
+        pi_session_id: nil,
+        model: nil,
+        phase: :starting,
+        error: message,
+        buffer: "",
+        restart_attempts: 0
+    }
+  end
+
+  defp retry_startup(state, message) do
+    terminate_port(state.port, state.termination_timeout, state.port_pid)
+    state = %{state | port: nil, port_pid: nil, startup_id: nil, buffer: ""}
+
+    if state.restart_attempts < state.max_restart_attempts do
+      Process.send_after(self(), :start_port, state.restart_delay)
+      %{state | phase: :starting, error: message}
+    else
+      state
+      |> unavailable("Pi could not be restarted")
+      |> fail_reset()
+    end
   end
 
   defp recover_reset(%{reset_recovering: true} = state) do
@@ -671,17 +731,23 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   end
 
   defp recover_reset(state) do
-    close_port(state.port)
+    terminate_port(state.port, state.termination_timeout, state.port_pid)
     send(self(), :start_port)
 
     %{
       state
       | port: nil,
+        port_pid: nil,
+        startup_id: nil,
+        session_id: nil,
+        pi_session_id: nil,
+        model: nil,
         buffer: "",
         phase: :resetting,
         reset_command_id: nil,
         reset_state_id: nil,
-        reset_recovering: true
+        reset_recovering: true,
+        restart_attempts: 0
     }
   end
 
@@ -753,12 +819,58 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   defp send_command(_port, _command), do: {:error, :closed}
 
-  defp close_port(nil), do: :ok
+  defp terminate_port(nil, _timeout, nil), do: :ok
+  defp terminate_port(nil, _timeout, pid), do: signal_process_group(pid, "KILL")
 
-  defp close_port(port) do
+  defp terminate_port(port, timeout, known_pid) do
+    pid =
+      if is_port(port) do
+        case Port.info(port, :os_pid) do
+          {:os_pid, pid} -> pid
+          nil -> known_pid
+        end
+      else
+        known_pid
+      end
+
+    signal_process_group(pid, "TERM")
+    exited? = await_port_exit(port, timeout)
+    signal_process_group(pid, "KILL")
+    unless exited?, do: await_port_exit(port, timeout)
     Port.close(port)
   rescue
     ArgumentError -> :ok
+  end
+
+  defp signal_process_group(nil, _signal), do: :ok
+
+  defp signal_process_group(pid, signal) do
+    case System.find_executable("kill") do
+      nil ->
+        :ok
+
+      executable ->
+        System.cmd(executable, ["-#{signal}", "--", "-#{pid}"], stderr_to_stdout: true)
+    end
+
+    :ok
+  rescue
+    ErlangError -> :ok
+  end
+
+  defp port_os_pid(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} -> pid
+      nil -> nil
+    end
+  end
+
+  defp await_port_exit(port, timeout) do
+    receive do
+      {^port, {:exit_status, _status}} -> true
+    after
+      timeout -> false
+    end
   end
 
   defp resolve_executable(path) when is_binary(path) do

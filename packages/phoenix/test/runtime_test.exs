@@ -1,5 +1,5 @@
 defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias PiBrowserTaskbarPhoenix.Runtime
   alias PiBrowserTaskbarPhoenix.Task, as: BrowserTask
@@ -230,6 +230,185 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     assert Runtime.snapshot(runtime).task.error == "Pi sent a non-object RPC record"
   end
 
+  test "times out tasks and cancellation with bounded process-tree replacement" do
+    {name, directory} =
+      recovery_runtime(
+        """
+        trap("TERM", "IGNORE")
+        child_file = File.join(Dir.pwd, "owned-child")
+        $stdin.each_line do |line|
+          command = JSON.parse(line)
+          if command.fetch("type") == "get_state"
+            puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+              data: {sessionId: "session-\#{Process.pid}", model: "fake"})
+          elsif command.fetch("type") == "prompt"
+            puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+            child = fork { trap("TERM", "IGNORE"); sleep 60 }
+            File.write(child_file, child)
+          elsif command.fetch("type") == "abort"
+            puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+          end
+          $stdout.flush
+        end
+        """,
+        task_timeout: 40,
+        abort_timeout: 40,
+        termination_timeout: 40
+      )
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    first_session = Runtime.snapshot(name).session.id
+    old_port_pid = port_pid(name)
+    assert {:ok, _running} = Runtime.submit(name, valid_task("timeout scenario"))
+    wait_until(fn -> Runtime.snapshot(name).task.status == "failed" end)
+    timed_out = Runtime.snapshot(name)
+    assert timed_out.task.error == "Pi task exceeded the configured time limit"
+    assert timed_out.session.status == "starting"
+    assert timed_out.session.id == nil
+
+    old_child =
+      directory
+      |> Path.join("owned-child")
+      |> File.read!()
+      |> String.trim()
+      |> String.to_integer()
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    refute Runtime.snapshot(name).session.id == first_session
+    refute os_process_alive?(old_port_pid)
+    refute os_process_alive?(old_child)
+
+    second_session = Runtime.snapshot(name).session.id
+    assert {:ok, running} = Runtime.submit(name, valid_task("abort deadline scenario"))
+    assert {:ok, :accepted, _snapshot} = Runtime.cancel(name, running.task.id)
+    wait_until(fn -> Runtime.snapshot(name).task.status == "cancelled" end)
+    cancelled = Runtime.snapshot(name)
+    assert cancelled.task.error == "Pi did not stop before the cancellation deadline"
+    assert cancelled.session.id == nil
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    refute Runtime.snapshot(name).session.id == second_session
+    replacement_pid = port_pid(name)
+    stop_supervised(name)
+    refute os_process_alive?(replacement_pid)
+  end
+
+  test "recovers useful task evidence after a crash and exhausts bounded restart attempts" do
+    {name, directory} =
+      recovery_runtime(
+        """
+        count_file = File.join(Dir.pwd, "start-count")
+        count = File.exist?(count_file) ? File.read(count_file).to_i + 1 : 1
+        File.write(count_file, count)
+        startup = JSON.parse($stdin.gets)
+        puts JSON.generate(type: "response", id: startup.fetch("id"), success: true,
+          data: {sessionId: "session-\#{count}", model: "fake"})
+        $stdout.flush
+        if count == 1
+          prompt = JSON.parse($stdin.gets)
+          puts JSON.generate(type: "response", id: prompt.fetch("id"), success: true)
+          puts JSON.generate(type: "message_update",
+            assistantMessageEvent: {type: "text_delta", delta: "useful partial output"})
+          $stdout.flush
+          exit! 7
+        end
+        sleep 60
+        """,
+        restart_delay: 80
+      )
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    old_session = Runtime.snapshot(name).session.id
+    assert {:ok, _running} = Runtime.submit(name, valid_task("crash during work"))
+    wait_until(fn -> Runtime.snapshot(name).task.status == "failed" end)
+    crashed = Runtime.snapshot(name)
+    assert crashed.task.output == "useful partial output"
+    assert crashed.task.error == "Pi stopped unexpectedly"
+    assert crashed.session.status == "starting"
+    assert crashed.session.id == nil
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    refute Runtime.snapshot(name).session.id == old_session
+    assert File.read!(Path.join(directory, "start-count")) == "2"
+    replacement_pid = port_pid(name)
+    stop_supervised(name)
+    refute os_process_alive?(replacement_pid)
+
+    {exhausted, exhausted_directory} =
+      recovery_runtime(
+        """
+        File.open(File.join(Dir.pwd, "start-count"), "a") { |file| file.puts(Process.pid) }
+        exit! 9
+        """,
+        max_restart_attempts: 2,
+        restart_delay: 10
+      )
+
+    wait_until(fn -> Runtime.snapshot(exhausted).session.status == "unavailable" end)
+    assert Runtime.snapshot(exhausted).session.error == "Pi could not be restarted"
+
+    assert length(
+             File.read!(Path.join(exhausted_directory, "start-count"))
+             |> String.split("\n", trim: true)
+           ) == 2
+
+    stop_supervised(exhausted)
+  end
+
+  test "recovers an idle crash and keeps a non-executable Pi unavailable without crashing the host" do
+    {name, _directory} =
+      recovery_runtime(
+        """
+        count_file = File.join(Dir.pwd, "start-count")
+        count = File.exist?(count_file) ? File.read(count_file).to_i + 1 : 1
+        File.write(count_file, count)
+        startup = JSON.parse($stdin.gets)
+        puts JSON.generate(type: "response", id: startup.fetch("id"), success: true,
+          data: {sessionId: "session-\#{count}", model: "fake"})
+        $stdout.flush
+        count == 1 ? sleep(0.08) : sleep(60)
+        """,
+        restart_delay: 300
+      )
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    old_session = Runtime.snapshot(name).session.id
+    wait_until(fn -> Runtime.snapshot(name).session.status == "starting" end)
+    assert Runtime.snapshot(name).session.id == nil
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    refute Runtime.snapshot(name).session.id == old_session
+    assert Runtime.snapshot(name).task == nil
+    replacement_pid = port_pid(name)
+    stop_supervised(name)
+    refute os_process_alive?(replacement_pid)
+
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "pi-browser-taskbar-nonexec-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf(directory) end)
+    executable = Path.join(directory, "pi")
+    File.write!(executable, "not executable")
+    missing = String.to_atom("runtime_nonexec_#{System.unique_integer([:positive])}")
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Runtime,
+         name: missing,
+         executable: executable,
+         project_root: directory,
+         max_restart_attempts: 2,
+         restart_delay: 10},
+        id: missing
+      )
+    )
+
+    wait_until(fn -> Runtime.snapshot(missing).session.status == "unavailable" end)
+    assert Process.alive?(Process.whereis(missing))
+    assert Runtime.snapshot(missing).session.error == "Pi could not be restarted"
+  end
+
   test "admits a busy task atomically", %{runtime: runtime} do
     assert {:ok, running} = Runtime.submit(runtime, valid_task("hold this task"))
 
@@ -252,7 +431,51 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
 
   defp opaque?(value), do: is_binary(value) and byte_size(value) >= 16
 
-  defp wait_until(predicate, attempts \\ 100)
+  defp recovery_runtime(body, options) do
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "pi-browser-taskbar-recovery-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(directory)
+    executable = Path.join(directory, "fake-pi")
+    File.write!(executable, "#!/usr/bin/env ruby\nrequire \"json\"\n" <> body)
+    File.chmod!(executable, 0o700)
+    name = String.to_atom("runtime_recovery_#{System.unique_integer([:positive])}")
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Runtime,
+         options ++
+           [
+             name: name,
+             executable: executable,
+             project_root: directory,
+             task_timeout: 60_000,
+             abort_timeout: 5_000,
+             termination_timeout: 50,
+             max_restart_attempts: 3,
+             restart_delay: 20
+           ]},
+        id: name
+      )
+    )
+
+    {name, directory}
+  end
+
+  defp port_pid(runtime) do
+    {:os_pid, pid} = Port.info(:sys.get_state(runtime).port, :os_pid)
+    pid
+  end
+
+  defp os_process_alive?(pid) do
+    {_output, status} = System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true)
+    status == 0
+  end
+
+  defp wait_until(predicate, attempts \\ 300)
 
   defp wait_until(predicate, attempts) when attempts > 0 do
     if predicate.() do

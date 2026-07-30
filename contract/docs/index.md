@@ -124,8 +124,26 @@ without sending another abort, and repeating it after `cancelled` returns the re
 HTTP 200. A different or forgotten ID returns `404 task_not_found`; a retained `completed` or
 `failed` task returns `409 task_not_cancellable`. Error responses include the current snapshot and
 all cancellation mutations remain protected by each framework's native CSRF and access checks.
-Stopping is not transactional and cannot roll back file changes Pi already made. Abort deadlines,
-process-tree replacement, and recovery belong to the later recovery capability.
+Stopping is not transactional and cannot roll back file changes Pi already made.
+
+## Timeout and process recovery
+
+A configured task timeout fails the active task with retained bounded output and safe diagnostics,
+then replaces Pi before accepting more work. Cancellation has its own bounded deadline: if Pi does
+not reach `agent_settled`, the task becomes `cancelled` with safe diagnostics and the adapter replaces
+the process rather than claiming the old conversation survived.
+
+Replacement sends TERM to the owned Pi process group, waits a bounded interval, escalates to KILL,
+and reaps the child before starting a replacement. The public session identity and model are cleared
+while replacement is `starting`; a successful startup exposes a new opaque identity. Unexpected exit
+while busy preserves terminal task evidence, while idle exit retains no invented task. Startup and
+replacement attempts are bounded, ending in `unavailable` when Pi is missing, non-executable, or
+repeatedly fails to establish a valid startup state. These failures do not terminate the host
+application.
+
+Equivalent Rails and Phoenix fake-Pi runtime scenarios cover task timeout, missed abort settlement,
+startup failure, active and idle crashes, successful replacement, exhausted replacement, and owned
+child cleanup.
 
 ## Session reset
 
