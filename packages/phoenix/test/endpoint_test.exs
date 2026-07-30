@@ -76,6 +76,21 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
              json(busy)
   end
 
+  test "rejects oversized bodies already parsed by the host endpoint", %{runtime: runtime} do
+    params = @fixture |> File.read!() |> Jason.decode!()
+
+    conn =
+      conn(:post, "/tasks", "")
+      |> Map.put(:body_params, params)
+      |> put_req_header("content-length", Integer.to_string(128 * 1024 + 1))
+      |> Map.put(:host, "localhost")
+      |> Map.put(:remote_ip, {127, 0, 0, 1})
+      |> Endpoint.call(Endpoint.init(runtime: runtime))
+
+    assert conn.status == 413
+    assert %{"error" => %{"code" => "oversized_payload"}} = json(conn)
+  end
+
   test "rejects non-loopback hosts and clients before state access", %{runtime: runtime} do
     bad_host = call(:get, "/state", nil, runtime, host: "attacker.example")
     assert bad_host.status == 403

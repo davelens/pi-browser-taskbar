@@ -7,6 +7,8 @@ defmodule PiBrowserTaskbarPhoenix.Endpoint do
 
   alias PiBrowserTaskbarPhoenix.{Access, Runtime, Task}
 
+  @max_body_bytes 128 * 1024
+
   @impl true
   def init(opts), do: Map.new(opts)
 
@@ -65,15 +67,33 @@ defmodule PiBrowserTaskbarPhoenix.Endpoint do
   end
 
   defp decode_body(%Plug.Conn{body_params: %Plug.Conn.Unfetched{}} = conn) do
-    case read_body(conn, length: 128 * 1024, read_length: 64 * 1024) do
+    case read_body(conn, length: @max_body_bytes, read_length: 64 * 1024) do
       {:ok, body, conn} -> decode_json(body, conn)
       {:more, _partial, conn} -> {:error, :oversized_payload, conn}
       {:error, _reason} -> {:error, :malformed_json, conn}
     end
   end
 
-  defp decode_body(%Plug.Conn{body_params: params} = conn) when is_map(params),
-    do: {:ok, params, conn}
+  defp decode_body(%Plug.Conn{body_params: params} = conn) when is_map(params) do
+    content_length =
+      case get_req_header(conn, "content-length") do
+        [value] ->
+          case Integer.parse(value) do
+            {length, ""} -> length
+            _invalid -> nil
+          end
+
+        _missing_or_duplicate ->
+          nil
+      end
+
+    if content_length && content_length <= @max_body_bytes &&
+         byte_size(Jason.encode!(params)) <= @max_body_bytes do
+      {:ok, params, conn}
+    else
+      {:error, :oversized_payload, conn}
+    end
+  end
 
   defp decode_json(body, conn) do
     case Jason.decode(body) do

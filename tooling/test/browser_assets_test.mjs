@@ -210,6 +210,7 @@ test("Browser Client retains page nodes in breadth-first order when byte-truncat
   const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
   const source = fs.readFileSync(path.join(root, assets.phoenix), "utf8");
   vm.runInNewContext(source, sandbox);
+  const unicodePath = `/${"🧪".repeat(600)}`;
   const mounted = sandbox.PiBrowserTaskbar.mount({
     autoRefresh: false,
     csrfToken: "token",
@@ -226,13 +227,20 @@ test("Browser Client retains page nodes in breadth-first order when byte-truncat
         }),
       };
     },
-    location: { href: "http://localhost:4000/", origin: "http://localhost:4000", pathname: "/", search: "" },
+    location: {
+      href: `http://localhost:4000${unicodePath}`,
+      origin: "http://localhost:4000",
+      pathname: unicodePath,
+      search: "",
+    },
   });
 
   await mounted.submit("Keep broad structure.");
 
   assert.equal(requestBody.context.snapshot.children[1].id, "later-sibling");
-  assert.deepEqual(requestBody.context.truncation, [{ section: "page", reasons: ["bytes"] }]);
+  assert.ok(Buffer.byteLength(requestBody.context.location.path, "utf8") <= 2048);
+  assert.doesNotMatch(requestBody.context.location.path, /%(?:[0-9a-f])?$/iu);
+  assert.deepEqual(requestBody.context.truncation, [{ section: "page", reasons: ["bytes", "string"] }]);
 });
 
 test("Browser Client discards an older state read after task submission", async () => {

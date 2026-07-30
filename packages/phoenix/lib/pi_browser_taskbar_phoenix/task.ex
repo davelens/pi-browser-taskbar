@@ -288,9 +288,23 @@ defmodule PiBrowserTaskbarPhoenix.Task do
 
   defp valid_origin(origin, label) do
     with :ok <- bounded_string(origin, "#{label}.origin", 512),
-         %URI{scheme: scheme, host: host, path: path, query: nil, fragment: nil, userinfo: nil} <-
-           URI.parse(origin),
-         true <- scheme in ["http", "https"] and is_binary(host) and path in [nil, ""] do
+         true <-
+           Regex.match?(
+             ~r/^https?:\/\/(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?$/,
+             origin
+           ),
+         %URI{
+           scheme: scheme,
+           host: host,
+           path: path,
+           port: port,
+           query: nil,
+           fragment: nil,
+           userinfo: nil
+         } <- URI.parse(origin),
+         true <-
+           scheme in ["http", "https"] and is_binary(host) and path in [nil, ""] and
+             is_integer(port) and port in 1..65_535 do
       :ok
     else
       {:error, _, _} = error -> error
@@ -323,15 +337,15 @@ defmodule PiBrowserTaskbarPhoenix.Task do
              64,
              &Regex.match?(~r/^[a-z][a-z0-9-]*$/, &1)
            ),
-         :ok <- optional_string(node["role"], "#{label}.role", 64),
-         :ok <- optional_string(node["name"], "#{label}.name", 512),
-         :ok <- optional_string(node["text"], "#{label}.text", 1_000),
-         :ok <- optional_string(node["id"], "#{label}.id", 256),
-         :ok <- optional_unique_strings(node["classes"], "#{label}.classes", 32, 128),
-         :ok <- valid_attributes(node["attributes"], "#{label}.attributes"),
-         :ok <- valid_state(node["state"], "#{label}.state"),
-         :ok <- valid_optional_location(node["href"], "#{label}.href"),
-         :ok <- valid_optional_location(node["src"], "#{label}.src"),
+         :ok <- optional_field_string(node, "role", "#{label}.role", 64),
+         :ok <- optional_field_string(node, "name", "#{label}.name", 512),
+         :ok <- optional_field_string(node, "text", "#{label}.text", 1_000),
+         :ok <- optional_field_string(node, "id", "#{label}.id", 256),
+         :ok <- optional_field_strings(node, "classes", "#{label}.classes", 32, 128),
+         :ok <- optional_field(node, "attributes", &valid_attributes(&1, "#{label}.attributes")),
+         :ok <- optional_field(node, "state", &valid_state(&1, "#{label}.state")),
+         :ok <- optional_field(node, "href", &valid_location(&1, "#{label}.href")),
+         :ok <- optional_field(node, "src", &valid_location(&1, "#{label}.src")),
          :ok <- valid_children(node["children"], label, depth, maximum_depth) do
       :ok
     end
@@ -356,8 +370,6 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   defp valid_children(_children, label, _depth, _maximum_depth),
     do: invalid("#{label}.children must be an array")
 
-  defp valid_attributes(nil, _label), do: :ok
-
   defp valid_attributes(attributes, label) when is_map(attributes) do
     with :ok <- fields(attributes, @allowed_attribute_fields, [], label) do
       attributes
@@ -371,8 +383,6 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   end
 
   defp valid_attributes(_attributes, label), do: invalid("#{label} must be an object")
-
-  defp valid_state(nil, _label), do: :ok
 
   defp valid_state(state, label) when is_map(state) do
     with :ok <- fields(state, @allowed_state_fields, [], label),
@@ -399,9 +409,6 @@ defmodule PiBrowserTaskbarPhoenix.Task do
       do: :ok,
       else: invalid("#{label}.#{key} is invalid")
   end
-
-  defp valid_optional_location(nil, _label), do: :ok
-  defp valid_optional_location(location, label), do: valid_location(location, label)
 
   defp valid_snapshot_bounds(snapshot) do
     with :ok <-
@@ -493,9 +500,9 @@ defmodule PiBrowserTaskbarPhoenix.Task do
              64,
              &Regex.match?(~r/^[a-z][a-z0-9-]*$/, &1)
            ),
-         :ok <- optional_string(summary["role"], "#{label}.role", 64),
-         :ok <- optional_string(summary["name"], "#{label}.name", 512),
-         :ok <- optional_string(summary["id"], "#{label}.id", 256) do
+         :ok <- optional_field_string(summary, "role", "#{label}.role", 64),
+         :ok <- optional_field_string(summary, "name", "#{label}.name", 512),
+         :ok <- optional_field_string(summary, "id", "#{label}.id", 256) do
       :ok
     end
   end
@@ -605,10 +612,17 @@ defmodule PiBrowserTaskbarPhoenix.Task do
 
   defp unique_strings(_values, label, _max_items, _max_bytes), do: invalid("#{label} is invalid")
 
-  defp optional_unique_strings(nil, _label, _max_items, _max_bytes), do: :ok
+  defp optional_field_string(map, key, label, max) do
+    optional_field(map, key, &bounded_string(&1, label, max))
+  end
 
-  defp optional_unique_strings(values, label, max_items, max_bytes),
-    do: unique_strings(values, label, max_items, max_bytes)
+  defp optional_field_strings(map, key, label, max_items, max_bytes) do
+    optional_field(map, key, &unique_strings(&1, label, max_items, max_bytes))
+  end
+
+  defp optional_field(map, key, validator) do
+    if Map.has_key?(map, key), do: validator.(map[key]), else: :ok
+  end
 
   defp unique_members(values, allowed, label) when is_list(values) and values != [] do
     if Enum.uniq(values) == values and Enum.all?(values, &(&1 in allowed)),

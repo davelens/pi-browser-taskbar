@@ -171,8 +171,11 @@ module Pi
             exact!(location, %w[origin path query_names], label)
             string!(location["origin"], "#{label}.origin", 512)
             uri = URI.parse(location["origin"])
-            unless %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo && !uri.query &&
-                   !uri.fragment && [nil, ""].include?(uri.path)
+            valid_origin = location["origin"].match?(
+              %r{\Ahttps?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?\z}
+            )
+            unless valid_origin && %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo &&
+                   !uri.query && !uri.fragment && [nil, ""].include?(uri.path) && uri.port.between?(1, 65_535)
               invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")
             end
             string!(location["path"], "#{label}.path", 2_048)
@@ -180,7 +183,7 @@ module Pi
               invalid!("#{label}.path is invalid")
             end
             strings!(location["query_names"], "#{label}.query_names", 32, 128)
-          rescue URI::InvalidURIError
+          rescue URI::Error
             invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")
           end
 
@@ -201,15 +204,15 @@ module Pi
             fields!(node, NODE_FIELDS, %w[children tag], label)
             string!(node["tag"], "#{label}.tag", 64)
             invalid!("#{label}.tag is invalid") unless node["tag"].match?(/\A[a-z][a-z0-9-]*\z/)
-            optional_string!(node["role"], "#{label}.role", 64)
-            optional_string!(node["name"], "#{label}.name", 512)
-            optional_string!(node["text"], "#{label}.text", 1_000)
-            optional_string!(node["id"], "#{label}.id", 256)
-            strings!(node["classes"], "#{label}.classes", 32, 128) unless node["classes"].nil?
-            validate_attributes!(node["attributes"], "#{label}.attributes") unless node["attributes"].nil?
-            validate_state!(node["state"], "#{label}.state") unless node["state"].nil?
-            validate_location!(node["href"], "#{label}.href") unless node["href"].nil?
-            validate_location!(node["src"], "#{label}.src") unless node["src"].nil?
+            optional_field_string!(node, "role", "#{label}.role", 64)
+            optional_field_string!(node, "name", "#{label}.name", 512)
+            optional_field_string!(node, "text", "#{label}.text", 1_000)
+            optional_field_string!(node, "id", "#{label}.id", 256)
+            strings!(node["classes"], "#{label}.classes", 32, 128) if node.key?("classes")
+            validate_attributes!(node["attributes"], "#{label}.attributes") if node.key?("attributes")
+            validate_state!(node["state"], "#{label}.state") if node.key?("state")
+            validate_location!(node["href"], "#{label}.href") if node.key?("href")
+            validate_location!(node["src"], "#{label}.src") if node.key?("src")
             invalid!("#{label}.children must be an array") unless node["children"].is_a?(Array)
             1 + node["children"].each_with_index.sum do |child, index|
               validate_node!(child, "#{label}.children[#{index}]", depth + 1, maximum_depth)
@@ -261,9 +264,9 @@ module Pi
             fields!(summary, %w[id name role tag], %w[tag], label)
             string!(summary["tag"], "#{label}.tag", 64)
             invalid!("#{label}.tag is invalid") unless summary["tag"].match?(/\A[a-z][a-z0-9-]*\z/)
-            optional_string!(summary["role"], "#{label}.role", 64)
-            optional_string!(summary["name"], "#{label}.name", 512)
-            optional_string!(summary["id"], "#{label}.id", 256)
+            optional_field_string!(summary, "role", "#{label}.role", 64)
+            optional_field_string!(summary, "name", "#{label}.name", 512)
+            optional_field_string!(summary, "id", "#{label}.id", 256)
           end
 
           def validate_truncation!(entries)
@@ -314,6 +317,10 @@ module Pi
 
           def optional_string!(value, label, max)
             invalid!("#{label} is invalid") unless value.nil? || (value.is_a?(String) && value.bytesize <= max)
+          end
+
+          def optional_field_string!(hash, key, label, max)
+            string!(hash[key], label, max) if hash.key?(key)
           end
 
           def strings!(values, label, max_items, max_bytes)

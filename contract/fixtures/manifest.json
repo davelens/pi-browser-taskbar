@@ -63,6 +63,20 @@
       "error_contains": "tree exceeds 750 nodes"
     },
     {
+      "id": "reject-null-node-name",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/null-node-name.json",
+      "expected_valid": false,
+      "error_contains": "expected type string"
+    },
+    {
+      "id": "reject-malformed-origin",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/malformed-origin.json",
+      "expected_valid": false,
+      "error_contains": "does not match"
+    },
+    {
       "id": "minimal-task-request",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/task-request.v1.schema.json",
       "path": "fixtures/tasks/minimal-task.json",

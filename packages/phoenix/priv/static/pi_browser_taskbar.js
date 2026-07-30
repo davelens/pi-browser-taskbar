@@ -160,16 +160,18 @@
     const state = { nodes: 0, reasons: [] };
     const snapshot = captureSnapshot(document.body, taskbarHost, state, document, location);
     enforceSnapshotBytes(snapshot, state, 48 * 1024);
+    const normalizedLocation = sanitizedLocation(location, state) || {
+      origin: "http://localhost",
+      path: "/",
+      query_names: [],
+    };
+    const normalizedRouteMetadata = normalizedRoute(route, state);
     const reasons = truncationReasonOrder.filter((reason) => state.reasons.includes(reason));
 
     return {
       contract_version: 1,
-      location: sanitizedLocation(location, state) || {
-        origin: "http://localhost",
-        path: "/",
-        query_names: [],
-      },
-      route: normalizedRoute(route, state),
+      location: normalizedLocation,
+      route: normalizedRouteMetadata,
       snapshot,
       focus_points: [],
       truncation: reasons.length > 0 ? [{ section: "page", reasons }] : [],
@@ -384,12 +386,25 @@
       }
       return {
         origin: normalizedText(url.origin, 512, state),
-        path: normalizedText(url.pathname || "/", 2048, state) || "/",
+        path: boundedUrlPath(url.pathname || "/", state),
         query_names: queryNames,
       };
     } catch (_error) {
       return null;
     }
+  }
+
+  function boundedUrlPath(path, state) {
+    let decoded;
+    try {
+      decoded = decodeURI(path);
+    } catch (_error) {
+      decoded = path.replace(/%(?![0-9a-f]{2})/giu, "%25");
+    }
+    const bounded = normalizedText(decoded, 2048, state) || "/";
+    const complete = bounded.replace(/%(?:[0-9a-f])?$/iu, "");
+    if (complete !== bounded) state?.reasons?.push("string");
+    return complete || "/";
   }
 
   function normalizedRoute(route, state) {
