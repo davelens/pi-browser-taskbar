@@ -5,11 +5,12 @@ defmodule PiBrowserTaskbarPhoenix.Layout do
   @spec render(keyword()) :: {:safe, iodata()}
   def render(opts \\ []) do
     mount = Keyword.get(opts, :mount, "/dev/pi-browser-taskbar")
+    project_app = opts |> Keyword.get(:otp_app, :unknown) |> Atom.to_string()
     csrf_token = Plug.CSRFProtection.get_csrf_token()
 
     html = [
       ~s(<link rel="stylesheet" href="#{escape(mount)}/assets/pi_browser_taskbar.css">),
-      ~s(<div data-pi-browser-taskbar-bootstrap data-mount-base="#{escape(mount)}" data-csrf-token="#{escape(csrf_token)}"></div>),
+      ~s(<div data-pi-browser-taskbar-bootstrap data-mount-base="#{escape(mount)}" data-project-app="#{escape(project_app)}" data-csrf-token="#{escape(csrf_token)}"></div>),
       ~s(<script defer src="#{escape(mount)}/assets/pi_browser_taskbar.js"></script>)
     ]
 

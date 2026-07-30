@@ -22,7 +22,10 @@
   "focus_points": [
     {
       "selector": "[data-testid=\"card-1\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -46,7 +49,10 @@
     },
     {
       "selector": "[data-testid=\"card-1\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",

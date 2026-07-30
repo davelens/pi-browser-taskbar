@@ -6,7 +6,8 @@ adapter-owned provider by root tooling and is not published as an npm package.
 The provider interface currently requires:
 
 - `framework`: a stable adapter identifier used only in bootstrap metadata;
-- `sourceHint(element)`: returns adapter-owned advisory source classification.
+- `sourceHint(element, {projectApp})`: returns an adapter-owned advisory source hint with a status
+  and at most two normalized references.
 
 The client may call that interface but must not recognize Rails, Phoenix, Ruby, or Elixir. Package
 providers may depend on this interface during asset composition; the Browser Client never imports
@@ -14,8 +15,9 @@ an adapter.
 
 Submission always captures a deterministic breadth-first whole-page structural snapshot. Developers
 may add up to eight ordered advisory focus points; the client prefers unique `data-testid`/`id`
-anchors, otherwise builds a unique ancestry selector. Each focus includes conservative provider
-classification, outer-to-inner ancestor summaries, and a bounded subtree. Focus detail is shared
+anchors, otherwise builds a unique ancestry selector. Each focus includes a conservative provider
+hint, outer-to-inner ancestor summaries, and a bounded subtree. Confident provider hints may also
+appear on captured snapshot nodes. Focus detail is shared
 fairly before the page receives the remaining context allocation.
 
 Capture retains only the contract allowlist, sanitizes URL references, truncates on Unicode

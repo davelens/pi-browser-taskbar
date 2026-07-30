@@ -13,13 +13,17 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   @allowed_context_fields ~w(contract_version focus_points location route snapshot truncation)
   @allowed_location_fields ~w(origin path query_names)
   @allowed_route_fields ~w(action handler method pattern)
-  @allowed_node_fields ~w(attributes children classes href id name role src state tag text)
+  @allowed_node_fields ~w(attributes children classes href id name role source src state tag text)
   @allowed_attribute_fields ~w(data-testid name placeholder type)
   @allowed_state_fields ~w(checked disabled expanded invalid pressed required selected)
-  @allowed_focus_fields ~w(ancestors selector source_status subtree)
+  @allowed_focus_fields ~w(ancestors selector source subtree)
   @allowed_summary_fields ~w(id name role tag)
+  @allowed_source_fields ~w(references status)
+  @allowed_reference_fields ~w(line path precision role symbol)
   @allowed_truncation_fields ~w(reasons section)
   @source_statuses ~w(available ambiguous external unavailable)
+  @source_roles ~w(template definition caller)
+  @source_precisions ~w(line template)
   @truncation_reasons ~w(bytes nodes depth string)
 
   @enforce_keys [:prompt, :context]
@@ -131,6 +135,7 @@ defmodule PiBrowserTaskbarPhoenix.Task do
       |> delete_empty("state")
       |> update_if("href", &normalize_location/1)
       |> update_if("src", &normalize_location/1)
+      |> update_if("source", &normalize_source/1)
       |> update_if("children", fn
         children when is_list(children) -> Enum.map(children, &normalize_node/1)
         children -> children
@@ -163,9 +168,7 @@ defmodule PiBrowserTaskbarPhoenix.Task do
       point when is_map(point) ->
         point
         |> update_if("selector", &structural/1)
-        |> update_if("source_status", fn value ->
-          value |> structural() |> downcase_or_upcase(:down)
-        end)
+        |> update_if("source", &normalize_source/1)
         |> update_if("ancestors", &normalize_summaries/1)
         |> update_if("subtree", &normalize_node/1)
 
@@ -175,6 +178,34 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   end
 
   defp normalize_focus_points(points), do: points
+
+  defp normalize_source(source) when is_map(source) do
+    source
+    |> update_if("status", fn value -> value |> structural() |> downcase_or_upcase(:down) end)
+    |> update_if("references", fn
+      references when is_list(references) ->
+        Enum.map(references, fn
+          reference when is_map(reference) ->
+            reference
+            |> update_if("role", fn value ->
+              value |> structural() |> downcase_or_upcase(:down)
+            end)
+            |> update_if("path", &structural/1)
+            |> update_if("symbol", &structural/1)
+            |> update_if("precision", fn value ->
+              value |> structural() |> downcase_or_upcase(:down)
+            end)
+
+          reference ->
+            reference
+        end)
+
+      references ->
+        references
+    end)
+  end
+
+  defp normalize_source(source), do: source
 
   defp normalize_summaries(summaries) when is_list(summaries) do
     Enum.map(summaries, fn
@@ -368,6 +399,7 @@ defmodule PiBrowserTaskbarPhoenix.Task do
          :ok <- optional_field(node, "state", &valid_state(&1, "#{label}.state")),
          :ok <- optional_field(node, "href", &valid_location(&1, "#{label}.href")),
          :ok <- optional_field(node, "src", &valid_location(&1, "#{label}.src")),
+         :ok <- optional_field(node, "source", &valid_source(&1, "#{label}.source")),
          :ok <- valid_children(node["children"], label, depth, maximum_depth) do
       :ok
     end
@@ -417,6 +449,72 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   end
 
   defp valid_state(_state, label), do: invalid("#{label} must be an object")
+
+  defp valid_source(source, label) when is_map(source) do
+    references = source["references"]
+
+    with :ok <- exact_fields(source, @allowed_source_fields, label),
+         :ok <- member(source["status"], @source_statuses, "#{label}.status"),
+         :ok <- valid_source_references(references, "#{label}.references"),
+         :ok <- source_status_matches_references(source["status"], references, label) do
+      :ok
+    end
+  end
+
+  defp valid_source(_source, label), do: invalid("#{label} must be an object")
+
+  defp valid_source_references(references, label)
+       when is_list(references) and length(references) <= 2 do
+    references
+    |> Enum.with_index()
+    |> Enum.reduce_while(:ok, fn {reference, index}, :ok ->
+      case valid_source_reference(reference, "#{label}[#{index}]") do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp valid_source_references(_references, label),
+    do: invalid("#{label} must contain at most 2 items")
+
+  defp valid_source_reference(reference, label) when is_map(reference) do
+    with :ok <- fields(reference, @allowed_reference_fields, ~w(path precision role), label),
+         :ok <- member(reference["role"], @source_roles, "#{label}.role"),
+         :ok <- bounded_string(reference["path"], "#{label}.path", 500, &project_path?/1),
+         :ok <- optional_positive_integer(reference, "line", "#{label}.line"),
+         :ok <- optional_field_string(reference, "symbol", "#{label}.symbol", 256),
+         :ok <- member(reference["precision"], @source_precisions, "#{label}.precision") do
+      :ok
+    end
+  end
+
+  defp valid_source_reference(_reference, label), do: invalid("#{label} must be an object")
+
+  defp source_status_matches_references("available", references, _label)
+       when is_list(references) and length(references) in 1..2,
+       do: :ok
+
+  defp source_status_matches_references(status, [], _label) when status != "available", do: :ok
+
+  defp source_status_matches_references(_status, _references, label),
+    do: invalid("#{label}.references do not match source status")
+
+  defp project_path?(path) do
+    segments = String.split(path, "/", trim: false)
+
+    not String.starts_with?(path, ["/", "\\"]) and
+      not Regex.match?(~r/^[A-Za-z]:/, path) and
+      not String.contains?(path, "\\") and
+      hd(segments) not in ["deps", "_build"] and
+      Enum.all?(segments, &(&1 not in ["", ".", ".."]))
+  end
+
+  defp optional_positive_integer(map, key, label) do
+    if !Map.has_key?(map, key) or (is_integer(map[key]) and map[key] > 0),
+      do: :ok,
+      else: invalid("#{label} is invalid")
+  end
 
   defp boolean_states(state, label) do
     Enum.reduce_while(~w(disabled expanded required selected), :ok, fn key, :ok ->
@@ -476,7 +574,7 @@ defmodule PiBrowserTaskbarPhoenix.Task do
 
     with :ok <- exact_fields(point, @allowed_focus_fields, label),
          :ok <- bounded_string(point["selector"], "#{label}.selector", 1_000),
-         :ok <- member(point["source_status"], @source_statuses, "#{label}.source_status"),
+         :ok <- valid_source(point["source"], "#{label}.source"),
          :ok <- valid_ancestors(point["ancestors"], label),
          :ok <- valid_node(point["subtree"], "#{label}.subtree", 0, 6),
          :ok <-

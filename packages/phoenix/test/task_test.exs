@@ -17,6 +17,10 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
                  "../../../contract/fixtures/browser-context/eight-focus-unavailable.json",
                  __DIR__
                )
+  @phoenix_sources Path.expand(
+                     "../../../contract/fixtures/browser-context/phoenix-source-hints.json",
+                     __DIR__
+                   )
   @rich_golden Path.expand("../../../contract/fixtures/prompts/rich-whole-page.json", __DIR__)
   @contract Path.expand("../../../contract", __DIR__)
 
@@ -66,8 +70,24 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
 
       assert {:ok, task} = Task.new(%{"prompt" => "Improve the marks.", "context" => context})
       assert task.context == context
-      assert Enum.all?(task.context["focus_points"], &(&1["source_status"] == "unavailable"))
+
+      assert Enum.all?(task.context["focus_points"], fn point ->
+               point["source"] == %{"status" => "unavailable", "references" => []}
+             end)
     end)
+  end
+
+  test "accepts normalized source hints with at most two project-relative references" do
+    context = @phoenix_sources |> File.read!() |> Jason.decode!()
+
+    assert {:ok, task} = Task.new(%{"prompt" => "Use the source hints.", "context" => context})
+    assert task.context == context
+
+    assert [definition, caller] =
+             task.context["focus_points"] |> hd() |> get_in(["source", "references"])
+
+    assert definition["role"] == "definition"
+    assert caller["role"] == "caller"
   end
 
   test "rejects duplicate and out-of-allocation context" do
@@ -99,7 +119,7 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
 
     point = %{
       "selector" => "#card",
-      "source_status" => "unavailable",
+      "source" => %{"status" => "unavailable", "references" => []},
       "ancestors" => [],
       "subtree" => %{
         "tag" => "div",

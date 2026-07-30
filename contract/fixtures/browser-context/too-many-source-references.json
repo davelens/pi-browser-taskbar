@@ -1,0 +1,47 @@
+{
+  "contract_version": 1,
+  "location": {
+    "origin": "http://localhost:4000",
+    "path": "/cards",
+    "query_names": []
+  },
+  "route": null,
+  "snapshot": {
+    "tag": "main",
+    "children": []
+  },
+  "focus_points": [
+    {
+      "selector": "[data-testid=\"card\"]",
+      "source": {
+        "status": "available",
+        "references": [
+          {
+            "role": "definition",
+            "path": "lib/demo_web/components/card.ex",
+            "line": 10,
+            "precision": "line"
+          },
+          {
+            "role": "caller",
+            "path": "lib/demo_web/live/card_live.ex",
+            "line": 20,
+            "precision": "line"
+          },
+          {
+            "role": "template",
+            "path": "lib/demo_web/live/card_live.html.heex",
+            "line": 30,
+            "precision": "line"
+          }
+        ]
+      },
+      "ancestors": [],
+      "subtree": {
+        "tag": "article",
+        "children": []
+      }
+    }
+  ],
+  "truncation": []
+}

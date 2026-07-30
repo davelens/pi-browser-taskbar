@@ -165,7 +165,7 @@ module CleanRailsConformance
     duplicate = Marshal.load(Marshal.dump(focused_task))
     duplicate.dig("context", "focus_points") << Marshal.load(Marshal.dump(duplicate.dig("context", "focus_points", 0)))
     invalid_structure = Marshal.load(Marshal.dump(focused_task))
-    invalid_structure.dig("context", "focus_points", 0)["source_status"] = "guessed"
+    invalid_structure.dig("context", "focus_points", 0, "source")["status"] = "guessed"
     focus_rejections = [duplicate, invalid_structure].map do |invalid_task|
       session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(invalid_task),
         headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}

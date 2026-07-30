@@ -52,6 +52,7 @@ module ContractValidation
       end
 
       errors.concat(validate_object(value, schema, path, root_schema)) if value.is_a?(Hash)
+      errors.concat(validate_source_hint(value, path)) if value.is_a?(Hash) && schema["x-sourceHint"]
       errors.concat(validate_array(value, schema, path, root_schema)) if value.is_a?(Array)
       errors.concat(validate_string(value, schema, path)) if value.is_a?(String)
       errors.concat(validate_number(value, schema, path)) if value.is_a?(Numeric)
@@ -143,7 +144,27 @@ module ContractValidation
         errors << "#{path}: does not match #{schema.fetch("pattern")}"
       end
       errors << "#{path}: invalid HTTP(S) origin" if schema["x-httpOrigin"] && !valid_origin?(value)
+      if schema["x-projectPath"] && !valid_project_path?(value)
+        errors << "#{path}: invalid project-relative path"
+      end
       errors
+    end
+
+    def validate_source_hint(value, path)
+      references = value["references"]
+      return [] unless references.is_a?(Array)
+
+      available = value["status"] == "available"
+      valid_count = available ? references.length.between?(1, 2) : references.empty?
+      valid_count ? [] : ["#{path}: references do not match source status"]
+    end
+
+    def valid_project_path?(value)
+      return false if value.start_with?("/", "\\") || value.match?(/\A[A-Za-z]:/)
+
+      segments = value.split("/", -1)
+      !["deps", "_build"].include?(segments.first) &&
+        segments.none? { |segment| segment.empty? || [".", ".."].include?(segment) }
     end
 
     def valid_origin?(value)

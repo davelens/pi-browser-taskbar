@@ -17,9 +17,12 @@ module Pi
           MAX_SNAPSHOT_NODES = 750
           FIELDS = %w[context prompt].freeze
           CONTEXT_FIELDS = %w[contract_version focus_points location route snapshot truncation].freeze
-          NODE_FIELDS = %w[attributes children classes href id name role src state tag text].freeze
+          NODE_FIELDS = %w[attributes children classes href id name role source src state tag text].freeze
           ATTRIBUTE_FIELDS = %w[data-testid name placeholder type].freeze
           STATE_FIELDS = %w[checked disabled expanded invalid pressed required selected].freeze
+          SOURCE_STATUSES = %w[available ambiguous external unavailable].freeze
+          SOURCE_ROLES = %w[template definition caller].freeze
+          SOURCE_PRECISIONS = %w[line template].freeze
           TRUNCATION_REASONS = %w[bytes nodes depth string].freeze
 
           class Invalid < StandardError; end
@@ -108,6 +111,7 @@ module Pi
             end
             normalize_location!(node["href"])
             normalize_location!(node["src"])
+            normalize_source!(node["source"])
             node["children"].each { |child| normalize_node!(child) } if node["children"].is_a?(Array)
           end
 
@@ -122,7 +126,7 @@ module Pi
             points.each do |point|
               next unless point.is_a?(Hash)
               point["selector"] = structural(point["selector"])
-              point["source_status"] = normalize_case(point["source_status"], :downcase)
+              normalize_source!(point["source"])
               next unless point["ancestors"].is_a?(Array)
               point["ancestors"].each do |summary|
                 next unless summary.is_a?(Hash)
@@ -130,6 +134,19 @@ module Pi
                 %w[role name id].each { |key| normalize_optional!(summary, key) }
               end
               normalize_node!(point["subtree"])
+            end
+          end
+
+          def normalize_source!(source)
+            return unless source.is_a?(Hash)
+            source["status"] = normalize_case(source["status"], :downcase)
+            return unless source["references"].is_a?(Array)
+            source["references"].each do |reference|
+              next unless reference.is_a?(Hash)
+              reference["role"] = normalize_case(reference["role"], :downcase)
+              reference["path"] = structural(reference["path"])
+              reference["symbol"] = structural(reference["symbol"]) if reference.key?("symbol")
+              reference["precision"] = normalize_case(reference["precision"], :downcase)
             end
           end
 
@@ -223,6 +240,7 @@ module Pi
             validate_state!(node["state"], "#{label}.state") if node.key?("state")
             validate_location!(node["href"], "#{label}.href") if node.key?("href")
             validate_location!(node["src"], "#{label}.src") if node.key?("src")
+            validate_source!(node["source"], "#{label}.source") if node.key?("source")
             invalid!("#{label}.children must be an array") unless node["children"].is_a?(Array)
             1 + node["children"].each_with_index.sum do |child, index|
               validate_node!(child, "#{label}.children[#{index}]", depth + 1, maximum_depth)
@@ -249,16 +267,48 @@ module Pi
             end
           end
 
+          def validate_source!(source, label)
+            object!(source, label)
+            exact!(source, %w[references status], label)
+            invalid!("#{label}.status is invalid") unless SOURCE_STATUSES.include?(source["status"])
+            references = source["references"]
+            invalid!("#{label}.references must contain at most 2 items") unless references.is_a?(Array) && references.length <= 2
+            valid_count = source["status"] == "available" ? references.length.between?(1, 2) : references.empty?
+            invalid!("#{label}.references do not match source status") unless valid_count
+            references.each_with_index do |reference, index|
+              reference_label = "#{label}.references[#{index}]"
+              object!(reference, reference_label)
+              fields!(reference, %w[line path precision role symbol], %w[path precision role], reference_label)
+              invalid!("#{reference_label}.role is invalid") unless SOURCE_ROLES.include?(reference["role"])
+              string!(reference["path"], "#{reference_label}.path", 500)
+              invalid!("#{reference_label}.path is invalid") unless project_path?(reference["path"])
+              if reference.key?("line") && (!reference["line"].is_a?(Integer) || reference["line"] <= 0)
+                invalid!("#{reference_label}.line is invalid")
+              end
+              optional_field_string!(reference, "symbol", "#{reference_label}.symbol", 256)
+              unless SOURCE_PRECISIONS.include?(reference["precision"])
+                invalid!("#{reference_label}.precision is invalid")
+              end
+            end
+          end
+
+          def project_path?(path)
+            segments = path.split("/", -1)
+            !path.start_with?("/", "\\") && !path.match?(/\A[A-Za-z]:/) && !path.include?("\\") &&
+              !%w[deps _build].include?(segments.first) &&
+              segments.none? { |segment| segment.empty? || %w[. ..].include?(segment) }
+          end
+
           def validate_focus!(points)
             invalid!("focus_points must contain at most 8 items") unless points.is_a?(Array) && points.length <= 8
             selectors = []
             points.each_with_index do |point, index|
               label = "focus_points[#{index}]"
               object!(point, label)
-              exact!(point, %w[ancestors selector source_status subtree], label)
+              exact!(point, %w[ancestors selector source subtree], label)
               string!(point["selector"], "#{label}.selector", 1_000)
               selectors << point["selector"]
-              invalid!("#{label}.source_status is invalid") unless %w[available ambiguous external unavailable].include?(point["source_status"])
+              validate_source!(point["source"], "#{label}.source")
               ancestors = point["ancestors"]
               invalid!("#{label}.ancestors must contain at most 8 items") unless ancestors.is_a?(Array) && ancestors.length <= 8
               ancestors.each_with_index { |summary, nested| validate_summary!(summary, "#{label}.ancestors[#{nested}]") }

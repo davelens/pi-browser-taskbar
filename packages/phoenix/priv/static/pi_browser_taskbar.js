@@ -73,7 +73,15 @@
         if (!normalizedPrompt) throw new TypeError("A prompt is required");
         if (utf8Size(normalizedPrompt) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
 
-        const context = browserContext(document, pageLocation, host, bootstrap.route, marks, contextProvider);
+        const context = browserContext(
+          document,
+          pageLocation,
+          host,
+          bootstrap.route,
+          marks,
+          contextProvider,
+          bootstrap.projectApp,
+        );
         const generation = ++snapshotGeneration;
 
         try {
@@ -272,11 +280,21 @@
   const maximumFocusBytes = 48 * 1024;
   const maximumPageBytes = 48 * 1024;
 
-  function browserContext(document, location, taskbarHost, route, marks, contextProvider) {
+  function browserContext(document, location, taskbarHost, route, marks, contextProvider, projectApp) {
     const sharedState = { reasons: [] };
-    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider);
+    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp);
     const pageState = { nodes: 0, reasons: sharedState.reasons };
-    const snapshot = captureSnapshot(document.body, taskbarHost, pageState, document, location, 750, 12);
+    const snapshot = captureSnapshot(
+      document.body,
+      taskbarHost,
+      pageState,
+      document,
+      location,
+      contextProvider,
+      projectApp,
+      750,
+      12,
+    );
     enforceSnapshotBytes(snapshot, pageState, maximumPageBytes);
     const context = {
       contract_version: 1,
@@ -299,7 +317,7 @@
     return context;
   }
 
-  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider) {
+  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp) {
     if (marks.length === 0) return { points: [], states: [] };
     const baseAllocation = Math.floor((maximumFocusBytes - 2 - (marks.length - 1)) / marks.length);
     const remainder = maximumFocusBytes - 2 - (marks.length - 1) - (baseAllocation * marks.length);
@@ -309,9 +327,19 @@
       states.push(state);
       const point = {
         selector: mark.selector,
-        source_status: sourceStatus(contextProvider.sourceHint(mark.element)),
+        source: normalizedSourceHint(contextProvider, mark.element, projectApp),
         ancestors: captureAncestors(mark.element, state, document),
-        subtree: captureSnapshot(mark.element, taskbarHost, state, document, location, 100, 6),
+        subtree: captureSnapshot(
+          mark.element,
+          taskbarHost,
+          state,
+          document,
+          location,
+          contextProvider,
+          projectApp,
+          100,
+          6,
+        ),
       };
       enforceFocusPointBytes(point, state, baseAllocation + (index < remainder ? 1 : 0));
       return point;
@@ -340,10 +368,48 @@
     return summary;
   }
 
-  function sourceStatus(hint) {
-    return ["available", "ambiguous", "external", "unavailable"].includes(hint?.status)
+  function normalizedSourceHint(contextProvider, element, projectApp) {
+    let hint;
+    try {
+      hint = contextProvider.sourceHint(element, { projectApp });
+    } catch (_error) {
+      return { status: "unavailable", references: [] };
+    }
+
+    const status = ["available", "ambiguous", "external", "unavailable"].includes(hint?.status)
       ? hint.status
       : "unavailable";
+    if (status !== "available") return { status, references: [] };
+
+    const references = Array.isArray(hint.references)
+      ? hint.references.map(normalizedSourceReference).filter(Boolean)
+      : [];
+    return references.length > 0 && references.length <= 2
+      ? { status, references }
+      : { status: "unavailable", references: [] };
+  }
+
+  function normalizedSourceReference(reference) {
+    if (!reference || typeof reference !== "object") return null;
+    if (!["template", "definition", "caller"].includes(reference.role)) return null;
+    if (!["line", "template"].includes(reference.precision)) return null;
+    const path = String(reference.path || "").normalize("NFC");
+    const segments = path.split("/");
+    if (!path || utf8Size(path) > 500 || path.startsWith("/") || path.includes("\\") || /^[A-Za-z]:/u.test(path)) return null;
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
+    if (["deps", "_build"].includes(segments[0])) return null;
+
+    const normalized = { role: reference.role, path, precision: reference.precision };
+    if (reference.line !== undefined) {
+      if (!Number.isSafeInteger(reference.line) || reference.line < 1) return null;
+      normalized.line = reference.line;
+    }
+    if (reference.symbol !== undefined) {
+      const symbol = String(reference.symbol).normalize("NFC");
+      if (!symbol || utf8Size(symbol) > 256) return null;
+      normalized.symbol = symbol;
+    }
+    return normalized;
   }
 
   function truncationEntries(pageState, focusStates) {
@@ -361,10 +427,20 @@
     return truncationReasonOrder.filter((reason) => reasons.includes(reason));
   }
 
-  function captureSnapshot(root, taskbarHost, state, document, location, maximumNodes, maximumDepth) {
+  function captureSnapshot(
+    root,
+    taskbarHost,
+    state,
+    document,
+    location,
+    contextProvider,
+    projectApp,
+    maximumNodes,
+    maximumDepth,
+  ) {
     if (!root?.localName || excluded(root, document)) return { tag: "div", children: [] };
 
-    const snapshot = captureNodeFields(root, state, document, location);
+    const snapshot = captureNodeFields(root, state, document, location, contextProvider, projectApp);
     const queue = [{ depth: 0, element: root, node: snapshot }];
     state.nodes = 1;
 
@@ -381,7 +457,7 @@
           return snapshot;
         }
 
-        const captured = captureNodeFields(child, state, document, location);
+        const captured = captureNodeFields(child, state, document, location, contextProvider, projectApp);
         current.node.children.push(captured);
         state.nodes += 1;
         queue.push({ depth: current.depth + 1, element: child, node: captured });
@@ -391,11 +467,12 @@
     return snapshot;
   }
 
-  function captureNodeFields(element, state, document, location) {
+  function captureNodeFields(element, state, document, location, contextProvider, projectApp) {
     const node = {
       tag: normalizedText(String(element.localName).toLowerCase(), 64, state) || "div",
       children: [],
     };
+    const source = normalizedSourceHint(contextProvider, element, projectApp);
     const role = normalizedText(element.getAttribute?.("role"), 64, state);
     const name = accessibleName(element, state, document);
     const text = directVisibleText(element, state);
@@ -419,6 +496,7 @@
     if (Object.keys(semanticState).length > 0) node.state = semanticState;
     if (href) node.href = href;
     if (src) node.src = src;
+    if (source.status === "available") node.source = source;
     return node;
   }
 
@@ -799,10 +877,126 @@
   const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run] {\n  width: 100%;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
   const contextProvider = ({
   framework: "phoenix",
-  sourceHint(_element) {
-    return Object.freeze({ references: [], status: "unavailable" });
+  sourceHint(element, { projectApp } = {}) {
+    const location = lineNumber(element?.getAttribute?.("data-phx-loc"));
+    if (element?.hasAttribute?.("data-phx-loc") && !location) return hint("ambiguous");
+    if (!/^[a-z][a-z0-9_]*$/u.test(projectApp || "")) return hint("unavailable");
+
+    const annotations = precedingAnnotations(element);
+    if (annotations.status) return hint(annotations.status);
+
+    const definition = annotations.definition;
+    if (!definition) return hint("unavailable");
+
+    const definitionPath = projectPath(definition, projectApp);
+    if (!definitionPath) return hint("external");
+
+    if (annotations.caller) {
+      const callerPath = projectPath(annotations.caller, projectApp);
+      if (!callerPath) return hint("external");
+      return hint("available", [
+        reference("definition", definitionPath, definition.line, definition.component),
+        reference("caller", callerPath, annotations.caller.line),
+      ]);
+    }
+
+    if (!location) return hint("unavailable");
+    if (!definition.component.endsWith(".render") && !definitionPath.endsWith(".heex")) {
+      return hint("ambiguous");
+    }
+    return hint("available", [reference("template", definitionPath, location)]);
   },
-});
+})
+
+function precedingAnnotations(element) {
+  const annotations = [];
+  let node = element;
+
+  while (node) {
+    let sibling = node.previousSibling;
+    while (sibling) {
+      if (sibling.nodeType === 8) {
+        const annotation = parseAnnotation(sibling.nodeValue);
+        if (annotation) annotations.push(annotation);
+      }
+      sibling = sibling.previousSibling;
+    }
+    node = node.parentNode;
+  }
+
+  const closed = [];
+  for (let index = 0; index < annotations.length; index += 1) {
+    const annotation = annotations[index];
+    if (annotation.kind === "malformed") return { status: "ambiguous" };
+    if (annotation.kind === "closing") {
+      closed.push(annotation.component);
+      continue;
+    }
+    if (annotation.kind === "definition" && closed.length > 0) {
+      if (closed.pop() !== annotation.component) return { status: "ambiguous" };
+      if (annotations[index + 1]?.kind === "caller") index += 1;
+      continue;
+    }
+    if (annotation.kind === "caller") return { status: "ambiguous" };
+    if (annotation.kind === "definition") {
+      const caller = annotations[index + 1]?.kind === "caller" ? annotations[index + 1] : null;
+      if (caller && annotations[index + 2]?.kind === "caller") return { status: "ambiguous" };
+      if (!caller && annotations[index + 1]?.kind === "definition") return { status: "ambiguous" };
+      return { definition: annotation, caller };
+    }
+  }
+
+  return closed.length > 0 ? { status: "ambiguous" } : {};
+}
+
+function parseAnnotation(value) {
+  if (typeof value !== "string") return null;
+  const caller = value.match(/^\s*@caller\s+([^\r\n]+):(\d+)\s+\(([a-z][a-z0-9_]*)\)\s*$/u);
+  if (caller) {
+    const line = lineNumber(caller[2]);
+    return line ? { kind: "caller", file: caller[1], line, app: caller[3] } : { kind: "malformed" };
+  }
+
+  const definition = value.match(/^\s*<([A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+|:[a-z][a-z0-9_]*)>\s+([^\r\n]+):(\d+)\s+\(([a-z][a-z0-9_]*)\)\s*$/u);
+  if (definition) {
+    const line = lineNumber(definition[3]);
+    if (!line || new TextEncoder().encode(definition[1]).byteLength > 256) return { kind: "malformed" };
+    return {
+      kind: "definition",
+      component: definition[1],
+      file: definition[2],
+      line,
+      app: definition[4],
+    };
+  }
+
+  const closing = value.match(/^\s*<\/([A-Z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+|:[a-z][a-z0-9_]*)>\s*$/u);
+  if (closing) return { kind: "closing", component: closing[1] };
+  return /^\s*(?:@caller\b|<\/?(?:[A-Z]|:))/u.test(value) ? { kind: "malformed" } : null;
+}
+
+function projectPath(annotation, projectApp) {
+  const path = annotation.app === projectApp ? annotation.file : "";
+  if (!path || path.startsWith("/") || path.includes("\\") || /^[A-Za-z]:/u.test(path)) return null;
+  const segments = path.split("/");
+  if (segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
+  if (["deps", "_build"].includes(segments[0])) return null;
+  return new TextEncoder().encode(path).byteLength <= 500 ? path : null;
+}
+
+function lineNumber(value) {
+  if (!/^[1-9]\d*$/u.test(String(value || ""))) return null;
+  const line = Number(value);
+  return Number.isSafeInteger(line) ? line : null;
+}
+
+function hint(status, references = []) {
+  return Object.freeze({ references: Object.freeze(references), status });
+}
+
+function reference(role, path, line, symbol) {
+  return Object.freeze({ role, path, line, ...(symbol ? { symbol } : {}), precision: "line" });
+};
   const client = createBrowserClient({
     contractVersion: 1,
     contextProvider,
@@ -822,6 +1016,7 @@
     client.mount({
       csrfToken: bootstrap.dataset.csrfToken,
       mountBase: bootstrap.dataset.mountBase,
+      projectApp: bootstrap.dataset.projectApp,
     });
   }
 })();

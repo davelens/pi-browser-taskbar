@@ -65,6 +65,7 @@ ${client
     client.mount({
       csrfToken: bootstrap.dataset.csrfToken,
       mountBase: bootstrap.dataset.mountBase,
+      projectApp: bootstrap.dataset.projectApp,
     });
   }
 })();

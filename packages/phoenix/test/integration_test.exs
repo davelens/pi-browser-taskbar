@@ -62,12 +62,13 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
   end
 
   test "layout bootstrap uses package routes and the native CSRF token" do
-    {:safe, safe_html} = Layout.render(mount: "/dev/pi-browser-taskbar")
+    {:safe, safe_html} = Layout.render(mount: "/dev/pi-browser-taskbar", otp_app: :demo)
     html = IO.iodata_to_binary(safe_html)
 
     assert html =~ ~s(data-pi-browser-taskbar-bootstrap)
     assert html =~ ~s(/dev/pi-browser-taskbar/assets/pi_browser_taskbar.css)
     assert html =~ ~s(/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js)
+    assert html =~ ~s(data-project-app="demo")
     assert html =~ ~s(data-csrf-token=")
   end
 

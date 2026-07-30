@@ -166,7 +166,7 @@ defmodule CleanAppConformance do
 
     [duplicate, invalid_structure] = [
       put_in(focused_task, ["context", "focus_points"], focused_task["context"]["focus_points"] ++ focused_task["context"]["focus_points"]),
-      put_in(focused_task, ["context", "focus_points", Access.at(0), "source_status"], "guessed")
+      put_in(focused_task, ["context", "focus_points", Access.at(0), "source", "status"], "guessed")
     ]
     focus_rejections = Enum.map([duplicate, invalid_structure], fn invalid_task ->
       response = request(:post, "/dev/pi-browser-taskbar/tasks", invalid_task)

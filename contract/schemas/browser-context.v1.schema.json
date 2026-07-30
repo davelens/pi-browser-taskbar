@@ -80,6 +80,7 @@
         "state": {"$ref": "#/$defs/state"},
         "href": {"$ref": "#/$defs/location"},
         "src": {"$ref": "#/$defs/location"},
+        "source": {"$ref": "#/$defs/sourceHint"},
         "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
       },
       "additionalProperties": false
@@ -118,15 +119,45 @@
       },
       "additionalProperties": false
     },
+    "sourceReference": {
+      "type": "object",
+      "required": ["role", "path", "precision"],
+      "properties": {
+        "role": {"type": "string", "enum": ["template", "definition", "caller"]},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "x-maxUtf8Bytes": 500,
+          "x-projectPath": true,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)[^/]+(?:/[^/]+)*$"
+        },
+        "line": {"type": "integer", "minimum": 1},
+        "symbol": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256},
+        "precision": {"type": "string", "enum": ["line", "template"]}
+      },
+      "additionalProperties": false
+    },
+    "sourceHint": {
+      "type": "object",
+      "x-sourceHint": true,
+      "required": ["status", "references"],
+      "properties": {
+        "status": {"type": "string", "enum": ["available", "ambiguous", "external", "unavailable"]},
+        "references": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {"$ref": "#/$defs/sourceReference"}
+        }
+      },
+      "additionalProperties": false
+    },
     "focusPoint": {
       "type": "object",
-      "required": ["selector", "source_status", "ancestors", "subtree"],
+      "required": ["selector", "source", "ancestors", "subtree"],
       "properties": {
         "selector": {"type": "string", "minLength": 1, "maxLength": 1000, "x-maxUtf8Bytes": 1000},
-        "source_status": {
-          "type": "string",
-          "enum": ["available", "ambiguous", "external", "unavailable"]
-        },
+        "source": {"$ref": "#/$defs/sourceHint"},
         "ancestors": {
           "type": "array",
           "maxItems": 8,

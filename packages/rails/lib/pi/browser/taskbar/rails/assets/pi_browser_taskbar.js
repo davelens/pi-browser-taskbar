@@ -73,7 +73,15 @@
         if (!normalizedPrompt) throw new TypeError("A prompt is required");
         if (utf8Size(normalizedPrompt) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
 
-        const context = browserContext(document, pageLocation, host, bootstrap.route, marks, contextProvider);
+        const context = browserContext(
+          document,
+          pageLocation,
+          host,
+          bootstrap.route,
+          marks,
+          contextProvider,
+          bootstrap.projectApp,
+        );
         const generation = ++snapshotGeneration;
 
         try {
@@ -272,11 +280,21 @@
   const maximumFocusBytes = 48 * 1024;
   const maximumPageBytes = 48 * 1024;
 
-  function browserContext(document, location, taskbarHost, route, marks, contextProvider) {
+  function browserContext(document, location, taskbarHost, route, marks, contextProvider, projectApp) {
     const sharedState = { reasons: [] };
-    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider);
+    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp);
     const pageState = { nodes: 0, reasons: sharedState.reasons };
-    const snapshot = captureSnapshot(document.body, taskbarHost, pageState, document, location, 750, 12);
+    const snapshot = captureSnapshot(
+      document.body,
+      taskbarHost,
+      pageState,
+      document,
+      location,
+      contextProvider,
+      projectApp,
+      750,
+      12,
+    );
     enforceSnapshotBytes(snapshot, pageState, maximumPageBytes);
     const context = {
       contract_version: 1,
@@ -299,7 +317,7 @@
     return context;
   }
 
-  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider) {
+  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp) {
     if (marks.length === 0) return { points: [], states: [] };
     const baseAllocation = Math.floor((maximumFocusBytes - 2 - (marks.length - 1)) / marks.length);
     const remainder = maximumFocusBytes - 2 - (marks.length - 1) - (baseAllocation * marks.length);
@@ -309,9 +327,19 @@
       states.push(state);
       const point = {
         selector: mark.selector,
-        source_status: sourceStatus(contextProvider.sourceHint(mark.element)),
+        source: normalizedSourceHint(contextProvider, mark.element, projectApp),
         ancestors: captureAncestors(mark.element, state, document),
-        subtree: captureSnapshot(mark.element, taskbarHost, state, document, location, 100, 6),
+        subtree: captureSnapshot(
+          mark.element,
+          taskbarHost,
+          state,
+          document,
+          location,
+          contextProvider,
+          projectApp,
+          100,
+          6,
+        ),
       };
       enforceFocusPointBytes(point, state, baseAllocation + (index < remainder ? 1 : 0));
       return point;
@@ -340,10 +368,48 @@
     return summary;
   }
 
-  function sourceStatus(hint) {
-    return ["available", "ambiguous", "external", "unavailable"].includes(hint?.status)
+  function normalizedSourceHint(contextProvider, element, projectApp) {
+    let hint;
+    try {
+      hint = contextProvider.sourceHint(element, { projectApp });
+    } catch (_error) {
+      return { status: "unavailable", references: [] };
+    }
+
+    const status = ["available", "ambiguous", "external", "unavailable"].includes(hint?.status)
       ? hint.status
       : "unavailable";
+    if (status !== "available") return { status, references: [] };
+
+    const references = Array.isArray(hint.references)
+      ? hint.references.map(normalizedSourceReference).filter(Boolean)
+      : [];
+    return references.length > 0 && references.length <= 2
+      ? { status, references }
+      : { status: "unavailable", references: [] };
+  }
+
+  function normalizedSourceReference(reference) {
+    if (!reference || typeof reference !== "object") return null;
+    if (!["template", "definition", "caller"].includes(reference.role)) return null;
+    if (!["line", "template"].includes(reference.precision)) return null;
+    const path = String(reference.path || "").normalize("NFC");
+    const segments = path.split("/");
+    if (!path || utf8Size(path) > 500 || path.startsWith("/") || path.includes("\\") || /^[A-Za-z]:/u.test(path)) return null;
+    if (segments.some((segment) => !segment || segment === "." || segment === "..")) return null;
+    if (["deps", "_build"].includes(segments[0])) return null;
+
+    const normalized = { role: reference.role, path, precision: reference.precision };
+    if (reference.line !== undefined) {
+      if (!Number.isSafeInteger(reference.line) || reference.line < 1) return null;
+      normalized.line = reference.line;
+    }
+    if (reference.symbol !== undefined) {
+      const symbol = String(reference.symbol).normalize("NFC");
+      if (!symbol || utf8Size(symbol) > 256) return null;
+      normalized.symbol = symbol;
+    }
+    return normalized;
   }
 
   function truncationEntries(pageState, focusStates) {
@@ -361,10 +427,20 @@
     return truncationReasonOrder.filter((reason) => reasons.includes(reason));
   }
 
-  function captureSnapshot(root, taskbarHost, state, document, location, maximumNodes, maximumDepth) {
+  function captureSnapshot(
+    root,
+    taskbarHost,
+    state,
+    document,
+    location,
+    contextProvider,
+    projectApp,
+    maximumNodes,
+    maximumDepth,
+  ) {
     if (!root?.localName || excluded(root, document)) return { tag: "div", children: [] };
 
-    const snapshot = captureNodeFields(root, state, document, location);
+    const snapshot = captureNodeFields(root, state, document, location, contextProvider, projectApp);
     const queue = [{ depth: 0, element: root, node: snapshot }];
     state.nodes = 1;
 
@@ -381,7 +457,7 @@
           return snapshot;
         }
 
-        const captured = captureNodeFields(child, state, document, location);
+        const captured = captureNodeFields(child, state, document, location, contextProvider, projectApp);
         current.node.children.push(captured);
         state.nodes += 1;
         queue.push({ depth: current.depth + 1, element: child, node: captured });
@@ -391,11 +467,12 @@
     return snapshot;
   }
 
-  function captureNodeFields(element, state, document, location) {
+  function captureNodeFields(element, state, document, location, contextProvider, projectApp) {
     const node = {
       tag: normalizedText(String(element.localName).toLowerCase(), 64, state) || "div",
       children: [],
     };
+    const source = normalizedSourceHint(contextProvider, element, projectApp);
     const role = normalizedText(element.getAttribute?.("role"), 64, state);
     const name = accessibleName(element, state, document);
     const text = directVisibleText(element, state);
@@ -419,6 +496,7 @@
     if (Object.keys(semanticState).length > 0) node.state = semanticState;
     if (href) node.href = href;
     if (src) node.src = src;
+    if (source.status === "available") node.source = source;
     return node;
   }
 
@@ -822,6 +900,7 @@
     client.mount({
       csrfToken: bootstrap.dataset.csrfToken,
       mountBase: bootstrap.dataset.mountBase,
+      projectApp: bootstrap.dataset.projectApp,
     });
   }
 })();

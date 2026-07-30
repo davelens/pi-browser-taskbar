@@ -22,7 +22,10 @@
   "focus_points": [
     {
       "selector": "[data-testid=\"card-1\"]",
-      "source_status": "guessed",
+      "source": {
+        "status": "guessed",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",

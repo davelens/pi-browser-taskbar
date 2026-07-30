@@ -10,6 +10,7 @@ class RailsTaskTest < Minitest::Test
   RICH_CONTEXT = File.expand_path("../../../contract/fixtures/browser-context/rich-whole-page.json", __dir__)
   ONE_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/one-focus-unavailable.json", __dir__)
   EIGHT_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/eight-focus-unavailable.json", __dir__)
+  PHOENIX_SOURCES = File.expand_path("../../../contract/fixtures/browser-context/phoenix-source-hints.json", __dir__)
   RICH_GOLDEN = File.expand_path("../../../contract/fixtures/prompts/rich-whole-page.json", __dir__)
   CONTRACT = File.expand_path("../../../contract", __dir__)
 
@@ -46,8 +47,20 @@ class RailsTaskTest < Minitest::Test
       task = Pi::Browser::Taskbar::Rails::Task.parse("prompt" => "Improve the marks.", "context" => context)
 
       assert_equal context, task.context
-      assert task.context.fetch("focus_points").all? { |point| point.fetch("source_status") == "unavailable" }
+      assert task.context.fetch("focus_points").all? do |point|
+        point.fetch("source") == {"status" => "unavailable", "references" => []}
+      end
     end
+  end
+
+  def test_accepts_normalized_source_hints_with_at_most_two_project_relative_references
+    context = JSON.parse(File.read(PHOENIX_SOURCES))
+    task = Pi::Browser::Taskbar::Rails::Task.parse("prompt" => "Use the source hints.", "context" => context)
+
+    assert_equal context, task.context
+    definition, caller = task.context.fetch("focus_points").first.dig("source", "references")
+    assert_equal "definition", definition.fetch("role")
+    assert_equal "caller", caller.fetch("role")
   end
 
   def test_rejects_duplicate_and_out_of_allocation_context
@@ -70,7 +83,7 @@ class RailsTaskTest < Minitest::Test
     value = JSON.parse(File.read(FIXTURE))
     point = {
       "selector" => "#card",
-      "source_status" => "unavailable",
+      "source" => {"status" => "unavailable", "references" => []},
       "ancestors" => [],
       "subtree" => {"tag" => "div", "children" => Array.new(100) { {"tag" => "span", "children" => []} }}
     }

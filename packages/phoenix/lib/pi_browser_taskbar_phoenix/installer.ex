@@ -132,7 +132,8 @@ defmodule PiBrowserTaskbarPhoenix.Installer do
         end
 
         @doc false
-        def layout_bootstrap, do: PiBrowserTaskbarPhoenix.Layout.render(mount: @mount)
+        def layout_bootstrap,
+          do: PiBrowserTaskbarPhoenix.Layout.render(mount: @mount, otp_app: @otp_app)
       else
         @doc false
         def child_spec(_opts), do: %{id: __MODULE__, start: {__MODULE__, :ignore, []}}

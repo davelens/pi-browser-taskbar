@@ -22,7 +22,10 @@
   "focus_points": [
     {
       "selector": "[data-testid=\"card-1\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -46,7 +49,10 @@
     },
     {
       "selector": "[data-testid=\"card-2\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -70,7 +76,10 @@
     },
     {
       "selector": "[data-testid=\"card-3\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -94,7 +103,10 @@
     },
     {
       "selector": "[data-testid=\"card-4\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -118,7 +130,10 @@
     },
     {
       "selector": "[data-testid=\"card-5\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -142,7 +157,10 @@
     },
     {
       "selector": "[data-testid=\"card-6\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -166,7 +184,10 @@
     },
     {
       "selector": "[data-testid=\"card-7\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",
@@ -190,7 +211,10 @@
     },
     {
       "selector": "[data-testid=\"card-8\"]",
-      "source_status": "unavailable",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
       "ancestors": [
         {
           "tag": "main",

@@ -298,7 +298,10 @@ for (const framework of Object.keys(assets)) {
     await mounted.submit("Improve this control.");
     assert.equal(requests[0].context.focus_points.length, 1);
     assert.match(requests[0].context.focus_points[0].selector, /^\[id="cards"\] > button:nth-of-type\(2\)$/u);
-    assert.equal(requests[0].context.focus_points[0].source_status, "unavailable");
+    assert.deepEqual(requests[0].context.focus_points[0].source, {
+      status: "unavailable",
+      references: [],
+    });
     assert.deepEqual(requests[0].context.focus_points[0].ancestors.map((node) => node.tag), ["body", "section"]);
     assert.equal(requests[0].context.snapshot.tag, "body");
 
@@ -320,6 +323,193 @@ for (const framework of Object.keys(assets)) {
     assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
     assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · bounded structural context");
   });
+}
+
+test("Phoenix HEEx hints stay conservative across controller, LiveView, navigation, and DOM patch evidence", async () => {
+  const document = fakeDocument();
+  const cases = [];
+
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [" <DemoWeb.PageHTML.home> lib/demo_web/controllers/page_html/home.html.heex:1 (demo) "],
+    location: "12",
+    testId: "controller-template",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [
+      " @caller lib/demo_web/live/card_live.ex:30 (demo) ",
+      " <DemoWeb.CoreComponents.button> lib/demo_web/components/core_components.ex:200 (demo) ",
+    ],
+    location: "218",
+    testId: "live-component",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [
+      " <DemoWeb.CardLive.render> lib/demo_web/live/card_live.ex:10 (demo) ",
+      " @caller lib/demo_web/live/card_live.ex:15 (demo) ",
+      " <DemoWeb.CoreComponents.button> lib/demo_web/components/core_components.ex:200 (demo) ",
+      " </DemoWeb.CoreComponents.button> ",
+    ],
+    location: "44",
+    testId: "closed-component",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [" <DemoWeb.CardLive.render> lib/demo_web/live/card_live.ex:10 (demo) "],
+    location: "12x",
+    testId: "malformed-location",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [
+      " @caller lib/demo_web/live/card_live.ex:29 (demo) ",
+      " @caller lib/demo_web/live/card_live.ex:30 (demo) ",
+      " <DemoWeb.CoreComponents.button> lib/demo_web/components/core_components.ex:200 (demo) ",
+    ],
+    location: "218",
+    testId: "duplicate-caller",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [" <Phoenix.Component.render> lib/phoenix/component.ex:10 (phoenix_live_view) "],
+    location: "11",
+    testId: "dependency-owned",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [" <DemoWeb.CardLive.render> /home/dev/demo/lib/card_live.ex:10 (demo) "],
+    location: "11",
+    testId: "absolute-path",
+  }));
+  cases.push(annotatedPhoenixElement(document, {
+    comments: [],
+    location: "99",
+    testId: "patched-stale",
+  }));
+
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+      };
+    },
+    location: { origin: "http://localhost:4000", pathname: "/cards", search: "" },
+    projectApp: "demo",
+  });
+  const mark = mounted.element.shadowRoot.querySelector("[data-mark]");
+  cases.forEach((element) => select(mark, document, element));
+
+  await mounted.submit("Use the available source evidence.");
+
+  const sources = requestBody.context.focus_points.map((point) => point.source);
+  assert.deepEqual(sources[0], {
+    status: "available",
+    references: [{
+      role: "template",
+      path: "lib/demo_web/controllers/page_html/home.html.heex",
+      line: 12,
+      precision: "line",
+    }],
+  });
+  assert.deepEqual(sources[1], {
+    status: "available",
+    references: [
+      {
+        role: "definition",
+        path: "lib/demo_web/components/core_components.ex",
+        line: 200,
+        symbol: "DemoWeb.CoreComponents.button",
+        precision: "line",
+      },
+      {
+        role: "caller",
+        path: "lib/demo_web/live/card_live.ex",
+        line: 30,
+        precision: "line",
+      },
+    ],
+  });
+  assert.deepEqual(sources[2], {
+    status: "available",
+    references: [{
+      role: "template",
+      path: "lib/demo_web/live/card_live.ex",
+      line: 44,
+      precision: "line",
+    }],
+  });
+  assert.deepEqual(sources.slice(3).map((source) => source.status), [
+    "ambiguous", "ambiguous", "external", "external", "unavailable",
+  ]);
+  assert.ok(sources.every((source) => source.references.length <= 2));
+  assert.deepEqual(requestBody.context.snapshot.children[0].children[0].source, sources[0]);
+  assert.doesNotMatch(JSON.stringify(requestBody.context), /@caller|<DemoWeb|\/home\/dev|phoenix_live_view/u);
+});
+
+test("Phoenix HEEx hints reject traversal and malformed annotation comments", async () => {
+  const document = fakeDocument();
+  const elements = [
+    annotatedPhoenixElement(document, {
+      comments: [" <DemoWeb.CardLive.render> ../outside/card_live.ex:10 (demo) "],
+      location: "11",
+      testId: "out-of-project",
+    }),
+    annotatedPhoenixElement(document, {
+      comments: [" <DemoWeb.CardLive.render> malformed annotation "],
+      location: "12",
+      testId: "malformed-comment",
+    }),
+  ];
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+      };
+    },
+    location: { origin: "http://localhost:4000", pathname: "/cards", search: "" },
+    projectApp: "demo",
+  });
+  const mark = mounted.element.shadowRoot.querySelector("[data-mark]");
+  elements.forEach((element) => select(mark, document, element));
+
+  await mounted.submit("Classify unsafe source evidence.");
+
+  assert.deepEqual(
+    requestBody.context.focus_points.map((point) => point.source),
+    [
+      { status: "external", references: [] },
+      { status: "ambiguous", references: [] },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(requestBody.context), /outside|malformed annotation/u);
+});
+
+function annotatedPhoenixElement(document, { comments, location, testId }) {
+  const wrapper = document.createElement("section");
+  document.body.appendChild(wrapper);
+  comments.forEach((value) => wrapper.appendChild(comment(value)));
+  const element = document.createElement("button");
+  element.setAttribute("data-testid", testId);
+  if (location !== null) element.setAttribute("data-phx-loc", location);
+  wrapper.appendChild(element);
+  return element;
+}
+
+function comment(nodeValue) {
+  return { nodeType: 8, nodeValue, previousSibling: null, parentNode: null };
 }
 
 test("Browser Client shares focus detail fairly before allocating the whole-page remainder", async () => {
@@ -436,7 +626,16 @@ function fakeDocument() {
     }
 
     addEventListener(name, listener) { (this.listeners[name] ||= []).push(listener); }
-    appendChild(child) { this.childNodes.push(child); this.children.push(child); child.parentElement = this; return child; }
+    appendChild(child) {
+      child.previousSibling = this.childNodes.at(-1) || null;
+      child.parentNode = this;
+      this.childNodes.push(child);
+      if (child.nodeType === 1) {
+        this.children.push(child);
+        child.parentElement = this;
+      }
+      return child;
+    }
     attachShadow() { this.shadowRoot = new FakeShadowRoot(); return this.shadowRoot; }
     contains(candidate) {
       return candidate === this || this.children.some((child) => child.contains?.(candidate));
