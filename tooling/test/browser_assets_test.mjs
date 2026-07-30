@@ -336,6 +336,7 @@ test("Phoenix HEEx hints stay conservative across controller, LiveView, navigati
   }));
   cases.push(annotatedPhoenixElement(document, {
     comments: [
+      " <DemoWeb.CardLive.render> lib/demo_web/live/card_live.ex:10 (demo) ",
       " @caller lib/demo_web/live/card_live.ex:30 (demo) ",
       " <DemoWeb.CoreComponents.button> lib/demo_web/components/core_components.ex:200 (demo) ",
     ],
