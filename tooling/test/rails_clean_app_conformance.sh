@@ -113,8 +113,12 @@ module CleanRailsConformance
     session = ActionDispatch::Integration::Session.new(Rails.application)
     session.host! "localhost"
 
+    assert Rails.application.config.action_view.annotate_rendered_view_with_filenames == true, "annotation config was not enabled"
+    assert ActionView::Base.annotate_rendered_view_with_filenames == true, "effective annotation config was not enabled"
     session.get "/"
     assert session.response.status == 200, "host did not boot"
+    assert session.response.body.include?("BEGIN app/views/home/index.html.erb"), "ERB template was not annotated"
+    assert session.response.body.include?("BEGIN app/views/layouts/application.html.erb"), "ERB layout was not annotated"
     token = session.response.body[/data-csrf-token="([^"]+)"/, 1]
     assert token && session.response.body.include?("pi_browser_taskbar.js"), "layout bootstrap missing"
     session.get "/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js", headers: {"HTTP_REFERER" => "http://localhost/"}

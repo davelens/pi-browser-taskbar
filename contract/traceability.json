@@ -9,7 +9,7 @@
     {"id": "shared-task-api", "heading": "Shared task API", "owner": "conformance-contract", "acceptance_seam": "Identical black-box HTTP scenarios against both packaged adapters", "status": "adapter-slices"},
     {"id": "pi-rpc-lifecycle", "heading": "Pi RPC lifecycle", "owner": "conformance-contract", "acceptance_seam": "Transcript replay through the deterministic fake Pi peer", "status": "foundation"},
     {"id": "normalized-context", "heading": "Normalized browser task context", "owner": "conformance-contract", "acceptance_seam": "Valid and invalid context fixtures parsed independently by both adapters", "status": "adapter-slices"},
-    {"id": "source-hints", "heading": "Source-hint contract", "owner": "conformance-contract", "acceptance_seam": "Cross-adapter source classification fixtures plus native attribution tests", "status": "phoenix-slice"},
+    {"id": "source-hints", "heading": "Source-hint contract", "owner": "conformance-contract", "acceptance_seam": "Cross-adapter source classification fixtures plus native attribution tests", "status": "adapter-slices"},
     {"id": "bounds-normalization", "heading": "Bounds, truncation, and normalization", "owner": "conformance-contract", "acceptance_seam": "Golden bounded-context fixtures compared across native validators", "status": "adapter-slices"},
     {"id": "browser-interaction", "heading": "Browser Client interaction", "owner": "browser-client", "acceptance_seam": "Browser-owned DOM tests and packaged example end-to-end flows", "status": "adapter-slices"},
     {"id": "security-configuration", "heading": "Security and configuration", "owner": "conformance-contract", "acceptance_seam": "Framework-native access, CSRF, activation, and startup validation tests", "status": "adapter-slices"},

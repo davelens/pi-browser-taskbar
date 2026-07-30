@@ -1,0 +1,80 @@
+{
+  "contract_version": 1,
+  "location": {
+    "origin": "http://localhost:3000",
+    "path": "/cards",
+    "query_names": []
+  },
+  "route": null,
+  "snapshot": {
+    "tag": "main",
+    "source": {
+      "status": "available",
+      "references": [
+        {
+          "role": "template",
+          "path": "app/views/cards/index.html.erb",
+          "precision": "template"
+        }
+      ]
+    },
+    "children": []
+  },
+  "focus_points": [
+    {
+      "selector": "[data-testid=\"card\"]",
+      "source": {
+        "status": "available",
+        "references": [
+          {
+            "role": "template",
+            "path": "app/views/cards/_card.html.erb",
+            "precision": "template"
+          }
+        ]
+      },
+      "ancestors": [],
+      "subtree": {
+        "tag": "article",
+        "children": []
+      }
+    },
+    {
+      "selector": "[data-testid=\"ambiguous\"]",
+      "source": {
+        "status": "ambiguous",
+        "references": []
+      },
+      "ancestors": [],
+      "subtree": {
+        "tag": "div",
+        "children": []
+      }
+    },
+    {
+      "selector": "[data-testid=\"external\"]",
+      "source": {
+        "status": "external",
+        "references": []
+      },
+      "ancestors": [],
+      "subtree": {
+        "tag": "div",
+        "children": []
+      }
+    },
+    {
+      "selector": "[data-testid=\"unavailable\"]",
+      "source": {
+        "status": "unavailable",
+        "references": []
+      },
+      "ancestors": [],
+      "subtree": {
+        "tag": "div",
+        "children": []
+      }
+    }
+  ],
+  "truncation": []
+}

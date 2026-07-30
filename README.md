@@ -17,8 +17,9 @@ artifacts, deterministic browser asset generation, and automated ownership check
 and Rails adapters now include equivalent bounded whole-page flows with up to eight advisory marked
 focus points: deterministic sanitized Browser Client capture, fair focus truncation, independent
 native normalization, native HTTP security, canonical Pi ownership, and completed fake-Pi output.
-Rails uses one external
-checkout-scoped broker; Phoenix uses one supervised runtime.
+Focused tasks attach conservative framework-native source hints: template-level ERB ranges in Rails
+and line-level HEEx evidence in Phoenix. Rails uses one external checkout-scoped broker; Phoenix
+uses one supervised runtime.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
 [architecture guide](docs/architecture.md) explains package ownership and dependency direction.

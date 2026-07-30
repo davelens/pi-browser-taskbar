@@ -26,6 +26,12 @@
       "expected_valid": true
     },
     {
+      "id": "rails-source-hints",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
+      "path": "fixtures/browser-context/rails-source-hints.json",
+      "expected_valid": true
+    },
+    {
       "id": "reject-too-many-source-references",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
       "path": "fixtures/browser-context/too-many-source-references.json",

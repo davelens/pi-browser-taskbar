@@ -20,11 +20,16 @@ class TaskbarHostController < ActionController::Base
   def index
     render html: Pi::Browser::Taskbar::Rails.layout_bootstrap(view_context)
   end
+
+  def annotated
+    render inline: "<main>Annotated ERB</main>"
+  end
 end
 
 TaskbarTestApplication.initialize!
 TaskbarTestApplication.routes.draw do
   root to: "taskbar_host#index"
+  get "/annotated", to: "taskbar_host#annotated"
   mount Pi::Browser::Taskbar::Rails::Engine => "/dev/pi-browser-taskbar"
 end
 
@@ -65,6 +70,15 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
 
   def teardown
     Pi::Browser::Taskbar::Rails.instance_variable_set(:@broker_client, nil)
+  end
+
+  def test_active_adapter_enables_native_erb_annotations_before_templates_compile
+    assert_equal true, TaskbarTestApplication.config.action_view.annotate_rendered_view_with_filenames
+    assert_equal true, ActionView::Base.annotate_rendered_view_with_filenames
+
+    get "/annotated"
+    assert_response :ok
+    assert_match(/<!-- BEGIN .*inline template\n--><main>Annotated ERB<\/main><!-- END .*inline template -->/m, response.body)
   end
 
   def test_engine_routes_assets_layout_and_no_store_snapshot

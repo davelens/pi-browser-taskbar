@@ -12,7 +12,7 @@ This index maps every normative section of [parent specification #17](https://gi
 | Shared task API | Conformance Contract | Identical black-box HTTP scenarios against both packaged adapters | Adapter slices |
 | Pi RPC lifecycle | Conformance Contract | Transcript replay through the deterministic fake Pi peer | Foundation |
 | Normalized browser task context | Conformance Contract | Valid and invalid context fixtures parsed independently by both adapters | Adapter slices |
-| Source-hint contract | Conformance Contract | Cross-adapter source classification fixtures plus native attribution tests | Phoenix slice |
+| Source-hint contract | Conformance Contract | Cross-adapter source classification fixtures plus native attribution tests | Adapter slices |
 | Bounds, truncation, and normalization | Conformance Contract | Golden bounded-context fixtures compared across native validators | Adapter slices |
 | Browser Client interaction | Browser Client | Browser-owned DOM tests and packaged example end-to-end flows | Adapter slices |
 | Security and configuration | Conformance Contract | Framework-native access, CSRF, activation, and startup validation tests | Adapter slices |

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "action_controller/railtie"
+require "action_view/railtie"
 require "rails/engine"
 require "ipaddr"
 require_relative "broker"
@@ -12,6 +13,22 @@ module Pi
         class Engine < ::Rails::Engine
           isolate_namespace Pi::Browser::Taskbar::Rails
           config.paths["config/routes.rb"] = File.expand_path("routes.rb", __dir__)
+
+          initializer "pi_browser_taskbar.enable_erb_annotations",
+            after: :load_environment_config,
+            before: :load_config_initializers do |app|
+            next unless ::Rails.env.development?
+
+            app.config.action_view.annotate_rendered_view_with_filenames = true
+            ActionView::Base.annotate_rendered_view_with_filenames = true
+          end
+
+          config.after_initialize do |_app|
+            next unless ::Rails.env.development?
+            next if ActionView::Base.annotate_rendered_view_with_filenames
+
+            raise "Pi Browser Taskbar requires config.action_view.annotate_rendered_view_with_filenames = true"
+          end
         end
 
         class ApplicationController < ActionController::Base

@@ -11,6 +11,7 @@ class RailsTaskTest < Minitest::Test
   ONE_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/one-focus-unavailable.json", __dir__)
   EIGHT_FOCUS = File.expand_path("../../../contract/fixtures/browser-context/eight-focus-unavailable.json", __dir__)
   PHOENIX_SOURCES = File.expand_path("../../../contract/fixtures/browser-context/phoenix-source-hints.json", __dir__)
+  RAILS_SOURCES = File.expand_path("../../../contract/fixtures/browser-context/rails-source-hints.json", __dir__)
   RICH_GOLDEN = File.expand_path("../../../contract/fixtures/prompts/rich-whole-page.json", __dir__)
   CONTRACT = File.expand_path("../../../contract", __dir__)
 
@@ -61,6 +62,14 @@ class RailsTaskTest < Minitest::Test
     definition, caller = task.context.fetch("focus_points").first.dig("source", "references")
     assert_equal "definition", definition.fetch("role")
     assert_equal "caller", caller.fetch("role")
+  end
+
+  def test_accepts_rails_template_precision_without_element_or_line_claims
+    context = JSON.parse(File.read(RAILS_SOURCES))
+    task = Pi::Browser::Taskbar::Rails::Task.parse("prompt" => "Use the Rails template hint.", "context" => context)
+
+    reference = task.context.fetch("focus_points").first.dig("source", "references", 0)
+    assert_equal({"role" => "template", "path" => "app/views/cards/_card.html.erb", "precision" => "template"}, reference)
   end
 
   def test_rejects_duplicate_and_out_of_allocation_context

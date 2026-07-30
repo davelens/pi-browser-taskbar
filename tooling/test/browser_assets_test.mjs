@@ -325,6 +325,186 @@ for (const framework of Object.keys(assets)) {
   });
 }
 
+test("Rails ERB hints cover layouts, partials, collections, caching, helpers, Turbo updates, external templates, and missing evidence", async () => {
+  const document = fakeDocument();
+  const cases = [];
+
+  cases.push(annotatedRailsElement(document, "app/views/layouts/application.html.erb", "layout"));
+
+  const nested = document.createElement("section");
+  document.body.appendChild(nested);
+  nested.appendChild(railsComment("BEGIN", "app/views/cards/index.html.erb"));
+  const partialHost = document.createElement("article");
+  nested.appendChild(partialHost);
+  nested.appendChild(railsComment("END", "app/views/cards/index.html.erb"));
+  partialHost.appendChild(railsComment("BEGIN", "app/views/cards/_card.html.erb"));
+  const nestedTarget = document.createElement("button");
+  nestedTarget.setAttribute("data-testid", "nested-partial");
+  partialHost.appendChild(nestedTarget);
+  partialHost.appendChild(railsComment("END", "app/views/cards/_card.html.erb"));
+  cases.push(nestedTarget);
+
+  annotatedRailsElement(document, "app/views/cards/_card.html.erb", "collection-first");
+  cases.push(annotatedRailsElement(document, "app/views/cards/_card.html.erb", "collection-second"));
+  cases.push(annotatedRailsElement(document, "app/views/cards/_cached_card.html.erb", "cached-fragment"));
+  cases.push(annotatedRailsElement(document, "app/views/cards/show.html.erb", "helper-generated"));
+
+  const externalHost = document.createElement("section");
+  document.body.appendChild(externalHost);
+  externalHost.appendChild(railsComment("BEGIN", "app/views/cards/show.html.erb"));
+  const externalInner = document.createElement("div");
+  externalHost.appendChild(externalInner);
+  externalHost.appendChild(railsComment("END", "app/views/cards/show.html.erb"));
+  externalInner.appendChild(railsComment("BEGIN", "/gems/library/app/views/widgets/_widget.html.erb"));
+  const externalTarget = document.createElement("button");
+  externalTarget.setAttribute("data-testid", "dependency-template");
+  externalInner.appendChild(externalTarget);
+  externalInner.appendChild(railsComment("END", "/gems/library/app/views/widgets/_widget.html.erb"));
+  cases.push(externalTarget);
+
+  const missing = document.createElement("button");
+  missing.setAttribute("data-testid", "missing-annotations");
+  document.body.appendChild(missing);
+  cases.push(missing);
+
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+      };
+    },
+    location: { origin: "http://localhost:3000", pathname: "/cards", search: "" },
+  });
+
+  const turboTarget = annotatedRailsElement(document, "app/views/cards/_card.html.erb", "turbo-update");
+  cases.splice(5, 0, turboTarget);
+  const mark = mounted.element.shadowRoot.querySelector("[data-mark]");
+  cases.forEach((element) => select(mark, document, element));
+  await mounted.submit("Use conservative Rails template evidence.");
+
+  const sources = requestBody.context.focus_points.map((point) => point.source);
+  assert.deepEqual(sources.slice(0, 6), [
+    railsSource("app/views/layouts/application.html.erb"),
+    railsSource("app/views/cards/_card.html.erb"),
+    railsSource("app/views/cards/_card.html.erb"),
+    railsSource("app/views/cards/_cached_card.html.erb"),
+    railsSource("app/views/cards/show.html.erb"),
+    railsSource("app/views/cards/_card.html.erb"),
+  ]);
+  assert.deepEqual(sources.slice(6), [
+    { status: "external", references: [] },
+    { status: "unavailable", references: [] },
+  ]);
+  assert.ok(sources.flatMap((source) => source.references).every((reference) =>
+    reference.precision === "template" && !("line" in reference) && !("symbol" in reference)));
+  assert.doesNotMatch(JSON.stringify(requestBody.context), /\/gems\/library|BEGIN|END/u);
+});
+
+test("Rails ERB hints reject malformed, overlapping, displaced, traversing, and vendored boundaries without outer fallback", async () => {
+  const document = fakeDocument();
+  const cases = [];
+
+  const malformed = document.createElement("section");
+  document.body.appendChild(malformed);
+  malformed.appendChild(comment(" BEGIN app/views/cards/_card.html.erb extra\n"));
+  const malformedTarget = document.createElement("button");
+  malformedTarget.setAttribute("data-testid", "malformed");
+  malformed.appendChild(malformedTarget);
+  malformed.appendChild(railsComment("END", "app/views/cards/_card.html.erb"));
+  cases.push(malformedTarget);
+
+  const overlapping = document.createElement("section");
+  document.body.appendChild(overlapping);
+  overlapping.appendChild(railsComment("BEGIN", "app/views/cards/index.html.erb"));
+  overlapping.appendChild(railsComment("BEGIN", "app/views/cards/_card.html.erb"));
+  const overlappingTarget = document.createElement("button");
+  overlappingTarget.setAttribute("data-testid", "overlapping");
+  overlapping.appendChild(overlappingTarget);
+  overlapping.appendChild(railsComment("END", "app/views/cards/index.html.erb"));
+  overlapping.appendChild(railsComment("END", "app/views/cards/_card.html.erb"));
+  cases.push(overlappingTarget);
+
+  const repaired = document.createElement("section");
+  document.body.appendChild(repaired);
+  repaired.appendChild(railsComment("BEGIN", "app/views/layouts/application.html.erb"));
+  const repairedHost = document.createElement("table");
+  repaired.appendChild(repairedHost);
+  repairedHost.appendChild(railsComment("BEGIN", "app/views/cards/_row.html.erb"));
+  const repairedTarget = document.createElement("button");
+  repairedTarget.setAttribute("data-testid", "browser-repaired");
+  repairedHost.appendChild(repairedTarget);
+  repaired.appendChild(railsComment("END", "app/views/cards/_row.html.erb"));
+  repaired.appendChild(railsComment("END", "app/views/layouts/application.html.erb"));
+  cases.push(repairedTarget);
+
+  cases.push(annotatedRailsElement(document, "../outside/app/views/cards/_card.html.erb", "traversal"));
+  cases.push(annotatedRailsElement(document, "vendor/bundle/ruby/gems/demo/app/views/_demo.html.erb", "vendored"));
+
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+      };
+    },
+    location: { origin: "http://localhost:3000", pathname: "/cards", search: "" },
+  });
+  const mark = mounted.element.shadowRoot.querySelector("[data-mark]");
+  cases.forEach((element) => select(mark, document, element));
+  await mounted.submit("Classify unsafe Rails annotation evidence.");
+
+  assert.deepEqual(
+    requestBody.context.focus_points.map((point) => point.source),
+    [
+      { status: "ambiguous", references: [] },
+      { status: "ambiguous", references: [] },
+      { status: "ambiguous", references: [] },
+      { status: "external", references: [] },
+      { status: "external", references: [] },
+    ],
+  );
+  assert.doesNotMatch(JSON.stringify(requestBody.context), /outside|vendor\/bundle|_row\.html\.erb/u);
+});
+
+function annotatedRailsElement(document, path, testId) {
+  const wrapper = document.createElement("section");
+  document.body.appendChild(wrapper);
+  wrapper.appendChild(railsComment("BEGIN", path));
+  const element = document.createElement("button");
+  element.setAttribute("data-testid", testId);
+  wrapper.appendChild(element);
+  wrapper.appendChild(railsComment("END", path));
+  return element;
+}
+
+function railsComment(kind, path) {
+  return comment(kind === "BEGIN" ? ` ${kind} ${path}\n` : ` ${kind} ${path} `);
+}
+
+function railsSource(path) {
+  return {
+    status: "available",
+    references: [{ role: "template", path, precision: "template" }],
+  };
+}
+
 test("Phoenix HEEx hints stay conservative across controller, LiveView, navigation, and DOM patch evidence", async () => {
   const document = fakeDocument();
   const cases = [];

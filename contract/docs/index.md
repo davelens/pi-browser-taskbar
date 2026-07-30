@@ -54,6 +54,12 @@ references. References carry a project-relative forward-slash path, `line` or `t
 and optional positive line and bounded symbol. Absolute, traversing, malformed, dependency-owned,
 or otherwise external paths are never retained.
 
+Rails source hints come only from native rendered-template ERB filename annotations. The innermost
+unique well-formed range enclosing a node may provide one project-relative `template` reference
+with `template` precision and no line or element-origin claim. An invalid, overlapping, external,
+missing, or browser-displaced inner boundary is classified rather than replaced with a surrounding
+layout hint. Cached and helper-generated markup may retain its enclosing template-level hint.
+
 Normalized lengths are measured in UTF-8 bytes: request 128 KiB, context 96 KiB, prompt 4,000,
 page snapshot 48 KiB/750 nodes/depth 12, and combined focus detail 48 KiB. Focus subtrees are
 limited to 100 nodes/depth 6. Focus selectors and complete source hints are reserved before detail;
