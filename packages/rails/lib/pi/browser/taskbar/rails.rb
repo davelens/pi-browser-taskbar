@@ -11,13 +11,12 @@ module Pi
     module Taskbar
       module Rails
         class Configuration
-          attr_accessor :allowed_hosts, :executable, :project_root, :runtime_root, :task_timeout
+          attr_accessor :allowed_hosts, :executable, :project_root, :task_timeout
 
           def initialize
             @allowed_hosts = []
             @executable = ENV.fetch("PI_BROWSER_TASKBAR_EXECUTABLE", "pi")
             @project_root = nil
-            @runtime_root = ENV["PI_BROWSER_TASKBAR_RUNTIME_ROOT"]
             @task_timeout = Integer(ENV.fetch("PI_BROWSER_TASKBAR_TASK_TIMEOUT", "1800"))
           end
         end
@@ -46,15 +45,9 @@ module Pi
               @broker_client ||= Broker::Client.new(
                 project_root: root,
                 executable: configuration.executable,
-                task_timeout: configuration.task_timeout,
-                runtime_root: configuration.runtime_root
+                task_timeout: configuration.task_timeout
               )
             end
-          end
-
-          def reset_client!
-            @broker_client.close if @broker_client
-            @broker_client = nil
           end
 
           def layout_bootstrap(view, mount: "/dev/pi-browser-taskbar")

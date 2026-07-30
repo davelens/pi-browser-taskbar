@@ -7,7 +7,7 @@ require_relative "../lib/pi/browser/taskbar/rails/broker"
 
 class RailsBrokerTest < Minitest::Test
   Broker = Pi::Browser::Taskbar::Rails::Broker
-  FAKE_PI = File.expand_path("../../phoenix/test/support/fake_pi_rpc", __dir__)
+  FAKE_PI = File.expand_path("support/fake_pi_rpc", __dir__)
   TASK = File.expand_path("../../../contract/fixtures/tasks/minimal-task.json", __dir__)
 
   def test_identity_is_canonical_private_and_checkout_scoped
@@ -59,10 +59,50 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
-  def test_lifetime_lock_allows_only_one_owner
-    with_server do |_client, _second, identity, _thread|
+  def test_losing_election_does_not_clean_up_the_live_owner
+    with_server do |client, _second, identity, thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+      metadata = File.read(identity.metadata_path)
+
       contender = Broker::Server.new(identity: identity, executable: FAKE_PI, grace: 0)
       refute contender.run
+
+      assert thread.alive?
+      assert File.socket?(identity.socket_path)
+      assert_equal metadata, File.read(identity.metadata_path)
+      assert_equal "ready", client.snapshot.dig("snapshot", "session", "status")
+    end
+  end
+
+  def test_broker_rejects_unknown_and_malformed_commands_before_dispatch
+    with_server do |client, _second, identity, _thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+      peer = connect_peer(identity)
+
+      write_peer(peer, "type" => "explode", "id" => "a" * 24)
+      assert_equal "unknown broker command", read_peer(peer)["message"]
+
+      write_peer(peer, "type" => "state", "id" => "b" * 24, "extra" => true)
+      assert_equal "malformed broker command", read_peer(peer)["message"]
+
+      write_peer(peer, "type" => "submit", "id" => "c" * 24, "task" => {})
+      parsed = read_peer(peer)
+      assert_equal "invalid", parsed["result"]
+      assert_match(/task is missing field/, parsed["message"])
+      assert_equal "ready", client.snapshot.dig("snapshot", "session", "status")
+    ensure
+      peer.close if peer
+    end
+  end
+
+  def test_pi_stderr_does_not_corrupt_json_rpc
+    with_server do |client, _second, _identity, _thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+      task = JSON.parse(File.read(TASK)).merge("prompt" => "stderr output")
+
+      assert_equal "accepted", client.submit(task)["result"]
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      assert_equal "Implemented the whole-page request.", client.snapshot.dig("snapshot", "task", "output")
     end
   end
 
@@ -87,6 +127,31 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_client_closes_a_socket_when_handshake_parsing_fails
+    Dir.mktmpdir("broker-runtime") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        identity = Broker::Identity.new(project, runtime_root: runtime_root)
+        listener = UNIXServer.new(identity.socket_path)
+        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "token", "socket" => identity.socket_path}
+        responder = Thread.new do
+          peer = listener.accept
+          peer.gets
+          peer.puts "{not-json"
+          peer.read.empty?
+        ensure
+          peer.close if peer
+        end
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root)
+
+        assert_equal :missing, client.send(:connect_metadata, metadata)
+        assert responder.value
+      ensure
+        client.close if client
+        listener.close if listener
+      end
+    end
+  end
+
   def test_client_discards_inherited_connection_and_reconnects_after_fork
     skip "fork unavailable" unless Process.respond_to?(:fork)
     with_server do |client, _second, _identity, _thread|
@@ -94,18 +159,37 @@ class RailsBrokerTest < Minitest::Test
       reader, writer = IO.pipe
       pid = fork do
         reader.close
-        writer.write(Marshal.dump(client.snapshot.dig("snapshot", "session", "id")))
+        inherited = client.instance_variable_get(:@socket)
+        child_session = client.snapshot.dig("snapshot", "session", "id")
+        writer.write(Marshal.dump([child_session, inherited.closed?]))
         writer.close
         exit! 0
       end
       writer.close
-      child_session = Marshal.load(reader.read)
+      child_session, inherited_closed = Marshal.load(reader.read)
       Process.wait(pid)
+      assert inherited_closed
       assert_equal client.snapshot.dig("snapshot", "session", "id"), child_session
     end
   end
 
   private
+
+  def connect_peer(identity)
+    metadata = JSON.parse(File.read(identity.metadata_path))
+    peer = UNIXSocket.new(identity.socket_path)
+    write_peer(peer, "type" => "handshake", "protocol" => 1, "identity" => identity.identity, "token" => metadata.fetch("token"))
+    assert_equal "handshake", read_peer(peer)["type"]
+    peer
+  end
+
+  def write_peer(peer, value)
+    peer.puts(JSON.generate(value))
+  end
+
+  def read_peer(peer)
+    JSON.parse(peer.gets)
+  end
 
   def with_server
     Dir.mktmpdir("broker-runtime") do |runtime_root|

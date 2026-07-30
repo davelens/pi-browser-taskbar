@@ -1,0 +1,53 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "json"
+
+$stdin.each_line do |line|
+  command = JSON.parse(line)
+
+  case command.fetch("type")
+  when "get_state"
+    puts JSON.generate(
+      type: "response",
+      id: command.fetch("id"),
+      success: true,
+      data: {
+        sessionId: "fixture-session",
+        model: {provider: "test", id: "fake-pi"}
+      }
+    )
+  when "prompt"
+    warn "fake Pi diagnostic" if command.fetch("message").include?("stderr output")
+
+    if command.fetch("message").include?("stale response")
+      puts JSON.generate(type: "response", id: "task-stale-command", success: false)
+    end
+
+    puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+    puts JSON.generate(type: "agent_start")
+
+    if command.fetch("message").include?("oversized record")
+      puts("x" * 1_000_001)
+      next
+    end
+
+    if command.fetch("message").include?("malformed record")
+      puts("{not-json")
+      puts JSON.generate(type: "agent_settled")
+      $stdout.flush
+      next
+    end
+
+    puts JSON.generate(
+      type: "message_update",
+      assistantMessageEvent: {
+        type: "text_delta",
+        delta: "Implemented the whole-page request."
+      }
+    )
+    puts JSON.generate(type: "agent_settled") unless command.fetch("message").include?("hold this task")
+  end
+
+  $stdout.flush
+end

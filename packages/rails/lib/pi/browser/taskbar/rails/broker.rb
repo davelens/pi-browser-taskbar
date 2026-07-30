@@ -125,12 +125,19 @@ module Pi
             private
 
             def start_pi
-              @stdin, @stdout, @wait_thread = Open3.popen2e(@executable, "--mode", "rpc", chdir: @project_root)
+              @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(@executable, "--mode", "rpc", chdir: @project_root)
+              @stderr_reader = Thread.new { drain_stderr }
               @startup_id = "startup-#{SecureRandom.urlsafe_base64(18, false)}"
               write(type: "get_state", id: @startup_id)
               @reader = Thread.new { read_events }
             rescue SystemCallError
               @mutex.synchronize { unavailable_unlocked("Pi executable was not found or could not be started") }
+            end
+
+            def drain_stderr
+              loop { @stderr.readpartial(16 * 1024) }
+            rescue EOFError, IOError
+              nil
             end
 
             def read_events
@@ -247,8 +254,10 @@ module Pi
             end
 
             def run
+              owner = false
               File.open(@identity.lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
                 return false unless lock.flock(File::LOCK_EX | File::LOCK_NB)
+                owner = true
                 File.unlink(@identity.socket_path) if File.exist?(@identity.socket_path)
                 @socket = UNIXServer.new(@identity.socket_path)
                 File.chmod(0o600, @identity.socket_path)
@@ -256,10 +265,12 @@ module Pi
                 publish_metadata
                 accept_loop
               ensure
-                @socket.close if @socket && !@socket.closed?
-                @runtime.close if @runtime
-                File.unlink(@identity.socket_path) if File.exist?(@identity.socket_path)
-                File.unlink(@identity.metadata_path) if File.exist?(@identity.metadata_path)
+                if owner
+                  @socket.close if @socket && !@socket.closed?
+                  @runtime.close if @runtime
+                  File.unlink(@identity.socket_path) if File.exist?(@identity.socket_path)
+                  File.unlink(@identity.metadata_path) if File.exist?(@identity.metadata_path)
+                end
               end
               true
             end
@@ -305,14 +316,15 @@ module Pi
               end
               write_record(client, "type" => "handshake", "protocol" => PROTOCOL_VERSION, "identity" => @identity.identity, "token" => @token)
               while (command = read_record(client))
-                case command["type"]
-                when "state"
+                if command_shape?(command, "state", %w[id type])
                   write_record(client, "id" => command["id"], "ok" => true, "snapshot" => @runtime.snapshot)
-                when "submit"
+                elsif command_shape?(command, "submit", %w[id task type])
                   result, value = @runtime.submit(command["task"])
                   write_record(client, "id" => command["id"], "ok" => result == :accepted, "result" => result.to_s, result == :invalid ? "message" : "snapshot" => value)
                 else
-                  write_record(client, "id" => command["id"], "ok" => false, "result" => "invalid", "message" => "unknown broker command")
+                  id = command["id"] if command.is_a?(Hash) && command["id"].is_a?(String)
+                  known = command.is_a?(Hash) && %w[state submit].include?(command["type"])
+                  write_record(client, "id" => id, "ok" => false, "result" => "invalid", "message" => known ? "malformed broker command" : "unknown broker command")
                 end
               end
             rescue JSON::ParserError, IOError, SystemCallError, Unavailable
@@ -323,6 +335,11 @@ module Pi
                 @clients -= 1
                 @last_zero = Process.clock_gettime(Process::CLOCK_MONOTONIC) if @clients.zero?
               end
+            end
+
+            def command_shape?(command, type, keys)
+              command.is_a?(Hash) && command.keys.sort == keys && command["type"] == type &&
+                command["id"].is_a?(String) && command["id"].match?(/\A[0-9a-f]{24}\z/)
             end
 
             def read_record(io)
@@ -339,11 +356,10 @@ module Pi
           end
 
           class Client
-            def initialize(project_root:, executable: "pi", task_timeout: 1_800, runtime_root: nil, launcher: nil)
+            def initialize(project_root:, executable: "pi", task_timeout: 1_800, runtime_root: nil)
               @identity = Identity.new(project_root, runtime_root: runtime_root)
               @executable = executable
               @task_timeout = task_timeout
-              @launcher = launcher || File.expand_path("broker_launcher.rb", __dir__)
               @mutex = Mutex.new
               @pid = Process.pid
             end
@@ -378,17 +394,27 @@ module Pi
                 response = read_record
                 raise Unavailable, "broker response was not correlated" unless response["id"] == command["id"]
                 response
+              rescue Unavailable
+                discard_socket
+                raise
               rescue JSON::ParserError, IOError, SystemCallError => error
-                @socket = nil
+                discard_socket
                 raise Unavailable, "broker is unavailable: #{error.message}"
               end
             end
 
             def reset_after_fork
               return if @pid == Process.pid
-              # Deliberately do not close the inherited descriptor: that can affect the parent's logical connection.
-              @socket = nil
+              discard_socket
               @pid = Process.pid
+            end
+
+            def discard_socket
+              @socket.close if @socket && !@socket.closed?
+            rescue IOError, SystemCallError
+              nil
+            ensure
+              @socket = nil
             end
 
             def connect
@@ -431,17 +457,22 @@ module Pi
               @socket = socket
               :connected
             rescue Errno::ENOENT, Errno::ECONNREFUSED, IOError, JSON::ParserError
+              begin
+                socket.close if socket && !socket.closed?
+              rescue IOError, SystemCallError
+                nil
+              end
               :missing
             end
 
             def launch
               env = {
                 "PI_BROWSER_TASKBAR_PROJECT_ROOT" => @identity.project_root,
-                "PI_BROWSER_TASKBAR_RUNTIME_ROOT" => File.dirname(@identity.directory),
                 "PI_BROWSER_TASKBAR_EXECUTABLE" => @executable,
                 "PI_BROWSER_TASKBAR_TASK_TIMEOUT" => @task_timeout.to_s
               }
-              pid = Process.spawn(env, RbConfig.ruby, @launcher, out: File::NULL, err: File::NULL, close_others: true)
+              launcher = File.expand_path("broker_launcher.rb", __dir__)
+              pid = Process.spawn(env, RbConfig.ruby, launcher, out: File::NULL, err: File::NULL, close_others: true)
               Process.detach(pid)
             rescue SystemCallError => error
               raise Unavailable, "broker could not be launched: #{error.message}"

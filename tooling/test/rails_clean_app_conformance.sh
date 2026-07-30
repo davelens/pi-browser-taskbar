@@ -7,12 +7,13 @@ rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3}
 artifact="$root/build/pi-browser-taskbar-rails-$version.gem"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pi-browser-taskbar-rails.XXXXXX")
 runtime_root="$tmp/runtime"
+broker_root="$runtime_root/pi-browser-taskbar"
 gem_home="$tmp/gems"
 app="$tmp/demo"
 original_gem_path=$(ruby -e 'puts Gem.path.join(":")')
 cleanup() {
-  if [[ -f "$runtime_root"/*/endpoint.json ]]; then
-    ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$runtime_root"/*/endpoint.json || true
+  if [[ -f "$broker_root"/*/endpoint.json ]]; then
+    ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json || true
   fi
   rm -rf "$tmp"
 }
@@ -24,7 +25,7 @@ fi
 gem install "$artifact" --install-dir "$gem_home" --local --no-document >/dev/null
 mkdir -p "$app/config/environments" "$app/config/initializers" "$app/app/controllers" "$app/app/views/layouts" "$app/app/views/home" "$app/bin" "$runtime_root" "$root/build/conformance"
 chmod 700 "$runtime_root"
-cp "$root/packages/phoenix/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
+cp "$root/packages/rails/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
 chmod +x "$tmp/fake_pi_rpc"
 cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.json"
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
@@ -83,8 +84,7 @@ chmod +x "$app/bin/rails"
 export GEM_HOME="$gem_home"
 export GEM_PATH="$gem_home:$original_gem_path"
 export PI_BROWSER_TASKBAR_EXECUTABLE="$tmp/fake_pi_rpc"
-export PI_BROWSER_TASKBAR_RUNTIME_ROOT="$runtime_root"
-export PI_BROWSER_TASKBAR_BROKER_GRACE=300
+export XDG_RUNTIME_DIR="$runtime_root"
 export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/rails.json"
@@ -169,7 +169,7 @@ module CleanRailsConformance
     assert second.response.status == 409 && JSON.parse(second.response.body).dig("error", "code") == "busy", "admission was not atomic"
     assert created.dig("session", "id") == JSON.parse(second.response.body).dig("snapshot", "session", "id"), "Rails clients did not share one broker session"
 
-    semantic = {"created_status" => created_status, "created" => normalize(created), "completed_status" => 200, "completed" => normalize(completed)}
+    semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200, "completed" => completed}
     File.write(ENV.fetch("PI_BROWSER_TASKBAR_SEMANTICS"), JSON.pretty_generate(semantic))
     spec = Gem.loaded_specs.fetch("pi-browser-taskbar-rails")
     assert spec.full_gem_path.start_with?(ENV.fetch("GEM_HOME")), "adapter loaded from source workspace"
@@ -177,18 +177,6 @@ module CleanRailsConformance
     puts "clean Rails CSRF and access conformance passed"
     puts "Rails broker ownership conformance passed"
     puts "clean Rails development conformance passed"
-  end
-
-  def normalize(value)
-    case value
-    when Hash
-      value.each_with_object({}) do |(key, nested), result|
-        next if key == "id" || key == "started_at" || key == "finished_at"
-        result[key] = normalize(nested)
-      end
-    when Array then value.map { |nested| normalize(nested) }
-    else value
-    end
   end
 
   def wait_until
@@ -213,9 +201,9 @@ RUBY
 )
 
 # End the development broker before proving a package-absent production boot.
-ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$runtime_root"/*/endpoint.json
+ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json
 for _ in $(seq 1 100); do
-  [[ ! -e "$runtime_root"/*/endpoint.json ]] && break
+  [[ ! -e "$broker_root"/*/endpoint.json ]] && break
   sleep 0.02
 done
 mv "$gem_home/gems/pi-browser-taskbar-rails-$version" "$tmp/package-removed"
@@ -228,7 +216,7 @@ raise "production mounted taskbar routes" if routes.any? { |path| path.include?(
 layout = File.read(Rails.root.join("app/views/layouts/application.html.erb"))
 rendered = ApplicationController.render(template: "home/index", layout: "application")
 raise "production emitted taskbar assets" if rendered.include?("pi-browser-taskbar")
-raise "production started broker" unless Dir[File.join(ENV.fetch("PI_BROWSER_TASKBAR_RUNTIME_ROOT"), "*", "endpoint.json")].empty?
+raise "production started broker" unless Dir[File.join(ENV.fetch("XDG_RUNTIME_DIR"), "pi-browser-taskbar", "*", "endpoint.json")].empty?
 puts "clean Rails production isolation passed"
 RUBY
 

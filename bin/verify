@@ -37,6 +37,7 @@ printf '%s\n' '==> Run packaged Phoenix clean-application conformance'
 tooling/test/phoenix_clean_app_conformance.sh
 
 printf '%s\n' '==> Compare packaged adapter semantics'
+ruby tooling/test/compare_adapter_semantics_test.rb
 ruby tooling/test/compare_adapter_semantics.rb
 
 printf '%s\n' 'verification passed'

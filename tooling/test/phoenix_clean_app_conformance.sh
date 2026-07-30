@@ -154,9 +154,9 @@ defmodule CleanAppConformance do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, Jason.encode!(%{
         "created_status" => created.status,
-        "created" => normalize(created_json),
+        "created" => created_json,
         "completed_status" => 200,
-        "completed" => normalize(completed)
+        "completed" => completed
       }, pretty: true))
     end
 
@@ -192,14 +192,6 @@ defmodule CleanAppConformance do
   defp maybe_json(conn, nil), do: conn
   defp maybe_json(conn, _body), do: put_req_header(conn, "content-type", "application/json")
   defp response_json(conn), do: Jason.decode!(conn.resp_body)
-
-  defp normalize(value) when is_map(value) do
-    value
-    |> Map.drop(["id", "started_at", "finished_at"])
-    |> Map.new(fn {key, nested} -> {key, normalize(nested)} end)
-  end
-  defp normalize(value) when is_list(value), do: Enum.map(value, &normalize/1)
-  defp normalize(value), do: value
 
   defp wait_until(predicate, attempts \\ 200)
   defp wait_until(predicate, attempts) when attempts > 0 do
