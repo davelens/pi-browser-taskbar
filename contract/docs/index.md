@@ -6,10 +6,10 @@ This directory is the normative shared source for cross-adapter wire behavior. S
 are test-time authority; they are not a Ruby or Elixir runtime dependency and do not generate
 adapter implementation code.
 
-The executable foundation establishes fixture formats and the first task/context shapes. The
-Phoenix whole-page tracer bullet adds a shared black-box HTTP scenario that is installed from the
-built artifact into a clean conventional host and driven against a deterministic fake Pi peer. Later tracer bullets extend these scenarios
-without moving authority into either adapter.
+The executable foundation establishes fixture formats and the first task/context shapes. Both
+whole-page adapter tracer bullets execute the same black-box HTTP scenario from built artifacts in
+clean conventional hosts against a deterministic fake Pi peer. Later tracer bullets extend these
+scenarios without moving authority into either adapter.
 
 ## Versioning
 
@@ -50,9 +50,8 @@ The first negative fixture adds an unknown top-level browser-context property, p
 
 HTTP scenarios, prompt goldens, and Pi RPC transcript formats are versioned alongside browser
 context. An HTTP scenario may name a contract task fixture as its request body. The deterministic
-fake RPC peer replays transcript `receive`/`send` steps. The Phoenix package currently executes the
-whole-page scenario from `POST /tasks` through `agent_settled` and the canonical completed state;
-Rails parity remains a later tracer bullet.
+fake RPC peer replays transcript `receive`/`send` steps. Both packages execute the whole-page scenario from `POST /tasks` through `agent_settled` and the
+canonical completed state. Root conformance rejects semantic drift except opaque IDs and timestamps.
 
 See the [traceability index](../traceability.md) for normative parent sections and their eventual
 acceptance seams.

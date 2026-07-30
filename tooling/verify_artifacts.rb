@@ -32,6 +32,16 @@ class ArtifactVerifier
       package.extract_files(directory)
       files = package.spec.files
       asset = "lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js"
+      required = [
+        "lib/pi/browser/taskbar/rails/engine.rb",
+        "lib/pi/browser/taskbar/rails/routes.rb",
+        "lib/pi/browser/taskbar/rails/task.rb",
+        "lib/pi/browser/taskbar/rails/broker.rb",
+        "lib/pi/browser/taskbar/rails/broker_launcher.rb",
+        "lib/generators/pi_browser_taskbar/install_generator.rb"
+      ]
+      missing = required - files
+      raise "Rails artifact omits runtime entries: #{missing.join(", ")}" unless missing.empty?
       verify_contents("Rails", files, asset)
       verify_license("Rails", File.read(File.join(directory, "LICENSE")))
       verify_bootstrap("Rails", File.read(File.join(directory, asset)), "rails")

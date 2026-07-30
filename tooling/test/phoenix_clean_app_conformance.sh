@@ -150,6 +150,16 @@ defmodule CleanAppConformance do
     completed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
     assert!(completed["task"]["output"] == expected["terminal_output"], "fake output differed")
 
+    if path = System.get_env("PI_BROWSER_TASKBAR_SEMANTICS") do
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, Jason.encode!(%{
+        "created_status" => created.status,
+        "created" => normalize(created_json),
+        "completed_status" => 200,
+        "completed" => normalize(completed)
+      }, pretty: true))
+    end
+
     {:safe, layout} = DemoWeb.PiBrowserTaskbar.layout_bootstrap()
     assert!(IO.iodata_to_binary(layout) =~ "data-pi-browser-taskbar-bootstrap", "layout bootstrap missing")
     assert!(is_pid(Process.whereis(DemoWeb.Endpoint)), "host endpoint did not boot")
@@ -182,6 +192,14 @@ defmodule CleanAppConformance do
   defp maybe_json(conn, nil), do: conn
   defp maybe_json(conn, _body), do: put_req_header(conn, "content-type", "application/json")
   defp response_json(conn), do: Jason.decode!(conn.resp_body)
+
+  defp normalize(value) when is_map(value) do
+    value
+    |> Map.drop(["id", "started_at", "finished_at"])
+    |> Map.new(fn {key, nested} -> {key, normalize(nested)} end)
+  end
+  defp normalize(value) when is_list(value), do: Enum.map(value, &normalize/1)
+  defp normalize(value), do: value
 
   defp wait_until(predicate, attempts \\ 200)
   defp wait_until(predicate, attempts) when attempts > 0 do
@@ -216,6 +234,7 @@ EOF
 export PI_BROWSER_TASKBAR_FAKE="$tmp/fake_pi_rpc"
 export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
+export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
 
 (
   cd "$app"

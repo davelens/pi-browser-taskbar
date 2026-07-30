@@ -5,7 +5,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
 printf '%s\n' '==> Validate shell entry points'
-bash -n bin/build bin/verify tooling/build_packages.sh tooling/test/phoenix_clean_app_conformance.sh
+bash -n bin/build bin/verify tooling/build_packages.sh tooling/test/phoenix_clean_app_conformance.sh tooling/test/rails_clean_app_conformance.sh
 
 printf '%s\n' '==> Validate executable contracts'
 ruby tooling/contract_validator.rb
@@ -30,7 +30,13 @@ printf '%s\n' '==> Build and inspect ecosystem artifacts'
 tooling/build_packages.sh
 ruby tooling/verify_artifacts.rb
 
+printf '%s\n' '==> Run packaged Rails clean-application conformance'
+tooling/test/rails_clean_app_conformance.sh
+
 printf '%s\n' '==> Run packaged Phoenix clean-application conformance'
 tooling/test/phoenix_clean_app_conformance.sh
+
+printf '%s\n' '==> Compare packaged adapter semantics'
+ruby tooling/test/compare_adapter_semantics.rb
 
 printf '%s\n' 'verification passed'

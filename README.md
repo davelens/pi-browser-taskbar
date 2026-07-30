@@ -14,8 +14,9 @@ package do not need Node or a JavaScript package manager.
 
 The executable foundation contains versioned contract schemas and fixtures, native package
 artifacts, deterministic browser asset generation, and automated ownership checks. The Phoenix
-adapter now includes the first whole-page tracer bullet: installer, Browser Client, native HTTP
-security, one supervised Pi RPC session, and completed fake-Pi output.
+and Rails adapters now include equivalent whole-page tracer bullets: installers, Browser Client,
+native HTTP security, canonical Pi ownership, and completed fake-Pi output. Rails uses one external
+checkout-scoped broker; Phoenix uses one supervised runtime.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
 [architecture guide](docs/architecture.md) explains package ownership and dependency direction.
@@ -30,8 +31,9 @@ bin/verify
 
 It validates contract fixtures (including an intentionally invalid fixture), rejects ownership or
 version drift, checks generated assets, runs native package tests, builds both package artifacts,
-inspects their contents, and installs the built Phoenix artifact into a clean conventional host for
-development-flow and production-isolation conformance. Artifacts are written to `build/`.
+inspects their contents, installs both built artifacts into clean conventional hosts for
+development-flow and production-isolation conformance, and compares adapter semantics while
+ignoring only opaque IDs and timestamps. Artifacts are written to `build/`.
 
 To regenerate committed package assets after changing Browser Client or provider source, run:
 

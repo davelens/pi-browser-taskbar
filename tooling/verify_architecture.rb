@@ -169,7 +169,7 @@ class ArchitectureVerifier
     sections.each do |section|
       error("traceability owner unknown for #{section["heading"]}") unless REQUIRED_MODULES.include?(section.fetch("owner"))
       error("traceability seam empty for #{section["heading"]}") if section.fetch("acceptance_seam").strip.empty?
-      unless %w[foundation future phoenix-slice].include?(section.fetch("status"))
+      unless %w[foundation future phoenix-slice rails-slice adapter-slices].include?(section.fetch("status"))
         error("traceability status invalid for #{section["heading"]}")
       end
     end

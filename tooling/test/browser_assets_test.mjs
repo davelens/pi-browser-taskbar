@@ -33,7 +33,8 @@ for (const [framework, relativePath] of Object.entries(assets)) {
   });
 }
 
-test("Phoenix Browser Client submits bounded whole-page context and renders completed output", async () => {
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client submits bounded whole-page context and renders completed output`, async () => {
   const document = fakeDocument();
   const visible = document.createElement("p");
   visible.childNodes.push({ nodeType: 3, nodeValue: "🧪".repeat(700) });
@@ -73,7 +74,7 @@ test("Phoenix Browser Client submits bounded whole-page context and renders comp
     clearTimeout() {},
     setTimeout() { return 1; },
   };
-  const source = fs.readFileSync(path.join(root, assets.phoenix), "utf8");
+  const source = fs.readFileSync(path.join(root, assets[framework]), "utf8");
   vm.runInNewContext(source, sandbox);
 
   const mounted = sandbox.PiBrowserTaskbar.mount({
@@ -106,7 +107,8 @@ test("Phoenix Browser Client submits bounded whole-page context and renders comp
   assert.doesNotMatch(JSON.stringify(body.context), /hidden secret|editable secret/);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-output]").textContent, "Implemented the whole-page request.");
   assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Finished");
-});
+  });
+}
 
 test("Browser Client discards an older state read after task submission", async () => {
   const document = fakeDocument();
