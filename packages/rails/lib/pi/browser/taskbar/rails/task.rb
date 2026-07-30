@@ -81,21 +81,21 @@ module Pi
           def normalize_location!(location)
             return unless location.is_a?(Hash)
             %w[origin path].each { |key| location[key] = structural(location[key]) }
-            location["query_names"]&.map! { |name| structural(name) }
+            location["query_names"].map! { |name| structural(name) } if location["query_names"].is_a?(Array)
           end
 
           def normalize_route!(route)
             return unless route.is_a?(Hash)
             %w[pattern handler action].each { |key| route[key] = structural(route[key]) }
-            route["method"] = structural(route["method"])&.upcase
+            route["method"] = normalize_case(route["method"], :upcase)
             route["action"] = nil if route["action"] == ""
           end
 
           def normalize_node!(node)
             return unless node.is_a?(Hash)
-            node["tag"] = structural(node["tag"])&.downcase
+            node["tag"] = normalize_case(node["tag"], :downcase)
             %w[role name text id].each { |key| normalize_optional!(node, key) }
-            node["classes"]&.map! { |value| structural(value) }
+            node["classes"].map! { |value| structural(value) } if node["classes"].is_a?(Array)
             node.delete("classes") if node["classes"] == []
             if node["attributes"].is_a?(Hash)
               node["attributes"].keys.each { |key| normalize_optional!(node["attributes"], key) }
@@ -107,7 +107,7 @@ module Pi
             end
             normalize_location!(node["href"])
             normalize_location!(node["src"])
-            node["children"]&.each { |child| normalize_node!(child) }
+            node["children"].each { |child| normalize_node!(child) } if node["children"].is_a?(Array)
           end
 
           def normalize_optional!(hash, key)
@@ -121,10 +121,11 @@ module Pi
             points.each do |point|
               next unless point.is_a?(Hash)
               point["selector"] = structural(point["selector"])
-              point["source_status"] = structural(point["source_status"])&.downcase
-              point["ancestors"]&.each do |summary|
+              point["source_status"] = normalize_case(point["source_status"], :downcase)
+              next unless point["ancestors"].is_a?(Array)
+              point["ancestors"].each do |summary|
                 next unless summary.is_a?(Hash)
-                summary["tag"] = structural(summary["tag"])&.downcase
+                summary["tag"] = normalize_case(summary["tag"], :downcase)
                 %w[role name id].each { |key| normalize_optional!(summary, key) }
               end
               normalize_node!(point["subtree"])
@@ -135,15 +136,21 @@ module Pi
             return unless entries.is_a?(Array)
             entries.each do |entry|
               next unless entry.is_a?(Hash)
-              entry["section"] = structural(entry["section"])&.downcase
-              entry["reasons"]&.map! { |reason| structural(reason)&.downcase }
-              entry["reasons"]&.sort_by! { |reason| TRUNCATION_REASONS.index(reason) || TRUNCATION_REASONS.length }
+              entry["section"] = normalize_case(entry["section"], :downcase)
+              if entry["reasons"].is_a?(Array)
+                entry["reasons"].map! { |reason| normalize_case(reason, :downcase) }
+                entry["reasons"].sort_by! { |reason| TRUNCATION_REASONS.index(reason) || TRUNCATION_REASONS.length }
+              end
             end
             entries.sort_by! { |entry| entry.is_a?(Hash) ? truncation_order(entry["section"]) : 10 }
           end
 
           def truncation_order(section)
             section == "page" ? 0 : section.to_s.delete_prefix("focus:").to_i
+          end
+
+          def normalize_case(value, method)
+            value.is_a?(String) ? structural(value).public_send(method) : value
           end
 
           def validate_context!
@@ -169,7 +176,9 @@ module Pi
               invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")
             end
             string!(location["path"], "#{label}.path", 2_048)
-            invalid!("#{label}.path is invalid") unless location["path"].start_with?("/")
+            unless location["path"].start_with?("/") && !location["path"].match?(/[?#]/)
+              invalid!("#{label}.path is invalid")
+            end
             strings!(location["query_names"], "#{label}.query_names", 32, 128)
           rescue URI::InvalidURIError
             invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")

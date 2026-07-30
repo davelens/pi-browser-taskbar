@@ -3,6 +3,7 @@
   "$id": "https://pi-browser-taskbar.dev/contract/schemas/browser-context.v1.schema.json",
   "title": "Normalized browser context v1",
   "type": "object",
+  "x-maxJsonUtf8Bytes": 98304,
   "required": ["contract_version", "location", "route", "snapshot", "focus_points", "truncation"],
   "properties": {
     "contract_version": {"const": 1},
@@ -18,10 +19,16 @@
       },
       "additionalProperties": false
     },
-    "snapshot": {"$ref": "#/$defs/node"},
+    "snapshot": {
+      "$ref": "#/$defs/node",
+      "x-maxJsonUtf8Bytes": 49152,
+      "x-maxNodes": 750,
+      "x-maxDepth": 12
+    },
     "focus_points": {
       "type": "array",
       "maxItems": 8,
+      "x-maxJsonUtf8Bytes": 49152,
       "items": {"$ref": "#/$defs/focusPoint"}
     },
     "truncation": {
@@ -42,7 +49,7 @@
           "x-maxUtf8Bytes": 512,
           "pattern": "^https?://[^/?#@]+$"
         },
-        "path": {"type": "string", "minLength": 1, "maxLength": 2048, "x-maxUtf8Bytes": 2048, "pattern": "^/"},
+        "path": {"type": "string", "minLength": 1, "maxLength": 2048, "x-maxUtf8Bytes": 2048, "pattern": "^/[^?#]*$"},
         "query_names": {
           "type": "array",
           "maxItems": 32,
@@ -123,7 +130,7 @@
           "maxItems": 8,
           "items": {"$ref": "#/$defs/nodeSummary"}
         },
-        "subtree": {"$ref": "#/$defs/node"}
+        "subtree": {"$ref": "#/$defs/node", "x-maxNodes": 100, "x-maxDepth": 6}
       },
       "additionalProperties": false
     },

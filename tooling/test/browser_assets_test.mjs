@@ -69,8 +69,20 @@ for (const framework of Object.keys(assets)) {
 
   const input = document.createElement("input");
   input.value = "form value secret";
+  input.disabled = false;
+  input.checked = true;
+  input.required = true;
+  input.setAttribute("type", "checkbox");
   input.setAttribute("value", "attribute value secret");
   document.body.appendChild(input);
+
+  const label = document.createElement("span");
+  label.setAttribute("id", "labelled-name");
+  label.childNodes.push({ nodeType: 3, nodeValue: "Labelled action" });
+  document.body.appendChild(label);
+  const labelledButton = document.createElement("button");
+  labelledButton.setAttribute("aria-labelledby", "labelled-name");
+  document.body.appendChild(labelledButton);
 
   const hiddenInput = document.createElement("input");
   hiddenInput.setAttribute("type", "hidden");
@@ -169,6 +181,10 @@ for (const framework of Object.keys(assets)) {
     path: "/checkout",
     query_names: ["token", "step"],
   });
+  const inputNode = body.context.snapshot.children.find((node) => node.tag === "input");
+  assert.deepEqual(inputNode.state, { disabled: false, checked: true, required: true });
+  const buttonNode = body.context.snapshot.children.find((node) => node.tag === "button");
+  assert.equal(buttonNode.name, "Labelled action");
   assert.doesNotMatch(JSON.stringify(body.context), /secret|editable|selected|raw_html|data-secret/);
   assert.deepEqual(body.context.truncation, [{ section: "page", reasons: ["depth", "string"] }]);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-output]").textContent, "Implemented the whole-page request.");
@@ -309,6 +325,15 @@ function fakeDocument() {
       },
     },
     createElement(localName) { return new FakeElement(localName); },
+    getElementById(id) {
+      const queue = [body];
+      while (queue.length > 0) {
+        const element = queue.shift();
+        if (element.getAttribute?.("id") === id) return element;
+        queue.push(...element.children);
+      }
+      return null;
+    },
     querySelector() { return null; },
   };
 }

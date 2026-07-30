@@ -217,9 +217,17 @@ defmodule PiBrowserTaskbarPhoenix.Task do
         entry
     end)
     |> Enum.sort_by(fn
-      %{"section" => "page"} -> 0
-      %{"section" => "focus:" <> index} -> String.to_integer(index)
-      _entry -> 10
+      %{"section" => "page"} ->
+        0
+
+      %{"section" => "focus:" <> index} ->
+        case Integer.parse(index) do
+          {number, ""} -> number
+          _error -> 10
+        end
+
+      _entry ->
+        10
     end)
   end
 
@@ -268,7 +276,9 @@ defmodule PiBrowserTaskbarPhoenix.Task do
     with :ok <- exact_fields(location, @allowed_location_fields, label),
          :ok <- valid_origin(location["origin"], label),
          :ok <-
-           bounded_string(location["path"], "#{label}.path", 2_048, &String.starts_with?(&1, "/")),
+           bounded_string(location["path"], "#{label}.path", 2_048, fn path ->
+             String.starts_with?(path, "/") and !String.contains?(path, ["?", "#"])
+           end),
          :ok <- unique_strings(location["query_names"], "#{label}.query_names", 32, 128) do
       :ok
     end

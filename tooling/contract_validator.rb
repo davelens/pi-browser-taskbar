@@ -39,6 +39,16 @@ module ContractValidation
         return errors
       end
 
+      if schema["x-maxJsonUtf8Bytes"] && JSON.generate(value).bytesize > schema["x-maxJsonUtf8Bytes"]
+        errors << "#{path}: JSON exceeds #{schema["x-maxJsonUtf8Bytes"]} UTF-8 bytes"
+      end
+      if schema["x-maxNodes"] && node_count(value) > schema["x-maxNodes"]
+        errors << "#{path}: tree exceeds #{schema["x-maxNodes"]} nodes"
+      end
+      if schema["x-maxDepth"] && node_depth(value) > schema["x-maxDepth"]
+        errors << "#{path}: tree exceeds depth #{schema["x-maxDepth"]}"
+      end
+
       errors.concat(validate_object(value, schema, path, root_schema)) if value.is_a?(Hash)
       errors.concat(validate_array(value, schema, path, root_schema)) if value.is_a?(Array)
       errors.concat(validate_string(value, schema, path)) if value.is_a?(String)
@@ -69,6 +79,17 @@ module ContractValidation
       return false if type == "number" && (value.is_a?(TrueClass) || value.is_a?(FalseClass))
 
       Array(klass).any? { |candidate| value.is_a?(candidate) }
+    end
+
+    def node_count(value)
+      return 0 unless value.is_a?(Hash)
+      1 + Array(value["children"]).sum { |child| node_count(child) }
+    end
+
+    def node_depth(value)
+      return 0 unless value.is_a?(Hash)
+      children = Array(value["children"])
+      children.empty? ? 0 : 1 + children.map { |child| node_depth(child) }.max
     end
 
     def validate_object(value, schema, path, root_schema)

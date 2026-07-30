@@ -10,6 +10,7 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
                   __DIR__
                 )
   @rich_golden Path.expand("../../../contract/fixtures/prompts/rich-whole-page.json", __DIR__)
+  @contract Path.expand("../../../contract", __DIR__)
 
   test "validates a whole-page request and separates instruction from untrusted context" do
     params = @fixture |> File.read!() |> Jason.decode!()
@@ -84,6 +85,31 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
              params
              |> put_in(["context", "focus_points"], [point])
              |> Task.new()
+  end
+
+  test "rejects every shared invalid browser context with the stable error" do
+    fixtures =
+      @contract
+      |> Path.join("fixtures/manifest.json")
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("fixtures")
+      |> Enum.filter(fn entry ->
+        !entry["expected_valid"] &&
+          String.ends_with?(entry["schema"], "browser-context.v1.schema.json")
+      end)
+
+    Enum.each(fixtures, fn entry ->
+      context =
+        @contract
+        |> Path.join(entry["path"])
+        |> File.read!()
+        |> Jason.decode!()
+
+      assert {:error, :invalid_task, _message} =
+               Task.new(%{"prompt" => "Explain.", "context" => context}),
+             entry["id"]
+    end)
   end
 
   test "rejects unknown fields and empty normalized prompts" do

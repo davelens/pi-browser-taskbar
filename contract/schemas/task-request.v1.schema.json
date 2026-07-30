@@ -3,6 +3,7 @@
   "$id": "https://pi-browser-taskbar.dev/contract/schemas/task-request.v1.schema.json",
   "title": "Task request v1",
   "type": "object",
+  "x-maxJsonUtf8Bytes": 131072,
   "required": ["prompt", "context"],
   "properties": {
     "prompt": {"type": "string", "minLength": 1, "maxLength": 4000, "x-maxUtf8Bytes": 4000},

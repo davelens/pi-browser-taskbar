@@ -9,6 +9,7 @@ class RailsTaskTest < Minitest::Test
   GOLDEN = File.expand_path("../../../contract/fixtures/prompts/minimal-task.json", __dir__)
   RICH_CONTEXT = File.expand_path("../../../contract/fixtures/browser-context/rich-whole-page.json", __dir__)
   RICH_GOLDEN = File.expand_path("../../../contract/fixtures/prompts/rich-whole-page.json", __dir__)
+  CONTRACT = File.expand_path("../../../contract", __dir__)
 
   def test_validates_and_builds_the_canonical_trusted_untrusted_prompt
     value = JSON.parse(File.read(FIXTURE))
@@ -58,6 +59,20 @@ class RailsTaskTest < Minitest::Test
     }
     value["context"]["focus_points"] = [point]
     assert_invalid(value, "focus_points[0].subtree must contain at most 100 nodes")
+  end
+
+  def test_rejects_every_shared_invalid_browser_context_with_the_stable_error
+    manifest = JSON.parse(File.read(File.join(CONTRACT, "fixtures/manifest.json")))
+    fixtures = manifest.fetch("fixtures").select do |entry|
+      !entry.fetch("expected_valid") && entry.fetch("schema").end_with?("browser-context.v1.schema.json")
+    end
+
+    fixtures.each do |entry|
+      context = JSON.parse(File.read(File.join(CONTRACT, entry.fetch("path"))))
+      assert_raises(Pi::Browser::Taskbar::Rails::Task::Invalid, entry.fetch("id")) do
+        Pi::Browser::Taskbar::Rails::Task.parse("prompt" => "Explain.", "context" => context)
+      end
+    end
   end
 
   def test_rejects_unknown_fields_and_normalizes_prompt

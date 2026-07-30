@@ -63,8 +63,9 @@ relative JSON file, and whether validation must succeed. An entry expecting reje
 an error fragment and is considered passing only when the validator rejects it for that reason.
 This prevents an invalid fixture from becoming inert sample data.
 
-Negative fixtures prove unknown fields, duplicate query names, URL credentials, and UTF-8 byte
-bounds are rejected. Rich whole-page and prompt fixtures exercise every semantic node section and
+Negative fixtures prove unknown/malformed fields, duplicate query names, URL credentials, path
+query/fragment leakage, UTF-8 byte bounds, and aggregate node bounds are rejected. Rich whole-page
+and prompt fixtures exercise every semantic node section and
 the trusted-instruction/untrusted-context boundary.
 
 ## Other executable formats

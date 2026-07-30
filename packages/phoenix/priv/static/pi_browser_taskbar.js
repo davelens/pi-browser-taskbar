@@ -249,8 +249,8 @@
   function semanticControlState(element) {
     const state = {};
     for (const name of ["disabled", "checked", "selected", "expanded", "pressed", "required", "invalid"]) {
-      const raw = element.getAttribute?.(`aria-${name}`);
-      const value = semanticStateValue(name, raw);
+      const ariaValue = semanticStateValue(name, element.getAttribute?.(`aria-${name}`));
+      const value = ariaValue === undefined ? nativeStateValue(element, name) : ariaValue;
       if (value !== undefined) state[name] = value;
     }
     return state;
@@ -264,17 +264,51 @@
     return undefined;
   }
 
+  function nativeStateValue(element, name) {
+    const tag = String(element.localName).toLowerCase();
+    const type = String(element.getAttribute?.("type") || "").toLowerCase();
+    if (name === "disabled" && ["button", "fieldset", "input", "optgroup", "option", "select", "textarea"].includes(tag) && typeof element.disabled === "boolean") return element.disabled;
+    if (name === "checked" && tag === "input" && ["checkbox", "radio"].includes(type) && typeof element.checked === "boolean") return element.indeterminate ? "mixed" : element.checked;
+    if (name === "selected" && tag === "option" && typeof element.selected === "boolean") return element.selected;
+    if (name === "required" && ["input", "select", "textarea"].includes(tag) && typeof element.required === "boolean") return element.required;
+    if (name === "invalid" && typeof element.validity?.valid === "boolean") return !element.validity.valid;
+    return undefined;
+  }
+
   function accessibleName(element, state, document) {
-    for (const value of [
-      element.getAttribute?.("aria-label"),
-      element.getAttribute?.("alt"),
-      element.getAttribute?.("title"),
-    ]) {
-      const name = normalizedText(value, 512, state);
+    const labelledBy = String(element.getAttribute?.("aria-labelledby") || "").split(/\s+/u).filter(Boolean);
+    if (labelledBy.length > 0 && typeof document?.getElementById === "function") {
+      const label = labelledBy
+        .map((id) => document.getElementById(id))
+        .filter((candidate) => candidate && !excluded(candidate, document))
+        .map((candidate) => descendantVisibleText(candidate, document, state, 512))
+        .filter(Boolean)
+        .join(" ");
+      const name = normalizedText(label, 512, state);
       if (name) return name;
     }
 
-    if (!["a", "button", "summary"].includes(String(element.localName).toLowerCase()) && !element.getAttribute?.("role")) return "";
+    const ariaLabel = normalizedText(element.getAttribute?.("aria-label"), 512, state);
+    if (ariaLabel) return ariaLabel;
+
+    const associatedLabels = Array.from(element.labels || [])
+      .filter((label) => !excluded(label, document))
+      .map((label) => descendantVisibleText(label, document, state, 512))
+      .filter(Boolean)
+      .join(" ");
+    const associatedName = normalizedText(associatedLabels, 512, state);
+    if (associatedName) return associatedName;
+
+    const tag = String(element.localName).toLowerCase();
+    const type = String(element.getAttribute?.("type") || "").toLowerCase();
+    if (["area", "img"].includes(tag) || (tag === "input" && type === "image")) {
+      const alt = normalizedText(element.getAttribute?.("alt"), 512, state);
+      if (alt) return alt;
+    }
+
+    const title = normalizedText(element.getAttribute?.("title"), 512, state);
+    if (title) return title;
+    if (!["a", "button", "summary"].includes(tag) && !element.getAttribute?.("role")) return "";
     return descendantVisibleText(element, document, state, 512);
   }
 
