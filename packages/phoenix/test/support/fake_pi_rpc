@@ -51,6 +51,11 @@ $stdin.each_line do |line|
       }
     )
     puts JSON.generate(type: "agent_settled") unless command.fetch("message").include?("hold this task")
+  when "abort"
+    puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+    $stdout.flush
+    sleep 0.2
+    puts JSON.generate(type: "agent_settled")
   end
 
   $stdout.flush

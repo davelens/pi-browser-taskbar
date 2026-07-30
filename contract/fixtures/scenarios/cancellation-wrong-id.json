@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "name": "reject cancellation of an unknown task",
+  "request": {
+    "method": "DELETE",
+    "path": "/tasks/:unknown"
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "error_code": "task_not_found"
+    }
+  }
+}

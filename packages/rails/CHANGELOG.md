@@ -7,3 +7,4 @@
 - Add bounded structural page capture and independent normalized-context validation.
 - Add up to eight ordered advisory focus marks with stable selectors and fair bounded detail.
 - Attach conservative project-relative ERB template hints from Rails' native rendered-template annotations.
+- Add idempotent task cancellation through the external broker with stable HTTP errors and settled terminal state.

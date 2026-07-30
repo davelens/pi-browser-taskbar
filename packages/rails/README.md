@@ -26,9 +26,10 @@ them. Focused tasks may include one conservative project-relative ERB template h
 template precision only and never claims an exact element or source line. Malformed, overlapping,
 external, missing, or browser-displaced annotation boundaries are not guessed.
 
-A submitted prompt includes a bounded sanitized structural snapshot of the current page; visible
-text and URL paths may reach the configured Pi/model provider, so do not use it with sensitive
-datasets. Configuration currently accepts `PI_BROWSER_TASKBAR_EXECUTABLE` and
+A submitted prompt includes a bounded sanitized structural snapshot of the current page. While it is
+running, **Stop task** sends Pi's abort command and retains an honest cancelling state until Pi
+settles; stopping cannot roll back file changes Pi already made. Visible text and URL paths may reach
+the configured Pi/model provider, so do not use it with sensitive datasets. Configuration currently accepts `PI_BROWSER_TASKBAR_EXECUTABLE` and
 `PI_BROWSER_TASKBAR_TASK_TIMEOUT` at process startup.
 
 ## Build and verify

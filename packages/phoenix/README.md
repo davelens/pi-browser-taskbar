@@ -46,7 +46,8 @@ Restart the development server, open any page, and use the lower-left **Page tas
 prompt with no marks submits a bounded sanitized whole-page structural snapshot. Visible text and
 URL paths may reach the configured Pi/model provider, so do not use it with sensitive datasets. The
 package admits one task at a time to one persistent `pi --mode rpc` process and retains the latest
-completed output.
+terminal output. While a task is running, **Stop task** sends Pi's abort command and remains
+cancelling until Pi settles. Stopping cannot roll back file changes Pi already made.
 
 ## Configuration
 

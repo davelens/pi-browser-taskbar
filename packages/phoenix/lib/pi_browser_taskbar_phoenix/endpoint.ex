@@ -51,6 +51,25 @@ defmodule PiBrowserTaskbarPhoenix.Endpoint do
     end
   end
 
+  defp dispatch(%{method: "DELETE", path_info: ["tasks", id]} = conn, runtime, _opts) do
+    case Runtime.cancel(runtime, id) do
+      {:ok, :accepted, snapshot} ->
+        json(conn, 202, snapshot)
+
+      {:ok, :cancelled, snapshot} ->
+        json(conn, 200, snapshot)
+
+      {:error, :not_found, snapshot} ->
+        error(conn, 404, "task_not_found", "Task was not found", snapshot)
+
+      {:error, :not_cancellable, snapshot} ->
+        error(conn, 409, "task_not_cancellable", "Task can no longer be stopped", snapshot)
+
+      {:error, :unavailable, snapshot} ->
+        error(conn, 503, "unavailable", "Pi is not ready", snapshot)
+    end
+  end
+
   defp dispatch(%{method: "GET", path_info: ["assets", filename]} = conn, _runtime, _opts)
        when filename in ["pi_browser_taskbar.js", "pi_browser_taskbar.css"] do
     content_type = if String.ends_with?(filename, ".js"), do: "text/javascript", else: "text/css"

@@ -1,0 +1,14 @@
+{
+  "contract_version": 1,
+  "name": "reject cancellation of a completed task",
+  "request": {
+    "method": "DELETE",
+    "path": "/tasks/:completed"
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "error_code": "task_not_cancellable"
+    }
+  }
+}

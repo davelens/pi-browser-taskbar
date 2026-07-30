@@ -93,6 +93,26 @@ module Pi
             render_unavailable
           end
 
+          def cancel_task
+            response = Pi::Browser::Taskbar::Rails.broker_client.cancel(params[:id])
+            case response["result"]
+            when "accepted"
+              render_snapshot(response.fetch("snapshot"), :accepted)
+            when "cancelled"
+              render_snapshot(response.fetch("snapshot"), :ok)
+            when "not_found"
+              render_error(:not_found, "task_not_found", "Task was not found", response["snapshot"])
+            when "not_cancellable"
+              render_error(:conflict, "task_not_cancellable", "Task can no longer be stopped", response["snapshot"])
+            when "unavailable"
+              render_error(:service_unavailable, "unavailable", "Pi is not ready", response["snapshot"])
+            else
+              render_unavailable
+            end
+          rescue Broker::Unavailable
+            render_unavailable
+          end
+
           private
 
           def render_snapshot(snapshot, status)

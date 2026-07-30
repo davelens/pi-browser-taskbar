@@ -74,6 +74,22 @@ tag/method case, optional empty fields, and truncation order before validation. 
 duplicate query names or focus selectors, malformed focus structures, unsafe locations, and values
 outside any allocation are invalid.
 
+## Task cancellation
+
+`DELETE /tasks/:id` sends one correlated Pi `abort` command for a retained `running` task and returns
+the complete canonical `cancelling` snapshot with HTTP 202. The session remains `busy`, the task has
+no `finished_at`, and completion waits for Pi's `agent_settled` event. At that boundary the task
+becomes `cancelled`, receives `finished_at` and `Task stopped` activity, and the session returns to
+`ready`.
+
+Cancellation is idempotent: repeating the request while `cancelling` returns the same 202 lifecycle
+without sending another abort, and repeating it after `cancelled` returns the retained snapshot with
+HTTP 200. A different or forgotten ID returns `404 task_not_found`; a retained `completed` or
+`failed` task returns `409 task_not_cancellable`. Error responses include the current snapshot and
+all cancellation mutations remain protected by each framework's native CSRF and access checks.
+Stopping is not transactional and cannot roll back file changes Pi already made. Abort deadlines,
+process-tree replacement, and recovery belong to the later recovery capability.
+
 ## Fixture manifest
 
 `fixtures/manifest.json` is the only fixture registry. Each entry identifies a schema, a repository-
@@ -91,8 +107,10 @@ section and the trusted-instruction/untrusted-context boundary.
 
 HTTP scenarios, prompt goldens, and Pi RPC transcript formats are versioned alongside browser
 context. An HTTP scenario may name a contract task fixture as its request body. The deterministic
-fake RPC peer replays transcript `receive`/`send` steps. Both packages execute the whole-page scenario from `POST /tasks` through `agent_settled` and the
-canonical completed state. Root conformance rejects semantic drift except opaque IDs and timestamps.
+fake RPC peer replays transcript `receive`/`send` steps. Shared cancellation scenarios cover accepted
+and repeated aborts, wrong and completed task IDs, and the settled terminal snapshot. Both packages
+execute the whole-page and cancellation scenarios through `agent_settled`; root conformance rejects
+semantic drift except opaque IDs and timestamps.
 Only `prompt` is instructional; context is canonical JSON inside an explicitly untrusted delimiter,
 with HTML-significant characters escaped. Visible text and URL paths may reach the developer's
 configured Pi/model provider, so the taskbar is unsuitable for sensitive datasets.

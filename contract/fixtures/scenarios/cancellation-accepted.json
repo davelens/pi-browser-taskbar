@@ -1,0 +1,16 @@
+{
+  "contract_version": 1,
+  "name": "accept cancellation of a running task",
+  "request": {
+    "method": "DELETE",
+    "path": "/tasks/:active"
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "contract_version": 1,
+      "session_status": "busy",
+      "task_status": "cancelling"
+    }
+  }
+}

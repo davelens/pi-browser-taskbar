@@ -50,6 +50,19 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
       {"result" => "accepted", "snapshot" => snapshot_value("busy", "running")}
     end
 
+    def cancel(id)
+      case id
+      when "opaque-task"
+        {"result" => "accepted", "snapshot" => snapshot_value("busy", "cancelling")}
+      when "cancelled-task"
+        {"result" => "cancelled", "snapshot" => snapshot_value("ready", "cancelled")}
+      when "completed-task"
+        {"result" => "not_cancellable", "snapshot" => snapshot_value("ready", "completed")}
+      else
+        {"result" => "not_found", "snapshot" => snapshot_value("ready", nil)}
+      end
+    end
+
     private
 
     def snapshot_value(session_status, task_status)
@@ -112,6 +125,31 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
       headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
     assert_response :accepted
     assert_equal "Explain the cards page.", @broker.submissions.first["prompt"]
+  end
+
+  def test_cancellation_route_uses_csrf_and_shared_status_errors
+    delete "/dev/pi-browser-taskbar/tasks/opaque-task"
+    assert_response :unprocessable_entity
+
+    get "/"
+    token = response.body[/data-csrf-token="([^"]+)"/, 1]
+    headers = {"X-CSRF-Token" => token}
+
+    delete "/dev/pi-browser-taskbar/tasks/opaque-task", headers: headers
+    assert_response :accepted
+    assert_equal "cancelling", JSON.parse(response.body).dig("task", "status")
+
+    delete "/dev/pi-browser-taskbar/tasks/cancelled-task", headers: headers
+    assert_response :ok
+    assert_equal "cancelled", JSON.parse(response.body).dig("task", "status")
+
+    delete "/dev/pi-browser-taskbar/tasks/completed-task", headers: headers
+    assert_response :conflict
+    assert_equal "task_not_cancellable", JSON.parse(response.body).dig("error", "code")
+
+    delete "/dev/pi-browser-taskbar/tasks/unknown-task", headers: headers
+    assert_response :not_found
+    assert_equal "task_not_found", JSON.parse(response.body).dig("error", "code")
   end
 
   def test_rejects_disallowed_host_and_non_loopback_client_before_broker

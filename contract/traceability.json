@@ -1,5 +1,12 @@
 {
   "parent_issue": "https://github.com/davelens/pi-browser-taskbar/issues/17",
+  "implemented_issues": [
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/25",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Shared cancellation HTTP scenarios and abort transcript exercised by Browser Client, native adapters, and packaged cross-adapter conformance"
+    }
+  ],
   "sections": [
     {"id": "problem-statement", "heading": "Problem Statement", "owner": "root-tooling", "acceptance_seam": "Clean-checkout root verification and packaged-adapter acceptance", "status": "foundation"},
     {"id": "solution", "heading": "Solution", "owner": "root-tooling", "acceptance_seam": "Coordinated Rails and Phoenix package artifact inspection", "status": "foundation"},

@@ -25,6 +25,7 @@
 
       const controls = {
         activity: shadow.querySelector("[data-activity]"),
+        cancelWarning: shadow.querySelector("[data-cancel-warning]"),
         clear: shadow.querySelector("[data-clear]"),
         error: shadow.querySelector("[data-error]"),
         hoverOutline: shadow.querySelector("[data-hover-outline]"),
@@ -54,7 +55,7 @@
       });
       controls.mark.addEventListener("click", () => setSelecting(!selecting));
       controls.clear.addEventListener("click", clearMarks);
-      controls.run.addEventListener("click", () => submit(controls.prompt.value).catch(showError));
+      controls.run.addEventListener("click", () => primaryAction().catch(showError));
       controls.prompt.addEventListener("input", renderControls);
       document.addEventListener?.("pointermove", hoverSelection, true);
       document.addEventListener?.("click", selectElement, true);
@@ -98,6 +99,28 @@
           if (generation === snapshotGeneration) throw error;
           return snapshot;
         }
+      }
+
+      async function cancel() {
+        const taskId = snapshot?.task?.id;
+        if (!taskId || snapshot.task.status !== "running") return snapshot;
+        const generation = ++snapshotGeneration;
+
+        try {
+          const nextSnapshot = await request(`/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+          if (generation !== snapshotGeneration) return snapshot;
+          snapshot = nextSnapshot;
+          render();
+          schedulePoll(500);
+          return snapshot;
+        } catch (error) {
+          if (generation === snapshotGeneration) throw error;
+          return snapshot;
+        }
+      }
+
+      function primaryAction() {
+        return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
       }
 
       async function refresh() {
@@ -151,18 +174,21 @@
         controls.output.hidden = !controls.output.textContent;
         controls.error.textContent = task?.error || session.error || "";
         controls.error.hidden = !controls.error.textContent;
+        controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
         renderMarks();
         renderControls();
       }
 
       function renderControls() {
         const busy = active(snapshot);
+        const running = snapshot?.task?.status === "running";
+        const cancelling = snapshot?.task?.status === "cancelling";
         if (busy && selecting) setSelecting(false);
         controls.prompt.disabled = busy;
         controls.mark.disabled = busy || (!selecting && marks.length >= 8);
         controls.clear.disabled = busy;
-        controls.run.disabled = busy || !String(controls.prompt.value || "").trim();
-        controls.run.textContent = busy ? "Working…" : "Run with Pi";
+        controls.run.disabled = cancelling || (!running && !String(controls.prompt.value || "").trim());
+        controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
       }
 
       function setSelecting(next) {
@@ -233,6 +259,7 @@
           remove.type = "button";
           remove.textContent = "×";
           remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
+          remove.disabled = active(snapshot);
           remove.addEventListener("click", () => removeMark(index));
           chip.appendChild(label);
           chip.appendChild(remove);
@@ -866,6 +893,7 @@
         <p data-activity aria-live="polite"></p>
         <pre data-output hidden></pre>
         <p data-error hidden role="alert"></p>
+        <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
         <button data-run type="button" disabled>Run with Pi</button>
       </section>
       <div data-hover-outline hidden aria-hidden="true"></div>

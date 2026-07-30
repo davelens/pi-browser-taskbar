@@ -1,0 +1,17 @@
+{
+  "contract_version": 1,
+  "name": "retain cancellation after Pi settles",
+  "request": {
+    "method": "GET",
+    "path": "/state"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "contract_version": 1,
+      "session_status": "ready",
+      "task_status": "cancelled",
+      "task_activity": "Task stopped"
+    }
+  }
+}

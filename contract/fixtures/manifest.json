@@ -166,6 +166,36 @@
       "expected_valid": true
     },
     {
+      "id": "cancellation-accepted-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/cancellation-accepted.json",
+      "expected_valid": true
+    },
+    {
+      "id": "cancellation-repeated-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/cancellation-repeated.json",
+      "expected_valid": true
+    },
+    {
+      "id": "cancellation-wrong-id-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/cancellation-wrong-id.json",
+      "expected_valid": true
+    },
+    {
+      "id": "cancellation-completed-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/cancellation-completed.json",
+      "expected_valid": true
+    },
+    {
+      "id": "cancellation-settled-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/cancellation-settled.json",
+      "expected_valid": true
+    },
+    {
       "id": "rich-whole-page-prompt-golden",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/prompt-golden.v1.schema.json",
       "path": "fixtures/prompts/rich-whole-page.json",
@@ -175,6 +205,12 @@
       "id": "startup-rpc-success",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
       "path": "fixtures/rpc/startup-success.json",
+      "expected_valid": true
+    },
+    {
+      "id": "cancellation-rpc-success",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/cancellation-success.json",
       "expected_valid": true
     },
     {

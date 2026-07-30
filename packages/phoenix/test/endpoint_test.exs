@@ -9,6 +9,7 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
   @contract_root Path.expand("../../../contract", __DIR__)
   @fixture Path.join(@contract_root, "fixtures/tasks/minimal-task.json")
   @scenario Path.join(@contract_root, "fixtures/scenarios/phoenix-whole-page.json")
+  @cancellation_scenarios Path.join(@contract_root, "fixtures/scenarios/cancellation-*.json")
 
   setup do
     name = String.to_atom("endpoint_runtime_#{System.unique_integer([:positive])}")
@@ -59,6 +60,62 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
     assert completed["session"]["status"] == "ready"
     assert completed["task"]["status"] == expected["terminal_task_status"]
     assert completed["task"]["output"] == expected["terminal_output"]
+  end
+
+  test "serves shared idempotent cancellation scenarios", %{runtime: runtime} do
+    scenarios =
+      @cancellation_scenarios
+      |> Path.wildcard()
+      |> Map.new(fn path ->
+        scenario = path |> File.read!() |> Jason.decode!()
+        {Path.basename(path, ".json"), scenario}
+      end)
+
+    params = @fixture |> File.read!() |> Jason.decode!()
+    completed = call(:post, "/tasks", params, runtime) |> json()
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+
+    completed_response = call(:delete, "/tasks/#{completed["task"]["id"]}", nil, runtime)
+    assert_scenario_error(completed_response, scenarios["cancellation-completed"])
+
+    held = call(:post, "/tasks", Map.put(params, "prompt", "hold this task"), runtime) |> json()
+    task_id = held["task"]["id"]
+
+    wrong = call(:delete, "/tasks/unknown-task", nil, runtime)
+    assert_scenario_error(wrong, scenarios["cancellation-wrong-id"])
+
+    accepted = call(:delete, "/tasks/#{task_id}", nil, runtime)
+    accepted_json = json(accepted)
+    accepted_scenario = scenarios["cancellation-accepted"]
+    assert accepted.status == accepted_scenario["response"]["status"]
+    assert accepted_json["task"]["status"] == accepted_scenario["response"]["body"]["task_status"]
+    assert accepted_json["task"]["finished_at"] == nil
+    assert get_resp_header(accepted, "cache-control") == ["no-store"]
+
+    repeated = call(:delete, "/tasks/#{task_id}", nil, runtime)
+    repeated_scenario = scenarios["cancellation-repeated"]
+    assert repeated.status == repeated_scenario["response"]["status"]
+
+    assert json(repeated)["task"]["status"] ==
+             repeated_scenario["response"]["body"]["task_status"]
+
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+    settled = call(:get, "/state", nil, runtime)
+    settled_json = json(settled)
+    settled_scenario = scenarios["cancellation-settled"]
+    assert settled.status == settled_scenario["response"]["status"]
+
+    assert settled_json["session"]["status"] ==
+             settled_scenario["response"]["body"]["session_status"]
+
+    assert settled_json["task"]["status"] == settled_scenario["response"]["body"]["task_status"]
+
+    assert settled_json["task"]["activity"] ==
+             settled_scenario["response"]["body"]["task_activity"]
+
+    already = call(:delete, "/tasks/#{task_id}", nil, runtime)
+    assert already.status == 200
+    assert json(already)["task"]["status"] == "cancelled"
   end
 
   test "returns stable validation and busy errors", %{runtime: runtime} do
@@ -117,6 +174,12 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
     do: put_req_header(conn, "content-type", "application/json")
 
   defp json(conn), do: Jason.decode!(conn.resp_body)
+
+  defp assert_scenario_error(response, scenario) do
+    assert response.status == scenario["response"]["status"]
+    assert json(response)["error"]["code"] == scenario["response"]["body"]["error_code"]
+    assert get_resp_header(response, "cache-control") == ["no-store"]
+  end
 
   defp wait_until(predicate, attempts \\ 100)
 

@@ -140,6 +140,30 @@ module Pi
               [:invalid, error.message]
             end
 
+            def cancel(id)
+              @mutex.synchronize do
+                return [:not_found, snapshot_unlocked] unless @task && @task["id"] == id
+
+                case @task["status"]
+                when "running"
+                  @task["abort_command_id"] = "abort-#{@task["id"]}"
+                  write(type: "abort", id: @task["abort_command_id"])
+                  @task["status"] = "cancelling"
+                  @task["activity"] = "Stopping Pi"
+                  [:accepted, snapshot_unlocked]
+                when "cancelling"
+                  [:accepted, snapshot_unlocked]
+                when "cancelled"
+                  [:cancelled, snapshot_unlocked]
+                else
+                  [:not_cancellable, snapshot_unlocked]
+                end
+              rescue IOError, SystemCallError
+                unavailable_unlocked("Pi became unavailable before accepting cancellation")
+                [:unavailable, snapshot_unlocked]
+              end
+            end
+
             def close
               @stdin.close unless @stdin.nil? || @stdin.closed?
               Process.kill("TERM", @wait_thread.pid) if @wait_thread && @wait_thread.alive?
@@ -203,15 +227,17 @@ module Pi
               elsif @phase == "busy"
                 if event["type"] == "response" && event["id"] == @task["command_id"] && event["success"] == false
                   finish_unlocked("failed", "Pi rejected the task")
-                elsif event["type"] == "agent_start"
+                elsif event["type"] == "response" && event["id"] == @task["abort_command_id"] && event["success"] == false
+                  finish_unlocked("failed", "Pi rejected cancellation")
+                elsif event["type"] == "agent_start" && @task["status"] == "running"
                   @task["activity"] = "Pi is working"
                 elsif event["type"] == "message_update" && event["assistantMessageEvent"].is_a?(Hash) &&
                     event["assistantMessageEvent"]["type"] == "text_delta" && event["assistantMessageEvent"]["delta"].is_a?(String)
                   append_output_unlocked(event["assistantMessageEvent"]["delta"])
-                elsif event["type"] == "tool_execution_start" && event["toolName"].is_a?(String)
+                elsif event["type"] == "tool_execution_start" && event["toolName"].is_a?(String) && @task["status"] == "running"
                   @task["activity"] = "Running #{event["toolName"]}"
                 elsif event["type"] == "agent_settled"
-                  finish_unlocked("completed", nil)
+                  finish_unlocked(@task["status"] == "cancelling" ? "cancelled" : "completed", nil)
                 end
               end
             end
@@ -252,7 +278,7 @@ module Pi
 
             def finish_unlocked(status, error)
               @task["status"] = status
-              @task["activity"] = status == "completed" ? "Task completed" : "Task failed"
+              @task["activity"] = {"completed" => "Task completed", "cancelled" => "Task stopped"}.fetch(status, "Task failed")
               @task["error"] = error
               @task["finished_at"] = Time.now.utc.iso8601(6)
               @phase = "ready"
@@ -271,7 +297,7 @@ module Pi
             end
 
             def snapshot_unlocked
-              task = @task && @task.reject { |key, _| key == "command_id" }
+              task = @task && @task.reject { |key, _| %w[command_id abort_command_id].include?(key) }
               {
                 "contract_version" => 1,
                 "session" => {"id" => @session_id, "status" => @phase, "model" => @model, "error" => @error},
@@ -360,9 +386,12 @@ module Pi
                 elsif command_shape?(command, "submit", %w[id task type])
                   result, value = @runtime.submit(command["task"])
                   write_record(client, "id" => command["id"], "ok" => result == :accepted, "result" => result.to_s, result == :invalid ? "message" : "snapshot" => value)
+                elsif command_shape?(command, "cancel", %w[id task_id type]) && command["task_id"].is_a?(String)
+                  result, snapshot = @runtime.cancel(command["task_id"])
+                  write_record(client, "id" => command["id"], "ok" => %i[accepted cancelled].include?(result), "result" => result.to_s, "snapshot" => snapshot)
                 else
                   id = command["id"] if command.is_a?(Hash) && command["id"].is_a?(String)
-                  known = command.is_a?(Hash) && %w[state submit].include?(command["type"])
+                  known = command.is_a?(Hash) && %w[state submit cancel].include?(command["type"])
                   write_record(client, "id" => id, "ok" => false, "result" => "invalid", "message" => known ? "malformed broker command" : "unknown broker command")
                 end
               end
@@ -411,6 +440,10 @@ module Pi
 
             def submit(task)
               request("type" => "submit", "task" => task)
+            end
+
+            def cancel(task_id)
+              request("type" => "cancel", "task_id" => task_id)
             end
 
             def close

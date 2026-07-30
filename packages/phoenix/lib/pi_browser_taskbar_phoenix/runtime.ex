@@ -54,6 +54,13 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
           {:ok, snapshot()} | {:error, :busy | :unavailable, snapshot()}
   def submit(server, %BrowserTask{} = task), do: GenServer.call(server, {:submit, task})
 
+  @doc "Requests idempotent cancellation of the retained task."
+  @spec cancel(GenServer.server(), String.t()) ::
+          {:ok, :accepted | :cancelled, snapshot()}
+          | {:error, :not_found | :not_cancellable | :unavailable, snapshot()}
+  def cancel(server, task_id) when is_binary(task_id),
+    do: GenServer.call(server, {:cancel, task_id})
+
   @impl true
   def init(opts) do
     state = %__MODULE__{
@@ -92,6 +99,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     task_state = %{
       id: id,
       command_id: command_id,
+      abort_command_id: nil,
       prompt: task.prompt,
       status: :running,
       output: "",
@@ -112,6 +120,43 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
       {:error, :closed} ->
         next = unavailable(state, "Pi became unavailable before accepting the task")
+        {:reply, {:error, :unavailable, public_snapshot(next)}, next}
+    end
+  end
+
+  def handle_call({:cancel, _id}, _from, %{task: nil} = state),
+    do: {:reply, {:error, :not_found, public_snapshot(state)}, state}
+
+  def handle_call({:cancel, id}, _from, %{task: %{id: task_id}} = state) when id != task_id,
+    do: {:reply, {:error, :not_found, public_snapshot(state)}, state}
+
+  def handle_call({:cancel, _id}, _from, %{task: %{status: :cancelling}} = state),
+    do: {:reply, {:ok, :accepted, public_snapshot(state)}, state}
+
+  def handle_call({:cancel, _id}, _from, %{task: %{status: :cancelled}} = state),
+    do: {:reply, {:ok, :cancelled, public_snapshot(state)}, state}
+
+  def handle_call({:cancel, _id}, _from, %{task: %{status: status}} = state)
+      when status in [:completed, :failed],
+      do: {:reply, {:error, :not_cancellable, public_snapshot(state)}, state}
+
+  def handle_call({:cancel, _id}, _from, %{task: %{status: :running}} = state) do
+    abort_command_id = "abort-#{state.task.id}"
+
+    case send_command(state.port, %{type: "abort", id: abort_command_id}) do
+      :ok ->
+        task = %{
+          state.task
+          | abort_command_id: abort_command_id,
+            status: :cancelling,
+            activity: "Stopping Pi"
+        }
+
+        next = %{state | task: task}
+        {:reply, {:ok, :accepted, public_snapshot(next)}, next}
+
+      {:error, :closed} ->
+        next = unavailable(state, "Pi became unavailable before accepting cancellation")
         {:reply, {:error, :unavailable, public_snapshot(next)}, next}
     end
   end
@@ -260,7 +305,18 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     finish_task(state, :failed, "Pi rejected the task")
   end
 
-  defp handle_event(%{phase: :busy} = state, %{"type" => "agent_start"}) do
+  defp handle_event(%{phase: :busy, task: %{abort_command_id: command_id}} = state, %{
+         "type" => "response",
+         "id" => command_id,
+         "success" => false
+       })
+       when not is_nil(command_id) do
+    finish_task(state, :failed, "Pi rejected cancellation")
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
+         "type" => "agent_start"
+       }) do
     put_in(state.task.activity, "Pi is working")
   end
 
@@ -279,12 +335,18 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     )
   end
 
-  defp handle_event(%{phase: :busy} = state, %{
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
          "type" => "tool_execution_start",
          "toolName" => name
        })
        when is_binary(name) do
     put_in(state.task.activity, "Running #{name}")
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :cancelling}} = state, %{
+         "type" => "agent_settled"
+       }) do
+    finish_task(state, :cancelled, nil)
   end
 
   defp handle_event(%{phase: :busy} = state, %{"type" => "agent_settled"}) do
@@ -294,7 +356,8 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   defp handle_event(state, _event), do: state
 
   defp finish_task(state, status, error) do
-    activity = if status == :completed, do: "Task completed", else: "Task failed"
+    activity =
+      Map.get(%{completed: "Task completed", cancelled: "Task stopped"}, status, "Task failed")
 
     task = %{
       state.task

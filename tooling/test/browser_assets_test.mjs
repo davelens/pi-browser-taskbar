@@ -747,6 +747,66 @@ function select(markButton, document, element) {
   document.dispatch("click", element);
 }
 
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client stops a running task and locks active controls`, async () => {
+    const document = fakeDocument();
+    const requests = [];
+    const snapshots = [
+      {
+        contract_version: 1,
+        session: { id: "session", status: "busy", model: "test/fake", error: null },
+        task: { id: "task/id", status: "running", output: "", activity: "Pi is working" },
+      },
+      {
+        contract_version: 1,
+        session: { id: "session", status: "busy", model: "test/fake", error: null },
+        task: { id: "task/id", status: "cancelling", output: "", activity: "Stopping Pi" },
+      },
+      {
+        contract_version: 1,
+        session: { id: "session", status: "ready", model: "test/fake", error: null },
+        task: { id: "task/id", status: "cancelled", output: "", activity: "Task stopped", finished_at: "2026-01-01T00:00:00Z" },
+      },
+    ];
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, assets[framework]), "utf8"), sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      csrfToken: "native-csrf-token",
+      document,
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        return { ok: true, status: options.method === "GET" ? 200 : 202, json: async () => snapshots.shift() };
+      },
+      location: { origin: "http://localhost:4000", pathname: "/", search: "" },
+    });
+
+    await mounted.submit("Make a change.");
+    const shadow = mounted.element.shadowRoot;
+    assert.equal(shadow.querySelector("[data-run]").textContent, "Stop task");
+    assert.equal(shadow.querySelector("[data-run]").disabled, false);
+    assert.equal(shadow.querySelector("[data-prompt]").disabled, true);
+    assert.equal(shadow.querySelector("[data-mark]").disabled, true);
+    assert.equal(shadow.querySelector("[data-clear]").disabled, true);
+    assert.equal(shadow.querySelector("[data-cancel-warning]").hidden, false);
+
+    shadow.querySelector("[data-run]").dispatchEvent({ type: "click" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(requests[1].url, "/dev/pi-browser-taskbar/tasks/task%2Fid");
+    assert.equal(requests[1].options.method, "DELETE");
+    assert.equal(requests[1].options.headers["x-csrf-token"], "native-csrf-token");
+    assert.equal(shadow.querySelector("[data-run]").textContent, "Stopping…");
+    assert.equal(shadow.querySelector("[data-run]").disabled, true);
+    assert.equal(shadow.querySelector("[data-activity]").textContent, "Stopping Pi");
+
+    await mounted.refresh();
+    assert.equal(shadow.querySelector("[data-status]").textContent, "Stopped");
+    assert.equal(shadow.querySelector("[data-activity]").textContent, "Task stopped");
+    assert.equal(shadow.querySelector("[data-cancel-warning]").hidden, false);
+  });
+}
+
 test("Browser Client discards an older state read after task submission", async () => {
   const document = fakeDocument();
   let resolveInitialRefresh;
@@ -853,6 +913,7 @@ function fakeDocument() {
         "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
         "[data-run]", "[data-output]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
+        "[data-cancel-warning]",
       ]) {
         this.elements.set(selector, new FakeElement());
       }

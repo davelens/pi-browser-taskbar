@@ -43,6 +43,31 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     assert snapshot.task.finished_at
   end
 
+  test "cancels idempotently and finishes only at agent_settled", %{runtime: runtime} do
+    assert {:error, :not_found, _snapshot} = Runtime.cancel(runtime, "unknown-task")
+
+    assert {:ok, completed} = Runtime.submit(runtime, valid_task("completed task"))
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+
+    assert {:error, :not_cancellable, _snapshot} =
+             Runtime.cancel(runtime, completed.task.id)
+
+    assert {:ok, running} = Runtime.submit(runtime, valid_task("hold this task"))
+    assert {:ok, :accepted, cancelling} = Runtime.cancel(runtime, running.task.id)
+    assert cancelling.session.status == "busy"
+    assert cancelling.task.status == "cancelling"
+    assert cancelling.task.finished_at == nil
+
+    assert {:ok, :accepted, repeated} = Runtime.cancel(runtime, running.task.id)
+    assert repeated.task.status == "cancelling"
+
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+    assert {:ok, :cancelled, cancelled} = Runtime.cancel(runtime, running.task.id)
+    assert cancelled.session.status == "ready"
+    assert cancelled.task.activity == "Task stopped"
+    assert cancelled.task.finished_at
+  end
+
   test "ignores a stale response from an earlier correlated command", %{runtime: runtime} do
     assert {:ok, _running} = Runtime.submit(runtime, valid_task("stale response"))
 

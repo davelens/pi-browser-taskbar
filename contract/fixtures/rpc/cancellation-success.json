@@ -1,0 +1,43 @@
+{
+  "contract_version": 1,
+  "name": "abort an accepted task and wait for agent_settled",
+  "steps": [
+    {
+      "direction": "receive",
+      "message": {"type": "get_state", "id": "state-1"}
+    },
+    {
+      "direction": "send",
+      "message": {
+        "type": "response",
+        "id": "state-1",
+        "success": true,
+        "data": {"sessionId": "fixture-session", "model": {"provider": "test", "id": "fake-pi"}}
+      }
+    },
+    {
+      "direction": "receive",
+      "message": {"type": "prompt", "id": "task-1", "message": "Hold this task."}
+    },
+    {
+      "direction": "send",
+      "message": {"type": "response", "id": "task-1", "success": true}
+    },
+    {
+      "direction": "send",
+      "message": {"type": "agent_start"}
+    },
+    {
+      "direction": "receive",
+      "message": {"type": "abort", "id": "abort-1"}
+    },
+    {
+      "direction": "send",
+      "message": {"type": "response", "id": "abort-1", "success": true}
+    },
+    {
+      "direction": "send",
+      "message": {"type": "agent_settled"}
+    }
+  ]
+}

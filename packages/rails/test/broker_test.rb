@@ -85,6 +85,37 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_cancellation_is_idempotent_and_finishes_only_at_agent_settled
+    with_server do |client, _second, _identity, _thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+
+      missing = client.cancel("unknown-task")
+      assert_equal "not_found", missing["result"]
+
+      completed = client.submit(JSON.parse(File.read(TASK)))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      assert_equal "not_cancellable", client.cancel(completed.dig("snapshot", "task", "id"))["result"]
+
+      held = JSON.parse(File.read(TASK)).merge("prompt" => "hold this task")
+      running = client.submit(held)
+      task_id = running.dig("snapshot", "task", "id")
+
+      accepted = client.cancel(task_id)
+      repeated = client.cancel(task_id)
+      assert_equal "accepted", accepted["result"]
+      assert_equal "cancelling", accepted.dig("snapshot", "task", "status")
+      assert_equal "accepted", repeated["result"]
+      assert_nil repeated.dig("snapshot", "task", "finished_at")
+
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "cancelled" }
+      cancelled = client.cancel(task_id)
+      assert_equal "cancelled", cancelled["result"]
+      assert_equal "ready", cancelled.dig("snapshot", "session", "status")
+      assert_equal "Task stopped", cancelled.dig("snapshot", "task", "activity")
+      refute_nil cancelled.dig("snapshot", "task", "finished_at")
+    end
+  end
+
   def test_losing_election_does_not_clean_up_the_live_owner
     with_server do |client, _second, identity, thread|
       wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }

@@ -31,6 +31,8 @@ cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.js
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
 cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
 cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
+mkdir "$tmp/cancellation-scenarios"
+cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
 
 cat >"$app/config/application.rb" <<'RUBY'
 require "rails"
@@ -91,6 +93,7 @@ export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
 export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
 export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
+export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/rails.json"
 
 (
@@ -164,7 +167,16 @@ module CleanRailsConformance
       session.get "/dev/pi-browser-taskbar/state"
       JSON.parse(session.response.body).dig("task", "status") == focused_scenario.dig("response", "body", "terminal_task_status")
     end
-    assert JSON.parse(session.response.body).dig("task", "output") == focused_scenario.dig("response", "body", "terminal_output"), "focused fake output differed"
+    focused_completed = JSON.parse(session.response.body)
+    assert focused_completed.dig("task", "output") == focused_scenario.dig("response", "body", "terminal_output"), "focused fake output differed"
+
+    cancellation_scenarios = Dir[File.join(ENV.fetch("PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS"), "*.json")].to_h do |path|
+      [File.basename(path, ".json"), JSON.parse(File.read(path))]
+    end
+    completed_cancellation = cancellation_scenarios.fetch("cancellation-completed")
+    session.delete "/dev/pi-browser-taskbar/tasks/#{focused_completed.dig("task", "id")}", headers: {"X-CSRF-Token" => token}
+    assert session.response.status == completed_cancellation.dig("response", "status"), "completed task cancellation status differed"
+    assert JSON.parse(session.response.body).dig("error", "code") == completed_cancellation.dig("response", "body", "error_code"), "completed task cancellation code differed"
 
     duplicate = Marshal.load(Marshal.dump(focused_task))
     duplicate.dig("context", "focus_points") << Marshal.load(Marshal.dump(duplicate.dig("context", "focus_points", 0)))
@@ -200,8 +212,46 @@ module CleanRailsConformance
     assert second.response.status == 409 && JSON.parse(second.response.body).dig("error", "code") == "busy", "admission was not atomic"
     assert created.dig("session", "id") == JSON.parse(second.response.body).dig("snapshot", "session", "id"), "Rails clients did not share one broker session"
 
+    held_id = JSON.parse(session.response.body).dig("task", "id")
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      JSON.parse(session.response.body).dig("task", "output") == "Implemented the whole-page request."
+    end
+    wrong_scenario = cancellation_scenarios.fetch("cancellation-wrong-id")
+    session.delete "/dev/pi-browser-taskbar/tasks/unknown-task", headers: {"X-CSRF-Token" => token}
+    wrong_cancellation = JSON.parse(session.response.body)
+    assert session.response.status == wrong_scenario.dig("response", "status"), "unknown task cancellation status differed"
+    assert wrong_cancellation.dig("error", "code") == wrong_scenario.dig("response", "body", "error_code"), "unknown task cancellation code differed"
+
+    accepted_scenario = cancellation_scenarios.fetch("cancellation-accepted")
+    session.delete "/dev/pi-browser-taskbar/tasks/#{held_id}", headers: {"X-CSRF-Token" => token}
+    cancelling = JSON.parse(session.response.body)
+    assert session.response.status == accepted_scenario.dig("response", "status"), "cancellation was not accepted"
+    assert cancelling.dig("task", "status") == accepted_scenario.dig("response", "body", "task_status"), "task did not enter cancelling"
+    assert cancelling.dig("task", "finished_at").nil?, "cancellation finished before agent_settled"
+
+    repeated_scenario = cancellation_scenarios.fetch("cancellation-repeated")
+    session.delete "/dev/pi-browser-taskbar/tasks/#{held_id}", headers: {"X-CSRF-Token" => token}
+    assert session.response.status == repeated_scenario.dig("response", "status"), "repeated cancellation was not idempotent"
+    assert JSON.parse(session.response.body).dig("task", "status") == repeated_scenario.dig("response", "body", "task_status"), "repeated cancellation changed state"
+
+    settled_scenario = cancellation_scenarios.fetch("cancellation-settled")
+    cancelled = nil
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      cancelled = JSON.parse(session.response.body)
+      cancelled.dig("task", "status") == settled_scenario.dig("response", "body", "task_status")
+    end
+    assert cancelled.dig("session", "status") == settled_scenario.dig("response", "body", "session_status"), "session was not ready after settled cancellation"
+    assert cancelled.dig("task", "activity") == settled_scenario.dig("response", "body", "task_activity"), "settled cancellation activity differed"
+    session.delete "/dev/pi-browser-taskbar/tasks/#{held_id}", headers: {"X-CSRF-Token" => token}
+    assert session.response.status == 200 && JSON.parse(session.response.body).dig("task", "status") == "cancelled", "cancelled task was not idempotent"
+
     semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200,
-      "completed" => completed, "focus_rejections" => focus_rejections}
+      "completed" => completed, "focus_rejections" => focus_rejections,
+      "cancellation" => {"wrong_status" => wrong_scenario.dig("response", "status"), "wrong" => wrong_cancellation,
+        "accepted_status" => accepted_scenario.dig("response", "status"), "accepted" => cancelling,
+        "settled_status" => settled_scenario.dig("response", "status"), "settled" => cancelled}}
     File.write(ENV.fetch("PI_BROWSER_TASKBAR_SEMANTICS"), JSON.pretty_generate(semantic))
     spec = Gem.loaded_specs.fetch("pi-browser-taskbar-rails")
     assert spec.full_gem_path.start_with?(ENV.fetch("GEM_HOME")), "adapter loaded from source workspace"

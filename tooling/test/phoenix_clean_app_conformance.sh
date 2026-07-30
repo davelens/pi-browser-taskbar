@@ -19,6 +19,8 @@ cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.js
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
 cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
 cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
+mkdir "$tmp/cancellation-scenarios"
+cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
 
 cat >"$app/mix.exs" <<EOF
 defmodule Demo.MixProject do
@@ -164,6 +166,18 @@ defmodule CleanAppConformance do
     focused_completed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
     assert!(focused_completed["task"]["output"] == focused_scenario["response"]["body"]["terminal_output"], "focused fake output differed")
 
+    cancellation_scenarios =
+      System.fetch_env!("PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS")
+      |> Path.join("*.json")
+      |> Path.wildcard()
+      |> Map.new(fn path -> {Path.basename(path, ".json"), path |> File.read!() |> Jason.decode!()} end)
+
+    completed_cancellation = cancellation_scenarios["cancellation-completed"]
+    completed_response = request(:delete, "/dev/pi-browser-taskbar/tasks/#{focused_completed["task"]["id"]}")
+    completed_body = response_json(completed_response)
+    assert!(completed_response.status == completed_cancellation["response"]["status"], "completed task cancellation status differed")
+    assert!(completed_body["error"]["code"] == completed_cancellation["response"]["body"]["error_code"], "completed task cancellation code differed")
+
     [duplicate, invalid_structure] = [
       put_in(focused_task, ["context", "focus_points"], focused_task["context"]["focus_points"] ++ focused_task["context"]["focus_points"]),
       put_in(focused_task, ["context", "focus_points", Access.at(0), "source", "status"], "guessed")
@@ -175,6 +189,41 @@ defmodule CleanAppConformance do
       %{"status" => response.status, "code" => body["error"]["code"]}
     end)
 
+    held = request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "hold this task")) |> response_json()
+    held_id = held["task"]["id"]
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.output == "Implemented the whole-page request."
+    end)
+
+    wrong_scenario = cancellation_scenarios["cancellation-wrong-id"]
+    wrong_response = request(:delete, "/dev/pi-browser-taskbar/tasks/unknown-task")
+    wrong_cancellation = response_json(wrong_response)
+    assert!(wrong_response.status == wrong_scenario["response"]["status"], "unknown task cancellation status differed")
+    assert!(wrong_cancellation["error"]["code"] == wrong_scenario["response"]["body"]["error_code"], "unknown task cancellation code differed")
+
+    accepted_scenario = cancellation_scenarios["cancellation-accepted"]
+    accepted_response = request(:delete, "/dev/pi-browser-taskbar/tasks/#{held_id}")
+    cancelling = response_json(accepted_response)
+    assert!(accepted_response.status == accepted_scenario["response"]["status"], "cancellation was not accepted")
+    assert!(cancelling["task"]["status"] == accepted_scenario["response"]["body"]["task_status"], "task did not enter cancelling")
+    assert!(is_nil(cancelling["task"]["finished_at"]), "cancellation finished before agent_settled")
+
+    repeated_scenario = cancellation_scenarios["cancellation-repeated"]
+    repeated_response = request(:delete, "/dev/pi-browser-taskbar/tasks/#{held_id}")
+    assert!(repeated_response.status == repeated_scenario["response"]["status"], "repeated cancellation was not idempotent")
+    assert!(response_json(repeated_response)["task"]["status"] == repeated_scenario["response"]["body"]["task_status"], "repeated cancellation changed state")
+
+    settled_scenario = cancellation_scenarios["cancellation-settled"]
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == settled_scenario["response"]["body"]["task_status"]
+    end)
+    settled_response = request(:get, "/dev/pi-browser-taskbar/state")
+    cancelled = response_json(settled_response)
+    assert!(cancelled["session"]["status"] == settled_scenario["response"]["body"]["session_status"], "session was not ready after settled cancellation")
+    assert!(cancelled["task"]["activity"] == settled_scenario["response"]["body"]["task_activity"], "settled cancellation activity differed")
+    already = request(:delete, "/dev/pi-browser-taskbar/tasks/#{held_id}")
+    assert!(already.status == 200 && response_json(already)["task"]["status"] == "cancelled", "cancelled task was not idempotent")
+
     if path = System.get_env("PI_BROWSER_TASKBAR_SEMANTICS") do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, Jason.encode!(%{
@@ -182,7 +231,15 @@ defmodule CleanAppConformance do
         "created" => created_json,
         "completed_status" => 200,
         "completed" => completed,
-        "focus_rejections" => focus_rejections
+        "focus_rejections" => focus_rejections,
+        "cancellation" => %{
+          "wrong_status" => wrong_response.status,
+          "wrong" => wrong_cancellation,
+          "accepted_status" => accepted_response.status,
+          "accepted" => cancelling,
+          "settled_status" => settled_response.status,
+          "settled" => cancelled
+        }
       }, pretty: true))
     end
 
@@ -254,6 +311,7 @@ export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
 export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
 export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
 export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
+export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
 
 (
