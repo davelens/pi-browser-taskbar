@@ -788,6 +788,7 @@ for (const framework of Object.keys(assets)) {
     assert.equal(shadow.querySelector("[data-prompt]").disabled, true);
     assert.equal(shadow.querySelector("[data-mark]").disabled, true);
     assert.equal(shadow.querySelector("[data-clear]").disabled, true);
+    assert.equal(shadow.querySelector("[data-reset]").disabled, true);
     assert.equal(shadow.querySelector("[data-cancel-warning]").hidden, false);
 
     shadow.querySelector("[data-run]").dispatchEvent({ type: "click" });
@@ -804,6 +805,73 @@ for (const framework of Object.keys(assets)) {
     assert.equal(shadow.querySelector("[data-status]").textContent, "Stopped");
     assert.equal(shadow.querySelector("[data-activity]").textContent, "Task stopped");
     assert.equal(shadow.querySelector("[data-cancel-warning]").hidden, false);
+  });
+}
+
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client confirms reset inline and preserves draft and marks`, async () => {
+    const document = fakeDocument();
+    const focus = document.createElement("button");
+    focus.setAttribute("data-testid", "preserved-focus");
+    document.body.appendChild(focus);
+    const requests = [];
+    let resolveReset;
+    const resetResponse = new Promise((resolve) => { resolveReset = resolve; });
+    const ready = {
+      contract_version: 1,
+      session: { id: "old-session", status: "ready", model: "test/fake", error: null },
+      task: { id: "old-task", status: "completed", output: "Old feedback", activity: "Task completed" },
+    };
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, assets[framework]), "utf8"), sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      csrfToken: "native-csrf-token",
+      document,
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        if (options.method === "GET") return { ok: true, status: 200, json: async () => ready };
+        return resetResponse;
+      },
+      location: { origin: "http://localhost:4000", pathname: "/", search: "" },
+    });
+
+    await mounted.refresh();
+    const shadow = mounted.element.shadowRoot;
+    shadow.querySelector("[data-prompt]").value = "Keep this draft.";
+    select(shadow.querySelector("[data-mark]"), document, focus);
+
+    const reset = shadow.querySelector("[data-reset]");
+    assert.equal(reset.disabled, false);
+    reset.dispatchEvent({ type: "click" });
+    assert.equal(reset.textContent, "Start fresh?");
+    assert.equal(requests.length, 1);
+
+    reset.dispatchEvent({ type: "click" });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(requests[1].url, "/dev/pi-browser-taskbar/session/reset");
+    assert.equal(requests[1].options.method, "POST");
+    assert.equal(requests[1].options.headers["x-csrf-token"], "native-csrf-token");
+    assert.equal(shadow.querySelector("[data-activity]").textContent, "Starting a fresh session");
+    assert.equal(shadow.querySelector("[data-prompt]").disabled, true);
+    assert.equal(reset.disabled, true);
+
+    resolveReset({
+      ok: true,
+      status: 202,
+      json: async () => ({
+        contract_version: 1,
+        session: { id: "new-session", status: "ready", model: "test/fake", error: null },
+        task: null,
+      }),
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(shadow.querySelector("[data-prompt]").value, "Keep this draft.");
+    assert.match(shadow.querySelector("[data-scope]").textContent, /^1 marked element/u);
+    assert.equal(shadow.querySelector("[data-output]").hidden, true);
+    assert.equal(reset.textContent, "New session");
+    assert.equal(reset.disabled, false);
   });
 }
 
@@ -913,7 +981,7 @@ function fakeDocument() {
         "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
         "[data-run]", "[data-output]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
-        "[data-cancel-warning]",
+        "[data-cancel-warning]", "[data-reset]",
       ]) {
         this.elements.set(selector, new FakeElement());
       }

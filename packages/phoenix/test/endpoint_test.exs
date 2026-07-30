@@ -10,6 +10,7 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
   @fixture Path.join(@contract_root, "fixtures/tasks/minimal-task.json")
   @scenario Path.join(@contract_root, "fixtures/scenarios/phoenix-whole-page.json")
   @cancellation_scenarios Path.join(@contract_root, "fixtures/scenarios/cancellation-*.json")
+  @reset_scenarios Path.join(@contract_root, "fixtures/scenarios/session-reset-*.json")
 
   setup do
     name = String.to_atom("endpoint_runtime_#{System.unique_integer([:positive])}")
@@ -116,6 +117,49 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
     already = call(:delete, "/tasks/#{task_id}", nil, runtime)
     assert already.status == 200
     assert json(already)["task"]["status"] == "cancelled"
+  end
+
+  test "serves shared accepted, busy, and extension-rejected reset scenarios", %{runtime: runtime} do
+    scenarios =
+      @reset_scenarios
+      |> Path.wildcard()
+      |> Map.new(fn path ->
+        {Path.basename(path, ".json"), path |> File.read!() |> Jason.decode!()}
+      end)
+
+    params = @fixture |> File.read!() |> Jason.decode!()
+    call(:post, "/tasks", params, runtime)
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+    old_session_id = Runtime.snapshot(runtime).session.id
+
+    accepted = call(:post, "/session/reset", nil, runtime)
+    accepted_json = json(accepted)
+    expected = scenarios["session-reset-accepted"]
+    assert accepted.status == expected["response"]["status"]
+    assert accepted_json["session"]["status"] == expected["response"]["body"]["session_status"]
+    assert is_nil(accepted_json["task"])
+    assert accepted_json["session"]["id"] != old_session_id
+    assert get_resp_header(accepted, "cache-control") == ["no-store"]
+
+    held = call(:post, "/tasks", Map.put(params, "prompt", "hold this task"), runtime) |> json()
+    busy = call(:post, "/session/reset", nil, runtime)
+    busy_json = json(busy)
+    expected = scenarios["session-reset-busy"]
+    assert busy.status == expected["response"]["status"]
+    assert busy_json["error"]["code"] == expected["response"]["body"]["error_code"]
+    assert busy_json["snapshot"]["task"]["id"] == held["task"]["id"]
+    Runtime.cancel(runtime, held["task"]["id"])
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+
+    call(:post, "/tasks", Map.put(params, "prompt", "reject reset"), runtime)
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+    retained = Runtime.snapshot(runtime)
+    rejected = call(:post, "/session/reset", nil, runtime)
+    rejected_json = json(rejected)
+    expected = scenarios["session-reset-rejected"]
+    assert rejected.status == expected["response"]["status"]
+    assert rejected_json["error"]["code"] == expected["response"]["body"]["error_code"]
+    assert rejected_json["snapshot"] == retained |> Jason.encode!() |> Jason.decode!()
   end
 
   test "returns stable validation and busy errors", %{runtime: runtime} do

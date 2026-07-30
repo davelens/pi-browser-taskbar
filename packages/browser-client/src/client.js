@@ -31,6 +31,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       overlays: shadow.querySelector("[data-overlays]"),
       panel: shadow.querySelector("[data-panel]"),
       prompt: shadow.querySelector("[data-prompt]"),
+      reset: shadow.querySelector("[data-reset]"),
       run: shadow.querySelector("[data-run]"),
       scope: shadow.querySelector("[data-scope]"),
       status: shadow.querySelector("[data-status]"),
@@ -43,6 +44,8 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     let snapshot = null;
     let pollTimer = null;
     let snapshotGeneration = 0;
+    let confirmingReset = false;
+    let resetPending = false;
 
     controls.toggle.addEventListener("click", () => {
       controls.panel.hidden = !controls.panel.hidden;
@@ -52,6 +55,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     controls.mark.addEventListener("click", () => setSelecting(!selecting));
     controls.clear.addEventListener("click", clearMarks);
     controls.run.addEventListener("click", () => primaryAction().catch(showError));
+    controls.reset.addEventListener("click", () => resetAction().catch(showError));
     controls.prompt.addEventListener("input", renderControls);
     document.addEventListener?.("pointermove", hoverSelection, true);
     document.addEventListener?.("click", selectElement, true);
@@ -119,6 +123,31 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
     }
 
+    async function resetAction() {
+      if (!confirmingReset) {
+        confirmingReset = true;
+        renderControls();
+        return snapshot;
+      }
+
+      confirmingReset = false;
+      resetPending = true;
+      render();
+      const generation = ++snapshotGeneration;
+
+      try {
+        const nextSnapshot = await request("/session/reset", { method: "POST" });
+        if (generation !== snapshotGeneration) return snapshot;
+        snapshot = nextSnapshot;
+        render();
+        schedulePoll(30000);
+        return snapshot;
+      } finally {
+        resetPending = false;
+        if (generation === snapshotGeneration) render();
+      }
+    }
+
     async function refresh() {
       const generation = ++snapshotGeneration;
 
@@ -162,9 +191,12 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     function render() {
       const session = snapshot?.session || { status: "starting" };
       const task = snapshot?.task;
-      controls.status.textContent = visibleStatus(session, task);
-      controls.status.setAttribute("data-state", task?.status || session.status);
-      controls.activity.textContent = task?.activity || connectingActivity(session);
+      const renderedSession = resetPending ? { ...session, status: "resetting" } : session;
+      controls.status.textContent = visibleStatus(renderedSession, task);
+      controls.status.setAttribute("data-state", task?.status || renderedSession.status);
+      controls.activity.textContent = renderedSession.status === "resetting"
+        ? "Starting a fresh session"
+        : task?.activity || connectingActivity(renderedSession);
       controls.activity.hidden = !controls.activity.textContent;
       controls.output.textContent = task?.output || "";
       controls.output.hidden = !controls.output.textContent;
@@ -176,15 +208,19 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     }
 
     function renderControls() {
-      const busy = active(snapshot);
+      const busy = resetPending || active(snapshot);
       const running = snapshot?.task?.status === "running";
       const cancelling = snapshot?.task?.status === "cancelling";
+      const resetting = resetPending || snapshot?.session?.status === "resetting";
       if (busy && selecting) setSelecting(false);
+      if (busy || snapshot?.session?.status !== "ready") confirmingReset = false;
       controls.prompt.disabled = busy;
       controls.mark.disabled = busy || (!selecting && marks.length >= 8);
       controls.clear.disabled = busy;
-      controls.run.disabled = cancelling || (!running && !String(controls.prompt.value || "").trim());
+      controls.run.disabled = cancelling || resetting || (!running && !String(controls.prompt.value || "").trim());
       controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
+      controls.reset.disabled = busy || snapshot?.session?.status !== "ready";
+      controls.reset.textContent = confirmingReset ? "Start fresh?" : resetting ? "Starting fresh…" : "New session";
     }
 
     function setSelecting(next) {
@@ -255,7 +291,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         remove.type = "button";
         remove.textContent = "×";
         remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
-        remove.disabled = active(snapshot);
+        remove.disabled = resetPending || active(snapshot);
         remove.addEventListener("click", () => removeMark(index));
         chip.appendChild(label);
         chip.appendChild(remove);
@@ -856,11 +892,12 @@ function positionOutline(outline, element) {
 }
 
 function active(snapshot) {
-  return snapshot?.session?.status === "busy" || ["running", "cancelling"].includes(snapshot?.task?.status);
+  return ["busy", "resetting"].includes(snapshot?.session?.status) || ["running", "cancelling"].includes(snapshot?.task?.status);
 }
 
 function visibleStatus(session, task) {
   if (task?.status === "running" || task?.status === "cancelling") return "Working";
+  if (session.status === "resetting") return "Connecting";
   if (task?.status === "completed" || task?.status === "failed") return "Finished";
   if (task?.status === "cancelled") return "Stopped";
   if (session.status === "ready") return "Ready";
@@ -870,6 +907,7 @@ function visibleStatus(session, task) {
 
 function connectingActivity(session) {
   if (session.status === "starting") return "Connecting to the local Pi session";
+  if (session.status === "resetting") return "Starting a fresh session";
   if (session.status === "unavailable") return "Check that Pi is installed and authenticated";
   return "";
 }
@@ -891,6 +929,7 @@ function markup() {
       <p data-error hidden role="alert"></p>
       <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
       <button data-run type="button" disabled>Run with Pi</button>
+      <button data-reset type="button" disabled>New session</button>
     </section>
     <div data-hover-outline hidden aria-hidden="true"></div>
     <div data-overlays aria-hidden="true"></div>

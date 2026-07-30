@@ -105,6 +105,9 @@ module Pi
               @error = nil
               @task = nil
               @phase = "starting"
+              @reset_condition = ConditionVariable.new
+              @reset_result = nil
+              @reset_recovering = false
               start_pi
             end
 
@@ -164,9 +167,25 @@ module Pi
               end
             end
 
+            def reset
+              @mutex.synchronize do
+                return [:reset_while_busy, snapshot_unlocked] unless @phase == "ready"
+
+                @phase = "resetting"
+                @reset_result = nil
+                @reset_command_id = "reset-#{SecureRandom.urlsafe_base64(18, false)}"
+                begin
+                  write(type: "new_session", id: @reset_command_id)
+                rescue IOError, SystemCallError
+                  recover_reset_unlocked
+                end
+                @reset_condition.wait(@mutex) while @phase == "resetting"
+                [@reset_result, snapshot_unlocked]
+              end
+            end
+
             def close
-              @stdin.close unless @stdin.nil? || @stdin.closed?
-              Process.kill("TERM", @wait_thread.pid) if @wait_thread && @wait_thread.alive?
+              @mutex.synchronize { stop_pi_unlocked }
             rescue IOError, SystemCallError
               nil
             end
@@ -175,55 +194,63 @@ module Pi
 
             def start_pi
               @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(@executable, "--mode", "rpc", chdir: @project_root)
-              @stderr_reader = Thread.new { drain_stderr }
+              stdout = @stdout
+              stderr = @stderr
+              @stderr_reader = Thread.new { drain_stderr(stderr) }
               @startup_id = "startup-#{SecureRandom.urlsafe_base64(18, false)}"
               write(type: "get_state", id: @startup_id)
-              @reader = Thread.new { read_events }
-            rescue SystemCallError
-              @mutex.synchronize { unavailable_unlocked("Pi executable was not found or could not be started") }
+              @reader = Thread.new { read_events(stdout) }
+            rescue IOError, SystemCallError
+              unavailable_unlocked("Pi executable was not found or could not be started")
+              finish_reset_unlocked(:unavailable) if @reset_recovering
             end
 
-            def drain_stderr
-              loop { @stderr.readpartial(16 * 1024) }
+            def drain_stderr(stderr)
+              loop { stderr.readpartial(16 * 1024) }
             rescue EOFError, IOError
               nil
             end
 
-            def read_events
+            def read_events(stdout)
               loop do
-                line = @stdout.gets("\n", MAX_RECORD_BYTES + 1)
+                line = stdout.gets("\n", MAX_RECORD_BYTES + 1)
                 break unless line
                 if line.bytesize > MAX_RECORD_BYTES || !line.end_with?("\n")
-                  protocol_failure("Pi sent an oversized RPC record")
+                  protocol_failure(stdout, "Pi sent an oversized RPC record")
                   break
                 end
                 event = JSON.parse(line)
                 unless event.is_a?(Hash)
-                  protocol_failure("Pi sent a non-object RPC record")
+                  protocol_failure(stdout, "Pi sent a non-object RPC record")
                   break
                 end
-                @mutex.synchronize { consume(event) }
+                @mutex.synchronize { consume(event) if @stdout.equal?(stdout) }
               rescue JSON::ParserError
-                protocol_failure("Pi sent a malformed RPC record")
+                protocol_failure(stdout, "Pi sent a malformed RPC record")
                 break
               end
-              unexpected_stop
+              unexpected_stop(stdout)
             rescue IOError, SystemCallError
-              unexpected_stop
+              unexpected_stop(stdout)
             end
 
             def consume(event)
               if event["type"] == "response" && event["id"] == @startup_id
-                if event["success"]
-                  data = event["data"]
-                  model = data["model"] if data.is_a?(Hash)
-                  @model = model.is_a?(Hash) ? [model["provider"], model["id"]].compact.join("/") : model
-                  @session_id = SecureRandom.urlsafe_base64(18, false)
-                  @phase = "ready"
-                  @error = nil
+                data = event["data"]
+                if event["success"] && data.is_a?(Hash) && data["sessionId"].is_a?(String) && !data["sessionId"].empty?
+                  accept_state_unlocked(data)
+                  if @reset_recovering
+                    @task = nil
+                    finish_reset_unlocked(:accepted)
+                  else
+                    @phase = "ready"
+                  end
                 else
                   unavailable_unlocked("Pi rejected its startup handshake")
+                  finish_reset_unlocked(:unavailable) if @reset_recovering
                 end
+              elsif @phase == "resetting"
+                consume_reset_unlocked(event)
               elsif @phase == "busy"
                 if event["type"] == "response" && event["id"] == @task["command_id"] && event["success"] == false
                   finish_unlocked("failed", "Pi rejected the task")
@@ -253,6 +280,39 @@ module Pi
               @task["output_truncated"] ||= truncated
             end
 
+            def consume_reset_unlocked(event)
+              if event["type"] == "response" && event["id"] == @reset_command_id
+                data = event["data"]
+                if event["success"] && data.is_a?(Hash) && data["cancelled"] == true
+                  @phase = "ready"
+                  finish_reset_unlocked(:session_reset_rejected)
+                elsif event["success"] && data.is_a?(Hash) && data["cancelled"] == false
+                  @reset_state_id = "reset-state-#{SecureRandom.urlsafe_base64(18, false)}"
+                  write(type: "get_state", id: @reset_state_id)
+                else
+                  recover_reset_unlocked
+                end
+              elsif event["type"] == "response" && event["id"] == @reset_state_id
+                data = event["data"]
+                if event["success"] && data.is_a?(Hash) && data["sessionId"].is_a?(String) && !data["sessionId"].empty? && data["sessionId"] != @pi_session_id
+                  accept_state_unlocked(data)
+                  @task = nil
+                  @phase = "ready"
+                  finish_reset_unlocked(:accepted)
+                else
+                  recover_reset_unlocked
+                end
+              end
+            end
+
+            def accept_state_unlocked(data)
+              model = data["model"]
+              @model = model.is_a?(Hash) ? [model["provider"], model["id"]].compact.join("/") : model
+              @pi_session_id = data["sessionId"]
+              @session_id = SecureRandom.urlsafe_base64(18, false)
+              @error = nil
+            end
+
             def timeout(id)
               @mutex.synchronize do
                 return unless @phase == "busy" && @task["id"] == id
@@ -261,16 +321,22 @@ module Pi
               end
             end
 
-            def protocol_failure(message)
+            def protocol_failure(stdout, message)
               @mutex.synchronize do
+                return unless @stdout.equal?(stdout)
+                return recover_reset_unlocked if @phase == "resetting"
+
                 finish_unlocked("failed", message) if @phase == "busy"
                 unavailable_unlocked("Pi protocol failed")
               end
             end
 
-            def unexpected_stop
+            def unexpected_stop(stdout)
               @mutex.synchronize do
+                return unless @stdout.equal?(stdout)
+                return recover_reset_unlocked if @phase == "resetting"
                 return if @phase == "unavailable"
+
                 finish_unlocked("failed", "Pi stopped unexpectedly") if @phase == "busy"
                 unavailable_unlocked("Pi stopped unexpectedly")
               end
@@ -282,6 +348,40 @@ module Pi
               @task["error"] = error
               @task["finished_at"] = Time.now.utc.iso8601(6)
               @phase = "ready"
+            end
+
+            def recover_reset_unlocked
+              if @reset_recovering
+                unavailable_unlocked("Pi could not recover the session reset")
+                finish_reset_unlocked(:unavailable)
+                return
+              end
+
+              @reset_recovering = true
+              @reset_command_id = nil
+              @reset_state_id = nil
+              stop_pi_unlocked
+              @phase = "resetting"
+              start_pi
+            end
+
+            def finish_reset_unlocked(result)
+              @phase = "ready" if result == :accepted
+              @reset_result = result
+              @reset_recovering = false
+              @reset_command_id = nil
+              @reset_state_id = nil
+              @reset_condition.broadcast
+            end
+
+            def stop_pi_unlocked
+              stdin = @stdin
+              wait_thread = @wait_thread
+              @stdin = @stdout = @stderr = @wait_thread = nil
+              stdin.close unless stdin.nil? || stdin.closed?
+              Process.kill("TERM", wait_thread.pid) if wait_thread&.alive?
+            rescue IOError, SystemCallError
+              nil
             end
 
             def unavailable_unlocked(message)
@@ -389,9 +489,12 @@ module Pi
                 elsif command_shape?(command, "cancel", %w[id task_id type]) && command["task_id"].is_a?(String)
                   result, snapshot = @runtime.cancel(command["task_id"])
                   write_record(client, "id" => command["id"], "ok" => %i[accepted cancelled].include?(result), "result" => result.to_s, "snapshot" => snapshot)
+                elsif command_shape?(command, "reset", %w[id type])
+                  result, snapshot = @runtime.reset
+                  write_record(client, "id" => command["id"], "ok" => result == :accepted, "result" => result.to_s, "snapshot" => snapshot)
                 else
                   id = command["id"] if command.is_a?(Hash) && command["id"].is_a?(String)
-                  known = command.is_a?(Hash) && %w[state submit cancel].include?(command["type"])
+                  known = command.is_a?(Hash) && %w[state submit cancel reset].include?(command["type"])
                   write_record(client, "id" => id, "ok" => false, "result" => "invalid", "message" => known ? "malformed broker command" : "unknown broker command")
                 end
               end
@@ -444,6 +547,10 @@ module Pi
 
             def cancel(task_id)
               request("type" => "cancel", "task_id" => task_id)
+            end
+
+            def reset
+              request("type" => "reset")
             end
 
             def close

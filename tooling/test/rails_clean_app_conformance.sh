@@ -31,8 +31,9 @@ cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.js
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
 cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
 cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
-mkdir "$tmp/cancellation-scenarios"
+mkdir "$tmp/cancellation-scenarios" "$tmp/reset-scenarios"
 cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
+cp "$root"/contract/fixtures/scenarios/session-reset-*.json "$tmp/reset-scenarios/"
 
 cat >"$app/config/application.rb" <<'RUBY'
 require "rails"
@@ -94,6 +95,7 @@ export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
 export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
 export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
+export PI_BROWSER_TASKBAR_RESET_SCENARIOS="$tmp/reset-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/rails.json"
 
 (
@@ -173,6 +175,9 @@ module CleanRailsConformance
     cancellation_scenarios = Dir[File.join(ENV.fetch("PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS"), "*.json")].to_h do |path|
       [File.basename(path, ".json"), JSON.parse(File.read(path))]
     end
+    reset_scenarios = Dir[File.join(ENV.fetch("PI_BROWSER_TASKBAR_RESET_SCENARIOS"), "*.json")].to_h do |path|
+      [File.basename(path, ".json"), JSON.parse(File.read(path))]
+    end
     completed_cancellation = cancellation_scenarios.fetch("cancellation-completed")
     session.delete "/dev/pi-browser-taskbar/tasks/#{focused_completed.dig("task", "id")}", headers: {"X-CSRF-Token" => token}
     assert session.response.status == completed_cancellation.dig("response", "status"), "completed task cancellation status differed"
@@ -213,6 +218,14 @@ module CleanRailsConformance
     assert created.dig("session", "id") == JSON.parse(second.response.body).dig("snapshot", "session", "id"), "Rails clients did not share one broker session"
 
     held_id = JSON.parse(session.response.body).dig("task", "id")
+    busy_reset_scenario = reset_scenarios.fetch("session-reset-busy")
+    session.post "/dev/pi-browser-taskbar/session/reset", headers: {"X-CSRF-Token" => token}
+    busy_reset = JSON.parse(session.response.body)
+    assert session.response.status == busy_reset_scenario.dig("response", "status"), "busy reset status differed"
+    assert busy_reset.dig("error", "code") == busy_reset_scenario.dig("response", "body", "error_code"), "busy reset code differed"
+    assert busy_reset.dig("snapshot", "task", "id") == held_id, "busy reset changed the retained task"
+    busy_reset_status = session.response.status
+
     wait_until do
       session.get "/dev/pi-browser-taskbar/state"
       JSON.parse(session.response.body).dig("task", "output") == "Implemented the whole-page request."
@@ -247,11 +260,41 @@ module CleanRailsConformance
     session.delete "/dev/pi-browser-taskbar/tasks/#{held_id}", headers: {"X-CSRF-Token" => token}
     assert session.response.status == 200 && JSON.parse(session.response.body).dig("task", "status") == "cancelled", "cancelled task was not idempotent"
 
+    accepted_reset_scenario = reset_scenarios.fetch("session-reset-accepted")
+    old_session_id = cancelled.dig("session", "id")
+    session.post "/dev/pi-browser-taskbar/session/reset", headers: {"X-CSRF-Token" => token}
+    accepted_reset = JSON.parse(session.response.body)
+    assert session.response.status == accepted_reset_scenario.dig("response", "status"), "session reset was not accepted"
+    assert accepted_reset.dig("session", "status") == accepted_reset_scenario.dig("response", "body", "session_status"), "reset did not return ready"
+    assert accepted_reset["task"].nil?, "successful reset retained task feedback"
+    assert accepted_reset.dig("session", "id") != old_session_id, "successful reset retained the old session identity"
+    accepted_reset_status = session.response.status
+
+    rejected_task = Marshal.load(Marshal.dump(task))
+    rejected_task["prompt"] = "reject reset"
+    session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(rejected_task),
+      headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      JSON.parse(session.response.body).dig("task", "status") == "completed"
+    end
+    retained_reset_state = JSON.parse(session.response.body)
+    rejected_reset_scenario = reset_scenarios.fetch("session-reset-rejected")
+    session.post "/dev/pi-browser-taskbar/session/reset", headers: {"X-CSRF-Token" => token}
+    rejected_reset = JSON.parse(session.response.body)
+    assert session.response.status == rejected_reset_scenario.dig("response", "status"), "extension-rejected reset status differed"
+    assert rejected_reset.dig("error", "code") == rejected_reset_scenario.dig("response", "body", "error_code"), "extension-rejected reset code differed"
+    assert rejected_reset["snapshot"] == retained_reset_state, "extension-rejected reset changed retained state"
+    rejected_reset_status = session.response.status
+
     semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200,
       "completed" => completed, "focus_rejections" => focus_rejections,
       "cancellation" => {"wrong_status" => wrong_scenario.dig("response", "status"), "wrong" => wrong_cancellation,
         "accepted_status" => accepted_scenario.dig("response", "status"), "accepted" => cancelling,
-        "settled_status" => settled_scenario.dig("response", "status"), "settled" => cancelled}}
+        "settled_status" => settled_scenario.dig("response", "status"), "settled" => cancelled},
+      "reset" => {"busy_status" => busy_reset_status, "busy" => busy_reset,
+        "accepted_status" => accepted_reset_status, "accepted" => accepted_reset,
+        "rejected_status" => rejected_reset_status, "rejected" => rejected_reset}}
     File.write(ENV.fetch("PI_BROWSER_TASKBAR_SEMANTICS"), JSON.pretty_generate(semantic))
     spec = Gem.loaded_specs.fetch("pi-browser-taskbar-rails")
     assert spec.full_gem_path.start_with?(ENV.fetch("GEM_HOME")), "adapter loaded from source workspace"

@@ -50,6 +50,10 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
       {"result" => "accepted", "snapshot" => snapshot_value("busy", "running")}
     end
 
+    def reset
+      {"result" => "accepted", "snapshot" => snapshot_value("ready", nil)}
+    end
+
     def cancel(id)
       case id
       when "opaque-task"
@@ -125,6 +129,19 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
       headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
     assert_response :accepted
     assert_equal "Explain the cards page.", @broker.submissions.first["prompt"]
+  end
+
+  def test_session_reset_route_uses_csrf_and_returns_the_complete_ready_snapshot
+    post "/dev/pi-browser-taskbar/session/reset"
+    assert_response :unprocessable_entity
+
+    get "/"
+    token = response.body[/data-csrf-token="([^"]+)"/, 1]
+    post "/dev/pi-browser-taskbar/session/reset", headers: {"X-CSRF-Token" => token}
+    assert_response :accepted
+    assert_equal "ready", JSON.parse(response.body).dig("session", "status")
+    assert_nil JSON.parse(response.body)["task"]
+    assert_equal "no-store", response.headers["Cache-Control"]
   end
 
   def test_cancellation_route_uses_csrf_and_shared_status_errors

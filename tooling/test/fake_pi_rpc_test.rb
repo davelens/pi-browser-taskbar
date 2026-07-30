@@ -37,6 +37,26 @@ class FakePiRpcTest < Minitest::Test
     assert_equal "agent_settled", events.last.fetch("type")
   end
 
+  def test_replays_confirmed_and_extension_rejected_session_resets
+    success = File.join(ROOT, "contract/fixtures/rpc/session-reset-success.json")
+    success_input = [
+      {type: "get_state", id: "state-1"},
+      {type: "new_session", id: "reset-1"},
+      {type: "get_state", id: "state-2"}
+    ].map { |value| JSON.generate(value) }.join("\n") + "\n"
+    output, error, status = Open3.capture3(File.join(ROOT, "tooling/fake_pi_rpc.rb"), success, stdin_data: success_input)
+    assert status.success?, error
+    events = output.lines.map { |line| JSON.parse(line) }
+    assert_equal "new-session", events.last.dig("data", "sessionId")
+
+    rejected = File.join(ROOT, "contract/fixtures/rpc/session-reset-rejected.json")
+    rejected_input = [{type: "get_state", id: "state-1"}, {type: "new_session", id: "reset-1"}]
+      .map { |value| JSON.generate(value) }.join("\n") + "\n"
+    output, error, status = Open3.capture3(File.join(ROOT, "tooling/fake_pi_rpc.rb"), rejected, stdin_data: rejected_input)
+    assert status.success?, error
+    assert_equal true, output.lines.map { |line| JSON.parse(line) }.last.dig("data", "cancelled")
+  end
+
   def test_rejects_an_unexpected_command
     transcript = File.join(ROOT, "contract/fixtures/rpc/startup-success.json")
     command = [File.join(ROOT, "tooling/fake_pi_rpc.rb"), transcript]

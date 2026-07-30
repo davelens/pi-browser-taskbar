@@ -19,8 +19,9 @@ cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.js
 cp "$root/contract/fixtures/tasks/minimal-task.json" "$tmp/task.json"
 cp "$root/contract/fixtures/scenarios/focused-task.json" "$tmp/focused-scenario.json"
 cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
-mkdir "$tmp/cancellation-scenarios"
+mkdir "$tmp/cancellation-scenarios" "$tmp/reset-scenarios"
 cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
+cp "$root"/contract/fixtures/scenarios/session-reset-*.json "$tmp/reset-scenarios/"
 
 cat >"$app/mix.exs" <<EOF
 defmodule Demo.MixProject do
@@ -172,6 +173,12 @@ defmodule CleanAppConformance do
       |> Path.wildcard()
       |> Map.new(fn path -> {Path.basename(path, ".json"), path |> File.read!() |> Jason.decode!()} end)
 
+    reset_scenarios =
+      System.fetch_env!("PI_BROWSER_TASKBAR_RESET_SCENARIOS")
+      |> Path.join("*.json")
+      |> Path.wildcard()
+      |> Map.new(fn path -> {Path.basename(path, ".json"), path |> File.read!() |> Jason.decode!()} end)
+
     completed_cancellation = cancellation_scenarios["cancellation-completed"]
     completed_response = request(:delete, "/dev/pi-browser-taskbar/tasks/#{focused_completed["task"]["id"]}")
     completed_body = response_json(completed_response)
@@ -191,6 +198,13 @@ defmodule CleanAppConformance do
 
     held = request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "hold this task")) |> response_json()
     held_id = held["task"]["id"]
+    busy_reset_scenario = reset_scenarios["session-reset-busy"]
+    busy_reset_response = request(:post, "/dev/pi-browser-taskbar/session/reset")
+    busy_reset = response_json(busy_reset_response)
+    assert!(busy_reset_response.status == busy_reset_scenario["response"]["status"], "busy reset status differed")
+    assert!(busy_reset["error"]["code"] == busy_reset_scenario["response"]["body"]["error_code"], "busy reset code differed")
+    assert!(busy_reset["snapshot"]["task"]["id"] == held_id, "busy reset changed the retained task")
+
     wait_until(fn ->
       PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.output == "Implemented the whole-page request."
     end)
@@ -224,6 +238,27 @@ defmodule CleanAppConformance do
     already = request(:delete, "/dev/pi-browser-taskbar/tasks/#{held_id}")
     assert!(already.status == 200 && response_json(already)["task"]["status"] == "cancelled", "cancelled task was not idempotent")
 
+    accepted_reset_scenario = reset_scenarios["session-reset-accepted"]
+    old_session_id = cancelled["session"]["id"]
+    accepted_reset_response = request(:post, "/dev/pi-browser-taskbar/session/reset")
+    accepted_reset = response_json(accepted_reset_response)
+    assert!(accepted_reset_response.status == accepted_reset_scenario["response"]["status"], "session reset was not accepted")
+    assert!(accepted_reset["session"]["status"] == accepted_reset_scenario["response"]["body"]["session_status"], "reset did not return ready")
+    assert!(is_nil(accepted_reset["task"]), "successful reset retained task feedback")
+    assert!(accepted_reset["session"]["id"] != old_session_id, "successful reset retained the old session identity")
+
+    request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "reject reset"))
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == "completed"
+    end)
+    retained_reset_state = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
+    rejected_reset_scenario = reset_scenarios["session-reset-rejected"]
+    rejected_reset_response = request(:post, "/dev/pi-browser-taskbar/session/reset")
+    rejected_reset = response_json(rejected_reset_response)
+    assert!(rejected_reset_response.status == rejected_reset_scenario["response"]["status"], "extension-rejected reset status differed")
+    assert!(rejected_reset["error"]["code"] == rejected_reset_scenario["response"]["body"]["error_code"], "extension-rejected reset code differed")
+    assert!(rejected_reset["snapshot"] == retained_reset_state, "extension-rejected reset changed retained state")
+
     if path = System.get_env("PI_BROWSER_TASKBAR_SEMANTICS") do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, Jason.encode!(%{
@@ -239,6 +274,14 @@ defmodule CleanAppConformance do
           "accepted" => cancelling,
           "settled_status" => settled_response.status,
           "settled" => cancelled
+        },
+        "reset" => %{
+          "busy_status" => busy_reset_response.status,
+          "busy" => busy_reset,
+          "accepted_status" => accepted_reset_response.status,
+          "accepted" => accepted_reset,
+          "rejected_status" => rejected_reset_response.status,
+          "rejected" => rejected_reset
         }
       }, pretty: true))
     end
@@ -312,6 +355,7 @@ export PI_BROWSER_TASKBAR_TASK="$tmp/task.json"
 export PI_BROWSER_TASKBAR_FOCUSED_SCENARIO="$tmp/focused-scenario.json"
 export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
+export PI_BROWSER_TASKBAR_RESET_SCENARIOS="$tmp/reset-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
 
 (

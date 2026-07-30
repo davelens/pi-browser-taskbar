@@ -3,6 +3,9 @@
 
 require "json"
 
+session_number = 1
+reset_behavior = :accept
+
 $stdin.each_line do |line|
   command = JSON.parse(line)
 
@@ -13,11 +16,13 @@ $stdin.each_line do |line|
       id: command.fetch("id"),
       success: true,
       data: {
-        sessionId: "fixture-session",
+        sessionId: "fixture-session-#{session_number}",
         model: {provider: "test", id: "fake-pi"}
       }
     )
   when "prompt"
+    reset_behavior = :reject if command.fetch("message").include?("reject reset")
+    reset_behavior = :fail if command.fetch("message").include?("fail reset")
     warn "fake Pi diagnostic" if command.fetch("message").include?("stderr output")
 
     if command.fetch("message").include?("stale response")
@@ -52,6 +57,15 @@ $stdin.each_line do |line|
     $stdout.flush
     sleep 0.2
     puts JSON.generate(type: "agent_settled")
+  when "new_session"
+    sleep 0.05
+    if reset_behavior == :fail
+      puts JSON.generate(type: "response", id: command.fetch("id"), success: false, error: "fixture reset failure")
+    else
+      cancelled = reset_behavior == :reject
+      session_number += 1 unless cancelled
+      puts JSON.generate(type: "response", id: command.fetch("id"), success: true, data: {cancelled: cancelled})
+    end
   end
 
   $stdout.flush

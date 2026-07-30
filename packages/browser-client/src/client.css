@@ -153,10 +153,18 @@ button:disabled {
   opacity: 0.55;
 }
 
-[data-run] {
+[data-run],
+[data-reset] {
   width: 100%;
+}
+
+[data-run] {
   border-color: var(--pi-accent);
   color: var(--pi-accent);
+}
+
+[data-reset] {
+  margin-top: 8px;
 }
 
 [data-hover-outline],

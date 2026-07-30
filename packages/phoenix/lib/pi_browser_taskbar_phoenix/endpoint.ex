@@ -51,6 +51,28 @@ defmodule PiBrowserTaskbarPhoenix.Endpoint do
     end
   end
 
+  defp dispatch(%{method: "POST", path_info: ["session", "reset"]} = conn, runtime, _opts) do
+    case Runtime.reset(runtime) do
+      {:ok, snapshot} ->
+        json(conn, 202, snapshot)
+
+      {:error, :reset_while_busy, snapshot} ->
+        error(
+          conn,
+          409,
+          "reset_while_busy",
+          "A fresh session cannot start while Pi is busy",
+          snapshot
+        )
+
+      {:error, :session_reset_rejected, snapshot} ->
+        error(conn, 409, "session_reset_rejected", "Pi kept the current session", snapshot)
+
+      {:error, :unavailable, snapshot} ->
+        error(conn, 503, "unavailable", "Pi is not ready", snapshot)
+    end
+  end
+
   defp dispatch(%{method: "DELETE", path_info: ["tasks", id]} = conn, runtime, _opts) do
     case Runtime.cancel(runtime, id) do
       {:ok, :accepted, snapshot} ->

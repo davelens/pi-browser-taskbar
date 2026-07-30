@@ -2,7 +2,7 @@
 
 This index maps every normative section of [parent specification #17](https://github.com/davelens/pi-browser-taskbar/issues/17) to one canonical owner and an eventual acceptance seam. `Foundation` means issue #18 establishes executable evidence; `Future` names the seam a later tracer bullet must complete. The machine-readable source is [`traceability.json`](traceability.json).
 
-[Issue #25](https://github.com/davelens/pi-browser-taskbar/issues/25) covers Shared task API, Pi RPC lifecycle, Browser Client interaction, and both adapter rows through shared cancellation HTTP scenarios, the accepted-abort transcript, native tests, and packaged cross-adapter conformance.
+[Issue #25](https://github.com/davelens/pi-browser-taskbar/issues/25) covers Shared task API, Pi RPC lifecycle, Browser Client interaction, and both adapter rows through shared cancellation HTTP scenarios, the accepted-abort transcript, native tests, and packaged cross-adapter conformance. [Issue #26](https://github.com/davelens/pi-browser-taskbar/issues/26) extends those rows with confirmed in-process session reset, retained-state rejection, recovery-only process replacement, shared reset scenarios/transcripts, and Browser Client draft/focus preservation.
 
 | Normative section | Owner | Eventual acceptance seam | Status |
 | --- | --- | --- | --- |

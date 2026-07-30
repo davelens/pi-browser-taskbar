@@ -47,7 +47,10 @@ prompt with no marks submits a bounded sanitized whole-page structural snapshot.
 URL paths may reach the configured Pi/model provider, so do not use it with sensitive datasets. The
 package admits one task at a time to one persistent `pi --mode rpc` process and retains the latest
 terminal output. While a task is running, **Stop task** sends Pi's abort command and remains
-cancelling until Pi settles. Stopping cannot roll back file changes Pi already made.
+cancelling until Pi settles. Stopping cannot roll back file changes Pi already made. The confirmed
+**New session** action uses Pi's in-process session switch, clears retained feedback only after state
+confirmation, and preserves the local draft and focus marks; a rejected switch preserves the old
+session.
 
 ## Configuration
 

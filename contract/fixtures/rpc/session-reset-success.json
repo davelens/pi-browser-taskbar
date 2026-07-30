@@ -1,0 +1,12 @@
+{
+  "contract_version": 1,
+  "name": "switch to a fresh session and confirm its state",
+  "steps": [
+    {"direction": "receive", "message": {"type": "get_state", "id": "state-1"}},
+    {"direction": "send", "message": {"type": "response", "id": "state-1", "success": true, "data": {"sessionId": "old-session", "model": {"provider": "test", "id": "fake-pi"}}}},
+    {"direction": "receive", "message": {"type": "new_session", "id": "reset-1"}},
+    {"direction": "send", "message": {"type": "response", "id": "reset-1", "success": true, "data": {"cancelled": false}}},
+    {"direction": "receive", "message": {"type": "get_state", "id": "state-2"}},
+    {"direction": "send", "message": {"type": "response", "id": "state-2", "success": true, "data": {"sessionId": "new-session", "model": {"provider": "test", "id": "fake-pi"}}}}
+  ]
+}

@@ -93,6 +93,24 @@ module Pi
             render_unavailable
           end
 
+          def reset_session
+            response = Pi::Browser::Taskbar::Rails.broker_client.reset
+            case response["result"]
+            when "accepted"
+              render_snapshot(response.fetch("snapshot"), :accepted)
+            when "reset_while_busy"
+              render_error(:conflict, "reset_while_busy", "A fresh session cannot start while Pi is busy", response["snapshot"])
+            when "session_reset_rejected"
+              render_error(:conflict, "session_reset_rejected", "Pi kept the current session", response["snapshot"])
+            when "unavailable"
+              render_error(:service_unavailable, "unavailable", "Pi is not ready", response["snapshot"])
+            else
+              render_unavailable
+            end
+          rescue Broker::Unavailable
+            render_unavailable
+          end
+
           def cancel_task
             response = Pi::Browser::Taskbar::Rails.broker_client.cancel(params[:id])
             case response["result"]

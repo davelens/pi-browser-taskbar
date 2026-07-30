@@ -196,6 +196,24 @@
       "expected_valid": true
     },
     {
+      "id": "session-reset-accepted-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/session-reset-accepted.json",
+      "expected_valid": true
+    },
+    {
+      "id": "session-reset-busy-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/session-reset-busy.json",
+      "expected_valid": true
+    },
+    {
+      "id": "session-reset-rejected-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/session-reset-rejected.json",
+      "expected_valid": true
+    },
+    {
       "id": "rich-whole-page-prompt-golden",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/prompt-golden.v1.schema.json",
       "path": "fixtures/prompts/rich-whole-page.json",
@@ -211,6 +229,18 @@
       "id": "cancellation-rpc-success",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
       "path": "fixtures/rpc/cancellation-success.json",
+      "expected_valid": true
+    },
+    {
+      "id": "session-reset-rpc-success",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/session-reset-success.json",
+      "expected_valid": true
+    },
+    {
+      "id": "session-reset-rpc-rejected",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/session-reset-rejected.json",
       "expected_valid": true
     },
     {

@@ -1,0 +1,9 @@
+{
+  "contract_version": 1,
+  "name": "session reset while a task is active is rejected",
+  "request": {"method": "POST", "path": "/session/reset"},
+  "response": {
+    "status": 409,
+    "body": {"error_code": "reset_while_busy", "session_status": "busy", "task_status": "running"}
+  }
+}

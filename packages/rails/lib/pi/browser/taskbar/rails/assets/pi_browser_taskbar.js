@@ -35,6 +35,7 @@
         overlays: shadow.querySelector("[data-overlays]"),
         panel: shadow.querySelector("[data-panel]"),
         prompt: shadow.querySelector("[data-prompt]"),
+        reset: shadow.querySelector("[data-reset]"),
         run: shadow.querySelector("[data-run]"),
         scope: shadow.querySelector("[data-scope]"),
         status: shadow.querySelector("[data-status]"),
@@ -47,6 +48,8 @@
       let snapshot = null;
       let pollTimer = null;
       let snapshotGeneration = 0;
+      let confirmingReset = false;
+      let resetPending = false;
 
       controls.toggle.addEventListener("click", () => {
         controls.panel.hidden = !controls.panel.hidden;
@@ -56,6 +59,7 @@
       controls.mark.addEventListener("click", () => setSelecting(!selecting));
       controls.clear.addEventListener("click", clearMarks);
       controls.run.addEventListener("click", () => primaryAction().catch(showError));
+      controls.reset.addEventListener("click", () => resetAction().catch(showError));
       controls.prompt.addEventListener("input", renderControls);
       document.addEventListener?.("pointermove", hoverSelection, true);
       document.addEventListener?.("click", selectElement, true);
@@ -123,6 +127,31 @@
         return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
       }
 
+      async function resetAction() {
+        if (!confirmingReset) {
+          confirmingReset = true;
+          renderControls();
+          return snapshot;
+        }
+
+        confirmingReset = false;
+        resetPending = true;
+        render();
+        const generation = ++snapshotGeneration;
+
+        try {
+          const nextSnapshot = await request("/session/reset", { method: "POST" });
+          if (generation !== snapshotGeneration) return snapshot;
+          snapshot = nextSnapshot;
+          render();
+          schedulePoll(30000);
+          return snapshot;
+        } finally {
+          resetPending = false;
+          if (generation === snapshotGeneration) render();
+        }
+      }
+
       async function refresh() {
         const generation = ++snapshotGeneration;
 
@@ -166,9 +195,12 @@
       function render() {
         const session = snapshot?.session || { status: "starting" };
         const task = snapshot?.task;
-        controls.status.textContent = visibleStatus(session, task);
-        controls.status.setAttribute("data-state", task?.status || session.status);
-        controls.activity.textContent = task?.activity || connectingActivity(session);
+        const renderedSession = resetPending ? { ...session, status: "resetting" } : session;
+        controls.status.textContent = visibleStatus(renderedSession, task);
+        controls.status.setAttribute("data-state", task?.status || renderedSession.status);
+        controls.activity.textContent = renderedSession.status === "resetting"
+          ? "Starting a fresh session"
+          : task?.activity || connectingActivity(renderedSession);
         controls.activity.hidden = !controls.activity.textContent;
         controls.output.textContent = task?.output || "";
         controls.output.hidden = !controls.output.textContent;
@@ -180,15 +212,19 @@
       }
 
       function renderControls() {
-        const busy = active(snapshot);
+        const busy = resetPending || active(snapshot);
         const running = snapshot?.task?.status === "running";
         const cancelling = snapshot?.task?.status === "cancelling";
+        const resetting = resetPending || snapshot?.session?.status === "resetting";
         if (busy && selecting) setSelecting(false);
+        if (busy || snapshot?.session?.status !== "ready") confirmingReset = false;
         controls.prompt.disabled = busy;
         controls.mark.disabled = busy || (!selecting && marks.length >= 8);
         controls.clear.disabled = busy;
-        controls.run.disabled = cancelling || (!running && !String(controls.prompt.value || "").trim());
+        controls.run.disabled = cancelling || resetting || (!running && !String(controls.prompt.value || "").trim());
         controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
+        controls.reset.disabled = busy || snapshot?.session?.status !== "ready";
+        controls.reset.textContent = confirmingReset ? "Start fresh?" : resetting ? "Starting fresh…" : "New session";
       }
 
       function setSelecting(next) {
@@ -259,7 +295,7 @@
           remove.type = "button";
           remove.textContent = "×";
           remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
-          remove.disabled = active(snapshot);
+          remove.disabled = resetPending || active(snapshot);
           remove.addEventListener("click", () => removeMark(index));
           chip.appendChild(label);
           chip.appendChild(remove);
@@ -860,11 +896,12 @@
   }
 
   function active(snapshot) {
-    return snapshot?.session?.status === "busy" || ["running", "cancelling"].includes(snapshot?.task?.status);
+    return ["busy", "resetting"].includes(snapshot?.session?.status) || ["running", "cancelling"].includes(snapshot?.task?.status);
   }
 
   function visibleStatus(session, task) {
     if (task?.status === "running" || task?.status === "cancelling") return "Working";
+    if (session.status === "resetting") return "Connecting";
     if (task?.status === "completed" || task?.status === "failed") return "Finished";
     if (task?.status === "cancelled") return "Stopped";
     if (session.status === "ready") return "Ready";
@@ -874,6 +911,7 @@
 
   function connectingActivity(session) {
     if (session.status === "starting") return "Connecting to the local Pi session";
+    if (session.status === "resetting") return "Starting a fresh session";
     if (session.status === "unavailable") return "Check that Pi is installed and authenticated";
     return "";
   }
@@ -895,6 +933,7 @@
         <p data-error hidden role="alert"></p>
         <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
         <button data-run type="button" disabled>Run with Pi</button>
+        <button data-reset type="button" disabled>New session</button>
       </section>
       <div data-hover-outline hidden aria-hidden="true"></div>
       <div data-overlays aria-hidden="true"></div>
@@ -902,7 +941,7 @@
     `;
   }
 
-  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run] {\n  width: 100%;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
+  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run],\n[data-reset] {\n  width: 100%;\n}\n\n[data-run] {\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-reset] {\n  margin-top: 8px;\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
   const contextProvider = ({
   framework: "rails",
   sourceHint(element) {

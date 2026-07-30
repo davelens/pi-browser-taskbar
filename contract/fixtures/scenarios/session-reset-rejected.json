@@ -1,0 +1,9 @@
+{
+  "contract_version": 1,
+  "name": "extension-rejected reset retains the old session and task",
+  "request": {"method": "POST", "path": "/session/reset"},
+  "response": {
+    "status": 409,
+    "body": {"error_code": "session_reset_rejected", "session_status": "ready", "task_status": "completed"}
+  }
+}

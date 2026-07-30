@@ -8,3 +8,4 @@
 - Add up to eight ordered advisory focus marks with stable selectors and fair bounded detail.
 - Attach conservative project-relative ERB template hints from Rails' native rendered-template annotations.
 - Add idempotent task cancellation through the external broker with stable HTTP errors and settled terminal state.
+- Add confirmed in-process session reset through the broker with retained-state rejection and process-recovery fallback.

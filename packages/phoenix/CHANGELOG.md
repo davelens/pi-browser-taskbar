@@ -10,3 +10,4 @@
 - Add up to eight ordered advisory focus marks with stable selectors and fair bounded detail.
 - Attach conservative project-relative HEEx template and function-component source hints.
 - Add idempotent task cancellation with stable HTTP errors and settled terminal state.
+- Add confirmed in-process session reset with retained-state rejection and process-recovery fallback.

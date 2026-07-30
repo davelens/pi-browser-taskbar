@@ -90,6 +90,25 @@ all cancellation mutations remain protected by each framework's native CSRF and 
 Stopping is not transactional and cannot roll back file changes Pi already made. Abort deadlines,
 process-tree replacement, and recovery belong to the later recovery capability.
 
+## Session reset
+
+`POST /session/reset` is accepted only while the session is `ready`; a running, cancelling, or
+already-resetting session returns `409 reset_while_busy` with the unchanged snapshot. An accepted
+request enters `resetting`, sends Pi's supported correlated `new_session` command, then sends
+`get_state` and returns HTTP 202 only after the replacement is confirmed `ready`. The public session
+identity changes and retained task feedback is cleared.
+
+Pi reports an extension veto as a successful `new_session` response with `data.cancelled: true`.
+Adapters return `409 session_reset_rejected` and preserve the old session identity and retained task
+snapshot exactly. A failed RPC command, invalid confirmation, protocol failure, or process exit during
+the switch invokes process replacement as recovery; an ordinary accepted or rejected switch does not
+replace the healthy process.
+
+The Browser Client presents a persistent secondary **New session** button. It is disabled while work
+is running, cancelling, or resetting, changes inline to **Start fresh?** for confirmation, and shows
+**Starting a fresh session** while the mutation is pending. Successful reset removes server-retained
+feedback without changing the browser-local draft or focus marks.
+
 ## Fixture manifest
 
 `fixtures/manifest.json` is the only fixture registry. Each entry identifies a schema, a repository-
@@ -108,9 +127,10 @@ section and the trusted-instruction/untrusted-context boundary.
 HTTP scenarios, prompt goldens, and Pi RPC transcript formats are versioned alongside browser
 context. An HTTP scenario may name a contract task fixture as its request body. The deterministic
 fake RPC peer replays transcript `receive`/`send` steps. Shared cancellation scenarios cover accepted
-and repeated aborts, wrong and completed task IDs, and the settled terminal snapshot. Both packages
-execute the whole-page and cancellation scenarios through `agent_settled`; root conformance rejects
-semantic drift except opaque IDs and timestamps.
+and repeated aborts, wrong and completed task IDs, and the settled terminal snapshot. Shared reset
+scenarios and transcripts cover accepted, busy, and extension-rejected switches plus mandatory state
+confirmation. Both packages execute these flows; root conformance rejects semantic drift except
+opaque IDs and timestamps.
 Only `prompt` is instructional; context is canonical JSON inside an explicitly untrusted delimiter,
 with HTML-significant characters escaped. Visible text and URL paths may reach the developer's
 configured Pi/model provider, so the taskbar is unsuitable for sensitive datasets.

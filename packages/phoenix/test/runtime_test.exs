@@ -68,6 +68,53 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     assert cancelled.task.finished_at
   end
 
+  test "resets in process, rejects while busy, and preserves extension-rejected state", %{
+    runtime: runtime
+  } do
+    assert {:ok, completed} = Runtime.submit(runtime, valid_task("completed before reset"))
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+    old_session_id = completed.session.id
+    old_port = :sys.get_state(runtime).port
+
+    reset = Task.async(fn -> Runtime.reset(runtime) end)
+    wait_until(fn -> Runtime.snapshot(runtime).session.status == "resetting" end)
+    assert {:ok, fresh} = Task.await(reset)
+    assert fresh.session.status == "ready"
+    assert fresh.session.id != old_session_id
+    assert fresh.task == nil
+    assert :sys.get_state(runtime).port == old_port
+
+    assert {:ok, running} = Runtime.submit(runtime, valid_task("hold this task"))
+    assert {:error, :reset_while_busy, busy} = Runtime.reset(runtime)
+    assert busy.task.id == running.task.id
+    assert busy.task.status == "running"
+    assert {:ok, :accepted, _snapshot} = Runtime.cancel(runtime, running.task.id)
+    assert {:error, :reset_while_busy, cancelling} = Runtime.reset(runtime)
+    assert cancelling.task.status == "cancelling"
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+
+    assert {:ok, rejected_task} = Runtime.submit(runtime, valid_task("reject reset"))
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+    retained = Runtime.snapshot(runtime)
+    assert retained.task.id == rejected_task.task.id
+
+    assert {:error, :session_reset_rejected, rejected} = Runtime.reset(runtime)
+    assert rejected == retained
+  end
+
+  test "recovers with process replacement only after RPC reset failure", %{runtime: runtime} do
+    assert {:ok, _task} = Runtime.submit(runtime, valid_task("fail reset"))
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
+    old_session_id = Runtime.snapshot(runtime).session.id
+    old_port = :sys.get_state(runtime).port
+
+    assert {:ok, recovered} = Runtime.reset(runtime)
+    assert recovered.session.status == "ready"
+    assert recovered.session.id != old_session_id
+    assert recovered.task == nil
+    assert :sys.get_state(runtime).port != old_port
+  end
+
   test "ignores a stale response from an earlier correlated command", %{runtime: runtime} do
     assert {:ok, _running} = Runtime.submit(runtime, valid_task("stale response"))
 

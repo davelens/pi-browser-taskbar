@@ -1,0 +1,9 @@
+{
+  "contract_version": 1,
+  "name": "accepted session reset confirms a fresh ready session",
+  "request": {"method": "POST", "path": "/session/reset"},
+  "response": {
+    "status": 202,
+    "body": {"session_status": "ready", "task_is_null": true}
+  }
+}

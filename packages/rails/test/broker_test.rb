@@ -116,6 +116,51 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_session_reset_preserves_rejections_and_restarts_only_for_rpc_failure
+    with_server do |client, second, _identity, _thread, startup_count|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+
+      completed = client.submit(JSON.parse(File.read(TASK)))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      old_session_id = completed.dig("snapshot", "session", "id")
+      reset = Thread.new { client.reset }
+      wait_until { second.snapshot.dig("snapshot", "session", "status") == "resetting" }
+      accepted = reset.value
+      assert_equal "accepted", accepted["result"]
+      assert_equal "ready", accepted.dig("snapshot", "session", "status")
+      refute_equal old_session_id, accepted.dig("snapshot", "session", "id")
+      assert_nil accepted.dig("snapshot", "task")
+      assert_equal 1, File.readlines(startup_count).length
+
+      held = client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "hold this task"))
+      busy = client.reset
+      assert_equal "reset_while_busy", busy["result"]
+      assert_equal held.dig("snapshot", "task", "id"), busy.dig("snapshot", "task", "id")
+      client.cancel(held.dig("snapshot", "task", "id"))
+      cancelling = client.reset
+      assert_equal "reset_while_busy", cancelling["result"]
+      assert_equal "cancelling", cancelling.dig("snapshot", "task", "status")
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "cancelled" }
+
+      rejected_task = client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "reject reset"))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      retained = client.snapshot.fetch("snapshot")
+      rejected = client.reset
+      assert_equal "session_reset_rejected", rejected["result"]
+      assert_equal retained, rejected["snapshot"]
+      assert_equal rejected_task.dig("snapshot", "task", "id"), rejected.dig("snapshot", "task", "id")
+      assert_equal 1, File.readlines(startup_count).length
+
+      client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "fail reset"))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      recovered = client.reset
+      assert_equal "accepted", recovered["result"]
+      assert_equal "ready", recovered.dig("snapshot", "session", "status")
+      assert_nil recovered.dig("snapshot", "task")
+      assert_equal 2, File.readlines(startup_count).length
+    end
+  end
+
   def test_losing_election_does_not_clean_up_the_live_owner
     with_server do |client, _second, identity, thread|
       wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
@@ -181,7 +226,7 @@ class RailsBrokerTest < Minitest::Test
       #!/usr/bin/env ruby
       require "json"
       startup = JSON.parse($stdin.gets)
-      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true, data: {model: "fake"})
+      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true, data: {sessionId: "fake-session", model: "fake"})
       $stdout.flush
       $stdin.gets
     RUBY
