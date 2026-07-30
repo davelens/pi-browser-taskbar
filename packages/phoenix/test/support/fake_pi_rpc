@@ -30,6 +30,13 @@ $stdin.each_line do |line|
       next
     end
 
+    if command.fetch("message").include?("malformed record")
+      puts("{not-json")
+      puts JSON.generate(type: "agent_settled")
+      $stdout.flush
+      next
+    end
+
     puts JSON.generate(
       type: "message_update",
       assistantMessageEvent: {

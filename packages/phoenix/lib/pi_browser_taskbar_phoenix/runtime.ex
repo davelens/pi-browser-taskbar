@@ -194,7 +194,13 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
       restart_after_protocol_failure(state, "Pi sent an oversized RPC record")
     else
       {lines, remainder} = split_lines(buffer)
-      consumed = Enum.reduce(lines, state, &consume_line/2)
+
+      consumed =
+        Enum.reduce_while(lines, state, fn line, current ->
+          next = consume_line(line, current)
+          if next.port, do: {:cont, next}, else: {:halt, next}
+        end)
+
       if consumed.port, do: %{consumed | buffer: remainder}, else: consumed
     end
   end
@@ -204,13 +210,19 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     {Enum.drop(parts, -1), List.last(parts) || ""}
   end
 
-  defp consume_line("", state), do: state
-
   defp consume_line(line, state) do
+    line = trim_trailing_carriage_return(line)
+
     case Jason.decode(line) do
       {:ok, event} -> handle_event(state, event)
-      {:error, _reason} -> state
+      {:error, _reason} -> restart_after_protocol_failure(state, "Pi sent a malformed RPC record")
     end
+  end
+
+  defp trim_trailing_carriage_return(line) do
+    if String.ends_with?(line, "\r"),
+      do: binary_part(line, 0, byte_size(line) - 1),
+      else: line
   end
 
   defp handle_event(state, %{

@@ -5,6 +5,8 @@ defmodule PiBrowserTaskbarPhoenix.Task do
 
   @max_request_bytes 128 * 1024
   @max_context_bytes 96 * 1024
+  @max_snapshot_bytes 48 * 1024
+  @max_snapshot_nodes 750
   @max_prompt_bytes 4_000
   @allowed_task_fields ~w(context prompt)
   @allowed_context_fields ~w(contract_version focus_points location route snapshot truncation)
@@ -51,6 +53,7 @@ defmodule PiBrowserTaskbarPhoenix.Task do
          :ok <- valid_location(context["location"]),
          :ok <- valid_route(context["route"]),
          :ok <- valid_node(context["snapshot"], "snapshot", 0),
+         :ok <- valid_snapshot_bounds(context["snapshot"]),
          :ok <- valid_focus_points(context["focus_points"]),
          :ok <- valid_truncation(context["truncation"]) do
       {:ok, context}
@@ -134,6 +137,23 @@ defmodule PiBrowserTaskbarPhoenix.Task do
   end
 
   defp valid_children(_children, label, _depth), do: invalid("#{label}.children must be an array")
+
+  defp valid_snapshot_bounds(snapshot) do
+    with :ok <- maximum_node_count(snapshot),
+         :ok <- encoded_size(snapshot, @max_snapshot_bytes, "snapshot is too large") do
+      :ok
+    end
+  end
+
+  defp maximum_node_count(snapshot) do
+    if node_count(snapshot) <= @max_snapshot_nodes,
+      do: :ok,
+      else: invalid("snapshot must contain at most 750 nodes")
+  end
+
+  defp node_count(%{"children" => children}) do
+    1 + Enum.sum(Enum.map(children, &node_count/1))
+  end
 
   defp valid_focus_points(points) when is_list(points) and length(points) <= 8 do
     points

@@ -25,4 +25,29 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
     assert {:error, :invalid_task, "prompt is required"} =
              Task.new(Map.put(params, "prompt", " \r\n\t "))
   end
+
+  test "rejects a page snapshot outside the native page bounds" do
+    params = @fixture |> File.read!() |> Jason.decode!()
+    node = %{"tag" => "div", "children" => []}
+
+    too_many_nodes =
+      put_in(params, ["context", "snapshot"], %{
+        "tag" => "main",
+        "children" => List.duplicate(node, 750)
+      })
+
+    assert {:error, :invalid_task, "snapshot must contain at most 750 nodes"} =
+             Task.new(too_many_nodes)
+
+    oversized_snapshot =
+      put_in(params, ["context", "snapshot"], %{
+        "tag" => "main",
+        "children" =>
+          Enum.map(1..50, fn _index ->
+            %{"tag" => "p", "text" => String.duplicate("x", 1_000), "children" => []}
+          end)
+      })
+
+    assert {:error, :invalid_task, "snapshot is too large"} = Task.new(oversized_snapshot)
+  end
 end
