@@ -116,6 +116,67 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_progress_events_dialogs_and_bounded_utf8_output
+    with_server do |client, _second, _identity, _thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+
+      {
+        "agent_start" => "Pi is working",
+        "agent_end" => "Pi finished a turn",
+        "tool_start" => "Running read",
+        "tool_update" => "Running read",
+        "tool_end" => "Finished read",
+        "compaction_start" => "Compacting conversation",
+        "compaction_end" => "Retrying after compaction",
+        "retry_start" => "Retrying request (2/3)",
+        "retry_end" => "Pi is working"
+      }.each do |event, activity|
+        running = client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "activity #{event}"))
+        id = running.dig("snapshot", "task", "id")
+        wait_until { client.snapshot.dig("snapshot", "task", "activity") == activity }
+        assert_equal "running", client.snapshot.dig("snapshot", "task", "status"), "#{event} completed the task"
+        client.cancel(id)
+        wait_until { client.snapshot.dig("snapshot", "task", "status") == "cancelled" }
+      end
+
+      dialog = client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "dialog request"))
+      client.cancel(dialog.dig("snapshot", "task", "id"))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "cancelled" }
+
+      client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "bounded output"))
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
+      task = client.snapshot.fetch("snapshot").fetch("task")
+      assert_equal 32 * 1024, task["output"].bytesize
+      assert task["output"].valid_encoding?
+      assert task["output"].end_with?("🙂z")
+      assert_equal true, task["output_truncated"]
+    end
+  end
+
+  def test_protocol_and_terminal_failures_are_safe_and_recoverable
+    with_server do |client, _second, _identity, _thread|
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+
+      {
+        "rejected command" => "Pi rejected the task",
+        "message error" => "Pi reported a message error",
+        "retry failure" => "Pi could not complete the task after retries",
+        "compaction failure" => "Pi could not compact the conversation",
+        "unexpected response" => "Pi returned an unexpected RPC response",
+        "malformed record" => "Pi sent a malformed RPC record",
+        "oversized record" => "Pi sent an oversized RPC record",
+        "non-object record" => "Pi sent a non-object RPC record"
+      }.each do |prompt, safe_error|
+        client.submit(JSON.parse(File.read(TASK)).merge("prompt" => prompt))
+        wait_until { client.snapshot.dig("snapshot", "task", "status") == "failed" }
+        snapshot = client.snapshot.fetch("snapshot")
+        assert_equal safe_error, snapshot.dig("task", "error"), prompt
+        refute_includes snapshot.dig("task", "error"), "raw provider"
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+      end
+    end
+  end
+
   def test_session_reset_preserves_rejections_and_restarts_only_for_rpc_failure
     with_server do |client, second, _identity, _thread, startup_count|
       wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
@@ -221,6 +282,21 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_startup_requires_a_model_before_becoming_ready
+    with_runtime_fake(<<~RUBY) do |runtime|
+      #!/usr/bin/env ruby
+      require "json"
+      startup = JSON.parse($stdin.gets)
+      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true, data: {sessionId: "fake-session"})
+      $stdout.flush
+      sleep 5
+    RUBY
+      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+      assert_equal "Pi returned invalid startup state", runtime.snapshot.dig("session", "error")
+      assert_equal :unavailable, runtime.submit(JSON.parse(File.read(TASK))).first
+    end
+  end
+
   def test_unexpected_pi_eof_fails_an_accepted_task
     with_runtime_fake(<<~RUBY) do |runtime|
       #!/usr/bin/env ruby
@@ -233,7 +309,8 @@ class RailsBrokerTest < Minitest::Test
       wait_until { runtime.snapshot.dig("session", "status") == "ready" }
       result, = runtime.submit(JSON.parse(File.read(TASK)))
       assert_equal :accepted, result
-      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+      wait_until { runtime.snapshot.dig("task", "status") == "failed" }
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
 
       task = runtime.snapshot.fetch("task")
       assert_equal "failed", task["status"]

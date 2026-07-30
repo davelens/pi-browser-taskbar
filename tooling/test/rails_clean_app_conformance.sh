@@ -218,6 +218,10 @@ module CleanRailsConformance
     assert created.dig("session", "id") == JSON.parse(second.response.body).dig("snapshot", "session", "id"), "Rails clients did not share one broker session"
 
     held_id = JSON.parse(session.response.body).dig("task", "id")
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      JSON.parse(session.response.body).dig("task", "output") == "Implemented the whole-page request."
+    end
     busy_reset_scenario = reset_scenarios.fetch("session-reset-busy")
     session.post "/dev/pi-browser-taskbar/session/reset", headers: {"X-CSRF-Token" => token}
     busy_reset = JSON.parse(session.response.body)
@@ -287,6 +291,80 @@ module CleanRailsConformance
     assert rejected_reset["snapshot"] == retained_reset_state, "extension-rejected reset changed retained state"
     rejected_reset_status = session.response.status
 
+    rpc_progress = {
+      "agent_start" => "Pi is working", "agent_end" => "Pi finished a turn",
+      "tool_start" => "Running read", "tool_update" => "Running read", "tool_end" => "Finished read",
+      "compaction_start" => "Compacting conversation", "compaction_end" => "Retrying after compaction",
+      "retry_start" => "Retrying request (2/3)", "retry_end" => "Pi is working"
+    }.to_h do |event, activity|
+      event_task = Marshal.load(Marshal.dump(task)).merge("prompt" => "activity #{event}")
+      session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(event_task),
+        headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+      task_id = JSON.parse(session.response.body).dig("task", "id")
+      observed = nil
+      wait_until do
+        session.get "/dev/pi-browser-taskbar/state"
+        observed = JSON.parse(session.response.body)
+        observed.dig("task", "activity") == activity
+      end
+      raise "#{event} completed before agent_settled" unless observed.dig("task", "status") == "running"
+      session.delete "/dev/pi-browser-taskbar/tasks/#{task_id}", headers: {"X-CSRF-Token" => token}
+      wait_until do
+        session.get "/dev/pi-browser-taskbar/state"
+        JSON.parse(session.response.body).dig("task", "status") == "cancelled"
+      end
+      [event, {"status" => observed.dig("task", "status"), "activity" => observed.dig("task", "activity")}]
+    end
+
+    dialog_task = Marshal.load(Marshal.dump(task)).merge("prompt" => "dialog request")
+    session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(dialog_task),
+      headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+    dialog_id = JSON.parse(session.response.body).dig("task", "id")
+    sleep 0.05
+    session.delete "/dev/pi-browser-taskbar/tasks/#{dialog_id}", headers: {"X-CSRF-Token" => token}
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      JSON.parse(session.response.body).dig("task", "status") == "cancelled"
+    end
+
+    bounded_task = Marshal.load(Marshal.dump(task)).merge("prompt" => "bounded output")
+    session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(bounded_task),
+      headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+    bounded = nil
+    wait_until do
+      session.get "/dev/pi-browser-taskbar/state"
+      bounded = JSON.parse(session.response.body)
+      bounded.dig("task", "status") == "completed"
+    end
+    rpc_output = {"status" => bounded.dig("task", "status"), "bytes" => bounded.dig("task", "output").bytesize,
+      "valid_utf8" => bounded.dig("task", "output").valid_encoding?, "suffix" => bounded.dig("task", "output").end_with?("🙂z"),
+      "truncated" => bounded.dig("task", "output_truncated")}
+
+    rpc_failures = {
+      "rejected command" => "Pi rejected the task", "message error" => "Pi reported a message error",
+      "retry failure" => "Pi could not complete the task after retries",
+      "compaction failure" => "Pi could not compact the conversation",
+      "unexpected response" => "Pi returned an unexpected RPC response",
+      "malformed record" => "Pi sent a malformed RPC record", "oversized record" => "Pi sent an oversized RPC record",
+      "non-object record" => "Pi sent a non-object RPC record"
+    }.to_h do |prompt, expected_error|
+      failure_task = Marshal.load(Marshal.dump(task)).merge("prompt" => prompt)
+      session.post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(failure_task),
+        headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+      failed = nil
+      wait_until do
+        session.get "/dev/pi-browser-taskbar/state"
+        failed = JSON.parse(session.response.body)
+        failed.dig("task", "status") == "failed"
+      end
+      raise "unsafe or incorrect #{prompt} evidence" unless failed.dig("task", "error") == expected_error
+      wait_until do
+        session.get "/dev/pi-browser-taskbar/state"
+        JSON.parse(session.response.body).dig("session", "status") == "ready"
+      end
+      [prompt, {"status" => failed.dig("task", "status"), "error" => failed.dig("task", "error")}]
+    end
+
     semantic = {"created_status" => created_status, "created" => created, "completed_status" => 200,
       "completed" => completed, "focus_rejections" => focus_rejections,
       "cancellation" => {"wrong_status" => wrong_scenario.dig("response", "status"), "wrong" => wrong_cancellation,
@@ -294,7 +372,9 @@ module CleanRailsConformance
         "settled_status" => settled_scenario.dig("response", "status"), "settled" => cancelled},
       "reset" => {"busy_status" => busy_reset_status, "busy" => busy_reset,
         "accepted_status" => accepted_reset_status, "accepted" => accepted_reset,
-        "rejected_status" => rejected_reset_status, "rejected" => rejected_reset}}
+        "rejected_status" => rejected_reset_status, "rejected" => rejected_reset},
+      "rpc" => {"progress" => rpc_progress, "dialog" => "cancelled", "output" => rpc_output,
+        "failures" => rpc_failures}}
     File.write(ENV.fetch("PI_BROWSER_TASKBAR_SEMANTICS"), JSON.pretty_generate(semantic))
     spec = Gem.loaded_specs.fetch("pi-browser-taskbar-rails")
     assert spec.full_gem_path.start_with?(ENV.fetch("GEM_HOME")), "adapter loaded from source workspace"

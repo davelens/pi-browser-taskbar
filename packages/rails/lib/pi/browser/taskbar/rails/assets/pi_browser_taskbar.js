@@ -32,6 +32,7 @@
         mark: shadow.querySelector("[data-mark]"),
         marks: shadow.querySelector("[data-marks]"),
         output: shadow.querySelector("[data-output]"),
+        outputTruncated: shadow.querySelector("[data-output-truncated]"),
         overlays: shadow.querySelector("[data-overlays]"),
         panel: shadow.querySelector("[data-panel]"),
         prompt: shadow.querySelector("[data-prompt]"),
@@ -204,6 +205,7 @@
         controls.activity.hidden = !controls.activity.textContent;
         controls.output.textContent = task?.output || "";
         controls.output.hidden = !controls.output.textContent;
+        controls.outputTruncated.hidden = !task?.output_truncated;
         controls.error.textContent = task?.error || session.error || "";
         controls.error.hidden = !controls.error.textContent;
         controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
@@ -930,6 +932,7 @@
         <label>What should change?<textarea data-prompt maxlength="4000" rows="3"></textarea></label>
         <p data-activity aria-live="polite"></p>
         <pre data-output hidden></pre>
+        <p data-output-truncated hidden>Showing the newest 32 KiB; older output was removed.</p>
         <p data-error hidden role="alert"></p>
         <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
         <button data-run type="button" disabled>Run with Pi</button>

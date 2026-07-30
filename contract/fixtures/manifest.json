@@ -232,6 +232,18 @@
       "expected_valid": true
     },
     {
+      "id": "progress-rpc-success",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/progress-success.json",
+      "expected_valid": true
+    },
+    {
+      "id": "failure-events-rpc",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
+      "path": "fixtures/rpc/failure-events.json",
+      "expected_valid": true
+    },
+    {
       "id": "session-reset-rpc-success",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
       "path": "fixtures/rpc/session-reset-success.json",

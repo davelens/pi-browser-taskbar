@@ -11,6 +11,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   @max_record_bytes 1_000_000
   @max_output_bytes 32 * 1024
+  @dialog_methods ~w(select confirm input editor)
 
   defstruct [
     :name,
@@ -117,6 +118,8 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
       output_truncated: false,
       activity: "Starting Pi",
       error: nil,
+      prompt_accepted: false,
+      pending_error: nil,
       started_at: now,
       finished_at: nil
     }
@@ -228,14 +231,23 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     {:noreply, recover_reset(%{state | port: nil})}
   end
 
+  def handle_info({port, {:exit_status, _status}}, %{port: port, buffer: buffer} = state)
+      when buffer != "" do
+    {:noreply, restart_after_protocol_failure(state, "Pi sent an unterminated RPC record")}
+  end
+
   def handle_info({port, {:exit_status, _status}}, %{port: port} = state) do
     state =
       state
       |> fail_active_task("Pi stopped unexpectedly")
       |> unavailable("Pi stopped unexpectedly")
 
-    Process.send_after(self(), :start_port, 1_000)
-    {:noreply, %{state | port: nil}}
+    if state.phase == :unavailable and is_nil(state.session_id) do
+      {:noreply, %{state | port: nil}}
+    else
+      Process.send_after(self(), :start_port, 1_000)
+      {:noreply, %{state | port: nil}}
+    end
   end
 
   def handle_info({:task_timeout, id}, %{phase: :busy, task: %{id: id}} = state) do
@@ -264,25 +276,26 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   end
 
   defp consume_data(state, data) do
-    buffer = state.buffer <> data
+    {lines, remainder} = split_lines(state.buffer <> data)
 
-    if byte_size(buffer) > @max_record_bytes do
-      restart_after_protocol_failure(state, "Pi sent an oversized RPC record")
-    else
-      {lines, remainder} = split_lines(buffer)
+    cond do
+      Enum.any?(lines, &(byte_size(&1) + 1 > @max_record_bytes)) or
+          byte_size(remainder) > @max_record_bytes ->
+        restart_after_protocol_failure(state, "Pi sent an oversized RPC record")
 
-      consumed =
-        Enum.reduce_while(lines, state, fn line, current ->
-          next = consume_line(line, current)
-          if next.port, do: {:cont, next}, else: {:halt, next}
-        end)
+      true ->
+        consumed =
+          Enum.reduce_while(lines, state, fn line, current ->
+            next = consume_line(line, current)
+            if next.port, do: {:cont, next}, else: {:halt, next}
+          end)
 
-      if consumed.port, do: %{consumed | buffer: remainder}, else: consumed
+        if consumed.port, do: %{consumed | buffer: remainder}, else: consumed
     end
   end
 
   defp split_lines(buffer) do
-    parts = String.split(buffer, "\n")
+    parts = :binary.split(buffer, "\n", [:global])
     {Enum.drop(parts, -1), List.last(parts) || ""}
   end
 
@@ -308,22 +321,47 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   end
 
   defp handle_event(state, %{
+         "type" => "extension_ui_request",
+         "id" => id,
+         "method" => method
+       })
+       when method in @dialog_methods and is_binary(id) and id != "" do
+    case send_command(state.port, %{type: "extension_ui_response", id: id, cancelled: true}) do
+      :ok -> state
+      {:error, :closed} -> restart_after_protocol_failure(state, "Pi protocol failed")
+    end
+  end
+
+  defp handle_event(state, %{"type" => "extension_ui_request", "method" => method})
+       when method in @dialog_methods do
+    restart_after_protocol_failure(state, "Pi sent a malformed RPC event")
+  end
+
+  defp handle_event(state, %{
          "type" => "response",
          "id" => id,
          "success" => true,
          "data" => %{"sessionId" => pi_session_id} = data
        })
        when id == state.startup_id and is_binary(pi_session_id) and pi_session_id != "" do
-    ready = %{
-      state
-      | phase: :ready,
-        session_id: opaque_id(),
-        pi_session_id: pi_session_id,
-        model: model_name(data["model"]),
-        error: nil
-    }
+    case model_name(data["model"]) do
+      nil ->
+        state
+        |> unavailable("Pi returned invalid startup state")
+        |> fail_reset()
 
-    if state.reset_from, do: complete_reset(ready), else: ready
+      model ->
+        ready = %{
+          state
+          | phase: :ready,
+            session_id: opaque_id(),
+            pi_session_id: pi_session_id,
+            model: model,
+            error: nil
+        }
+
+        if state.reset_from, do: complete_reset(ready), else: ready
+    end
   end
 
   defp handle_event(state, %{"type" => "response", "id" => id, "success" => false})
@@ -337,6 +375,10 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     state
     |> unavailable("Pi returned invalid startup state")
     |> fail_reset()
+  end
+
+  defp handle_event(%{phase: :starting} = state, %{"type" => "response"}) do
+    unavailable(state, "Pi returned an unexpected RPC response")
   end
 
   defp handle_event(%{phase: :resetting, reset_command_id: command_id} = state, %{
@@ -383,7 +425,9 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
          "data" => %{"sessionId" => pi_session_id} = data
        })
        when is_binary(pi_session_id) and pi_session_id != "" do
-    if pi_session_id == state.pi_session_id do
+    model = model_name(data["model"])
+
+    if pi_session_id == state.pi_session_id or is_nil(model) do
       recover_reset(state)
     else
       state
@@ -391,7 +435,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
         phase: :ready,
         session_id: opaque_id(),
         pi_session_id: pi_session_id,
-        model: model_name(data["model"]),
+        model: model,
         error: nil
       })
       |> complete_reset()
@@ -405,6 +449,19 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     recover_reset(state)
   end
 
+  defp handle_event(%{phase: :resetting} = state, %{"type" => "response"}) do
+    recover_reset(state)
+  end
+
+  defp handle_event(
+         %{phase: :busy, task: %{command_id: command_id, prompt_accepted: false}} = state,
+         %{"type" => "response", "id" => command_id, "success" => true}
+       ) do
+    state
+    |> put_in([Access.key(:task), Access.key(:prompt_accepted)], true)
+    |> put_in([Access.key(:task), Access.key(:activity)], "Pi accepted the task")
+  end
+
   defp handle_event(%{phase: :busy, task: %{command_id: command_id}} = state, %{
          "type" => "response",
          "id" => command_id,
@@ -416,10 +473,16 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   defp handle_event(%{phase: :busy, task: %{abort_command_id: command_id}} = state, %{
          "type" => "response",
          "id" => command_id,
-         "success" => false
+         "success" => success
        })
-       when not is_nil(command_id) do
-    finish_task(state, :failed, "Pi rejected cancellation")
+       when not is_nil(command_id) and is_boolean(success) do
+    if success,
+      do: state,
+      else: restart_after_protocol_failure(state, "Pi rejected cancellation")
+  end
+
+  defp handle_event(%{phase: :busy} = state, %{"type" => "response"}) do
+    restart_after_protocol_failure(state, "Pi returned an unexpected RPC response")
   end
 
   defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
@@ -443,12 +506,97 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     )
   end
 
+  defp handle_event(%{phase: :busy} = state, %{
+         "type" => "message_update",
+         "assistantMessageEvent" => %{"type" => "text_delta"}
+       }) do
+    restart_after_protocol_failure(state, "Pi sent a malformed RPC event")
+  end
+
   defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
-         "type" => "tool_execution_start",
-         "toolName" => name
-       })
-       when is_binary(name) do
-    put_in(state.task.activity, "Running #{name}")
+         "type" => "message_update",
+         "assistantMessageEvent" => %{"type" => "error"}
+       }) do
+    mark_pending_failure(state, "Pi reported a message error")
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
+         "type" => "agent_end"
+       }) do
+    put_in(state.task.activity, "Pi finished a turn")
+  end
+
+  defp handle_event(
+         %{phase: :busy, task: %{status: :running}} = state,
+         %{
+           "type" => type
+         } = event
+       )
+       when type in ["tool_execution_start", "tool_execution_update"] do
+    put_in(state.task.activity, "Running #{safe_label(event["toolName"], "a tool")}")
+  end
+
+  defp handle_event(
+         %{phase: :busy, task: %{status: :running}} = state,
+         %{
+           "type" => "tool_execution_end"
+         } = event
+       ) do
+    prefix = if event["isError"] == true, do: "Tool failed", else: "Finished"
+    put_in(state.task.activity, "#{prefix} #{safe_label(event["toolName"], "a tool")}")
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
+         "type" => "compaction_start"
+       }) do
+    put_in(state.task.activity, "Compacting conversation")
+  end
+
+  defp handle_event(
+         %{phase: :busy, task: %{status: :running}} = state,
+         %{
+           "type" => "compaction_end"
+         } = event
+       ) do
+    if is_binary(event["errorMessage"]) and event["errorMessage"] != "" do
+      mark_pending_failure(state, "Pi could not compact the conversation")
+    else
+      activity =
+        if event["willRetry"] == true,
+          do: "Retrying after compaction",
+          else: "Conversation compacted"
+
+      put_in(state.task.activity, activity)
+    end
+  end
+
+  defp handle_event(
+         %{phase: :busy, task: %{status: :running}} = state,
+         %{
+           "type" => "auto_retry_start"
+         } = event
+       ) do
+    activity =
+      if is_integer(event["attempt"]) and event["attempt"] in 1..999 and
+           is_integer(event["maxAttempts"]) and event["maxAttempts"] in 1..999,
+         do: "Retrying request (#{event["attempt"]}/#{event["maxAttempts"]})",
+         else: "Retrying request"
+
+    put_in(state.task.activity, activity)
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
+         "type" => "auto_retry_end",
+         "success" => false
+       }) do
+    mark_pending_failure(state, "Pi could not complete the task after retries")
+  end
+
+  defp handle_event(%{phase: :busy, task: %{status: :running}} = state, %{
+         "type" => "auto_retry_end",
+         "success" => true
+       }) do
+    put_in(state.task.activity, "Pi is working")
   end
 
   defp handle_event(%{phase: :busy, task: %{status: :cancelling}} = state, %{
@@ -457,11 +605,28 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     finish_task(state, :cancelled, nil)
   end
 
+  defp handle_event(%{phase: :busy, task: %{pending_error: error}} = state, %{
+         "type" => "agent_settled"
+       })
+       when not is_nil(error) do
+    finish_task(state, :failed, error)
+  end
+
   defp handle_event(%{phase: :busy} = state, %{"type" => "agent_settled"}) do
     finish_task(state, :completed, nil)
   end
 
+  defp handle_event(%{phase: :ready} = state, %{"type" => "response"}) do
+    restart_after_protocol_failure(state, "Pi returned an unexpected RPC response")
+  end
+
   defp handle_event(state, _event), do: state
+
+  defp mark_pending_failure(state, message) do
+    state
+    |> put_in([Access.key(:task), Access.key(:pending_error)], message)
+    |> put_in([Access.key(:task), Access.key(:activity)], "Task failed")
+  end
 
   defp finish_task(state, status, error) do
     activity =
@@ -485,6 +650,11 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   defp restart_after_protocol_failure(%{phase: :resetting} = state, _message),
     do: recover_reset(state)
+
+  defp restart_after_protocol_failure(%{phase: :starting} = state, _message) do
+    close_port(state.port)
+    %{unavailable(state, "Pi protocol failed") | port: nil, buffer: ""}
+  end
 
   defp restart_after_protocol_failure(state, message) do
     close_port(state.port)
@@ -601,10 +771,37 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   defp model_name(%{"provider" => provider, "id" => id})
        when is_binary(provider) and is_binary(id),
-       do: "#{provider}/#{id}"
+       do: safe_label("#{provider}/#{id}", nil, 256)
 
-  defp model_name(model) when is_binary(model), do: model
+  defp model_name(model) when is_binary(model), do: safe_label(model, nil, 256)
   defp model_name(_model), do: nil
+
+  defp safe_label(value, fallback, max_bytes \\ 100)
+
+  defp safe_label(value, fallback, max_bytes) when is_binary(value) do
+    value =
+      value
+      |> String.replace(
+        ~r/[\x{0000}-\x{001f}\x{007f}-\x{009f}\x{202a}-\x{202e}\x{2066}-\x{2069}]/u,
+        " "
+      )
+      |> String.trim()
+      |> String.replace(~r/\s+/u, " ")
+
+    cond do
+      value == "" -> fallback
+      byte_size(value) <= max_bytes -> value
+      true -> value |> binary_part(0, max_bytes) |> trim_invalid_suffix()
+    end
+  end
+
+  defp safe_label(_value, fallback, _max_bytes), do: fallback
+
+  defp trim_invalid_suffix(value) do
+    if String.valid?(value),
+      do: value,
+      else: value |> binary_part(0, byte_size(value) - 1) |> trim_invalid_suffix()
+  end
 
   defp opaque_id do
     18
@@ -616,8 +813,13 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     do: {output, false}
 
   defp bounded_output(output) do
-    {_discarded, suffix} = String.split_at(output, 1)
-    {bounded, _truncated?} = bounded_output(suffix)
-    {bounded, true}
+    suffix = binary_part(output, byte_size(output) - @max_output_bytes, @max_output_bytes)
+    {trim_invalid_prefix(suffix), true}
+  end
+
+  defp trim_invalid_prefix(value) do
+    if String.valid?(value),
+      do: value,
+      else: value |> binary_part(1, byte_size(value) - 1) |> trim_invalid_prefix()
   end
 end

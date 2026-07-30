@@ -74,6 +74,43 @@ tag/method case, optional empty fields, and truncation order before validation. 
 duplicate query names or focus selectors, malformed focus structures, unsafe locations, and values
 outside any allocation are invalid.
 
+## Pi progress, output, and safe failures
+
+Startup remains `starting` until a correlated successful `get_state` response supplies both a
+non-empty session identity and model. A successful correlated `prompt` response means accepted and
+does not finish the task. The adapters apply this shared event mapping independently:
+
+| Pi event | Canonical effect |
+| --- | --- |
+| `agent_start` | Activity `Pi is working` |
+| `agent_end` | Activity `Pi finished a turn`; the task remains running |
+| `message_update.text_delta` | Append output, retaining only the newest valid UTF-8 32 KiB suffix |
+| `tool_execution_start` / `tool_execution_update` | Activity `Running <bounded tool name>` |
+| `tool_execution_end` | Activity `Finished <bounded tool name>` or `Tool failed <bounded tool name>` |
+| `compaction_start` | Activity `Compacting conversation` |
+| successful `compaction_end` | Activity `Conversation compacted` or `Retrying after compaction` |
+| `auto_retry_start` | Activity `Retrying request (<attempt>/<maximum>)` when counts are valid |
+| successful `auto_retry_end` | Activity `Pi is working` |
+| `agent_settled` | The sole normal `completed` boundary |
+
+Once older output is removed, `output_truncated` remains true and the Browser Client says that it is
+showing the newest 32 KiB. Truncation never splits a Unicode code point. Dialog extension requests
+(`select`, `confirm`, `input`, and `editor`) receive a correlated `extension_ui_response` with
+`cancelled: true`; fire-and-forget and unknown future events are ignored without exposing their raw
+records.
+
+Rejected prompt/abort commands, message errors, exhausted retries, failed compaction, malformed,
+non-object, unterminated, or oversized JSONL records, unexpected correlated responses, timeouts, and
+process exits produce fixed task/session diagnostics without copying provider errors, protocol
+records, command lines, environment values, or paths into browser state or adapter logs. Protocol
+loss during an active task fails the retained task and replaces the Pi process before new work is
+accepted. A message, retry, or compaction terminal error waits for `agent_settled` before releasing
+the busy session. Unknown future event types remain forward-compatible and do not change state.
+
+The progress and failure RPC transcripts, native runtime tests, packaged clean-host flows, and root
+semantic comparison exercise the same mapping in Rails and Phoenix while normalizing only opaque
+identities and timestamps.
+
 ## Task cancellation
 
 `DELETE /tasks/:id` sends one correlated Pi `abort` command for a retained `running` task and returns

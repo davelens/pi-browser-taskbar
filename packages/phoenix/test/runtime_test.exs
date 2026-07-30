@@ -115,11 +115,92 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     assert :sys.get_state(runtime).port != old_port
   end
 
-  test "ignores a stale response from an earlier correlated command", %{runtime: runtime} do
-    assert {:ok, _running} = Runtime.submit(runtime, valid_task("stale response"))
+  test "reports every progress event, cancels dialogs, and bounds UTF-8 output", %{
+    runtime: runtime
+  } do
+    for {event, activity} <- [
+          {"agent_start", "Pi is working"},
+          {"agent_end", "Pi finished a turn"},
+          {"tool_start", "Running read"},
+          {"tool_update", "Running read"},
+          {"tool_end", "Finished read"},
+          {"compaction_start", "Compacting conversation"},
+          {"compaction_end", "Retrying after compaction"},
+          {"retry_start", "Retrying request (2/3)"},
+          {"retry_end", "Pi is working"}
+        ] do
+      assert {:ok, running} = Runtime.submit(runtime, valid_task("activity #{event}"))
+      wait_until(fn -> Runtime.snapshot(runtime).task.activity == activity end)
+      assert Runtime.snapshot(runtime).task.status == "running", "#{event} completed the task"
+      assert {:ok, :accepted, _snapshot} = Runtime.cancel(runtime, running.task.id)
+      wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+    end
 
+    assert {:ok, dialog} = Runtime.submit(runtime, valid_task("dialog request"))
+    Process.sleep(50)
+    assert {:ok, :accepted, _snapshot} = Runtime.cancel(runtime, dialog.task.id)
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "cancelled" end)
+
+    assert {:ok, _running} = Runtime.submit(runtime, valid_task("bounded output"))
     wait_until(fn -> Runtime.snapshot(runtime).task.status == "completed" end)
-    assert Runtime.snapshot(runtime).task.output == "Implemented the whole-page request."
+    task = Runtime.snapshot(runtime).task
+    assert byte_size(task.output) == 32 * 1024
+    assert String.valid?(task.output)
+    assert String.ends_with?(task.output, "🙂z")
+    assert task.output_truncated
+  end
+
+  test "reports safe terminal and protocol failures and recovers", %{runtime: runtime} do
+    for {prompt, safe_error} <- [
+          {"rejected command", "Pi rejected the task"},
+          {"message error", "Pi reported a message error"},
+          {"retry failure", "Pi could not complete the task after retries"},
+          {"compaction failure", "Pi could not compact the conversation"},
+          {"unexpected response", "Pi returned an unexpected RPC response"},
+          {"malformed record", "Pi sent a malformed RPC record"},
+          {"oversized record", "Pi sent an oversized RPC record"},
+          {"non-object record", "Pi sent a non-object RPC record"}
+        ] do
+      assert {:ok, _running} = Runtime.submit(runtime, valid_task(prompt))
+      wait_until(fn -> Runtime.snapshot(runtime).task.status == "failed" end)
+      assert Runtime.snapshot(runtime).task.error == safe_error
+      refute Runtime.snapshot(runtime).task.error =~ "raw provider"
+      wait_until(fn -> Runtime.snapshot(runtime).session.status == "ready" end)
+    end
+  end
+
+  test "requires startup model state before accepting work" do
+    name = String.to_atom("runtime_missing_model_#{System.unique_integer([:positive])}")
+
+    directory =
+      Path.join(System.tmp_dir!(), "pi-browser-taskbar-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf(directory) end)
+    executable = Path.join(directory, "fake-pi")
+
+    File.write!(executable, """
+    #!/usr/bin/env ruby
+    require "json"
+    command = JSON.parse($stdin.gets)
+    puts JSON.generate(type: "response", id: command.fetch("id"), success: true, data: {sessionId: "missing-model"})
+    $stdout.flush
+    sleep 5
+    """)
+
+    File.chmod!(executable, 0o700)
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Runtime,
+         name: name, executable: executable, project_root: directory, task_timeout: 60_000},
+        id: name
+      )
+    )
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "unavailable" end)
+    assert Runtime.snapshot(name).session.error == "Pi returned invalid startup state"
+    assert {:error, :unavailable, _snapshot} = Runtime.submit(name, valid_task("not accepted"))
   end
 
   test "restarts after an oversized RPC record", %{runtime: runtime} do

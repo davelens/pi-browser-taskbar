@@ -198,6 +198,9 @@ defmodule CleanAppConformance do
 
     held = request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "hold this task")) |> response_json()
     held_id = held["task"]["id"]
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.output == "Implemented the whole-page request."
+    end)
     busy_reset_scenario = reset_scenarios["session-reset-busy"]
     busy_reset_response = request(:post, "/dev/pi-browser-taskbar/session/reset")
     busy_reset = response_json(busy_reset_response)
@@ -259,6 +262,65 @@ defmodule CleanAppConformance do
     assert!(rejected_reset["error"]["code"] == rejected_reset_scenario["response"]["body"]["error_code"], "extension-rejected reset code differed")
     assert!(rejected_reset["snapshot"] == retained_reset_state, "extension-rejected reset changed retained state")
 
+    rpc_progress =
+      Map.new(%{
+        "agent_start" => "Pi is working", "agent_end" => "Pi finished a turn",
+        "tool_start" => "Running read", "tool_update" => "Running read", "tool_end" => "Finished read",
+        "compaction_start" => "Compacting conversation", "compaction_end" => "Retrying after compaction",
+        "retry_start" => "Retrying request (2/3)", "retry_end" => "Pi is working"
+      }, fn {event, activity} ->
+        created = request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "activity #{event}")) |> response_json()
+        wait_until(fn ->
+          PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.activity == activity
+        end)
+        observed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
+        assert!(observed["task"]["status"] == "running", "#{event} completed before agent_settled")
+        request(:delete, "/dev/pi-browser-taskbar/tasks/#{created["task"]["id"]}")
+        wait_until(fn ->
+          PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == "cancelled"
+        end)
+        {event, %{"status" => observed["task"]["status"], "activity" => observed["task"]["activity"]}}
+      end)
+
+    dialog = request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "dialog request")) |> response_json()
+    Process.sleep(50)
+    request(:delete, "/dev/pi-browser-taskbar/tasks/#{dialog["task"]["id"]}")
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == "cancelled"
+    end)
+
+    request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", "bounded output"))
+    wait_until(fn ->
+      PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == "completed"
+    end)
+    bounded = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
+    rpc_output = %{
+      "status" => bounded["task"]["status"], "bytes" => byte_size(bounded["task"]["output"]),
+      "valid_utf8" => String.valid?(bounded["task"]["output"]), "suffix" => String.ends_with?(bounded["task"]["output"], "🙂z"),
+      "truncated" => bounded["task"]["output_truncated"]
+    }
+
+    rpc_failures =
+      Map.new(%{
+        "rejected command" => "Pi rejected the task", "message error" => "Pi reported a message error",
+        "retry failure" => "Pi could not complete the task after retries",
+        "compaction failure" => "Pi could not compact the conversation",
+        "unexpected response" => "Pi returned an unexpected RPC response",
+        "malformed record" => "Pi sent a malformed RPC record", "oversized record" => "Pi sent an oversized RPC record",
+        "non-object record" => "Pi sent a non-object RPC record"
+      }, fn {prompt, expected_error} ->
+        request(:post, "/dev/pi-browser-taskbar/tasks", Map.put(task, "prompt", prompt))
+        wait_until(fn ->
+          PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).task.status == "failed"
+        end)
+        failed = request(:get, "/dev/pi-browser-taskbar/state") |> response_json()
+        assert!(failed["task"]["error"] == expected_error, "unsafe or incorrect #{prompt} evidence")
+        wait_until(fn ->
+          PiBrowserTaskbarPhoenix.Runtime.snapshot(PiBrowserTaskbarPhoenix.Names.runtime(:demo)).session.status == "ready"
+        end)
+        {prompt, %{"status" => failed["task"]["status"], "error" => failed["task"]["error"]}}
+      end)
+
     if path = System.get_env("PI_BROWSER_TASKBAR_SEMANTICS") do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, Jason.encode!(%{
@@ -282,6 +344,12 @@ defmodule CleanAppConformance do
           "accepted" => accepted_reset,
           "rejected_status" => rejected_reset_response.status,
           "rejected" => rejected_reset
+        },
+        "rpc" => %{
+          "progress" => rpc_progress,
+          "dialog" => "cancelled",
+          "output" => rpc_output,
+          "failures" => rpc_failures
         }
       }, pretty: true))
     end

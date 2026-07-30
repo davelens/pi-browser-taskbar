@@ -1,0 +1,24 @@
+{
+  "contract_version": 1,
+  "name": "map safe terminal failure events",
+  "steps": [
+    {"direction": "receive", "message": {"type": "get_state", "id": "state-1"}},
+    {"direction": "send", "message": {"type": "response", "id": "state-1", "success": true, "data": {"sessionId": "fixture-session", "model": "fixture-model"}}},
+    {"direction": "receive", "message": {"type": "prompt", "id": "message-task", "message": "message error"}},
+    {"direction": "send", "message": {"type": "response", "id": "message-task", "success": true}},
+    {"direction": "send", "message": {"type": "message_update", "assistantMessageEvent": {"type": "error", "reason": "error", "error": "provider detail"}}},
+    {"direction": "send", "message": {"type": "agent_settled"}},
+    {"direction": "receive", "message": {"type": "prompt", "id": "retry-task", "message": "retry failure"}},
+    {"direction": "send", "message": {"type": "response", "id": "retry-task", "success": true}},
+    {"direction": "send", "message": {"type": "auto_retry_start", "attempt": 3, "maxAttempts": 3, "delayMs": 1, "errorMessage": "provider detail"}},
+    {"direction": "send", "message": {"type": "auto_retry_end", "success": false, "attempt": 3, "finalError": "provider detail"}},
+    {"direction": "send", "message": {"type": "agent_settled"}},
+    {"direction": "receive", "message": {"type": "prompt", "id": "compaction-task", "message": "compaction failure"}},
+    {"direction": "send", "message": {"type": "response", "id": "compaction-task", "success": true}},
+    {"direction": "send", "message": {"type": "compaction_start", "reason": "threshold"}},
+    {"direction": "send", "message": {"type": "compaction_end", "reason": "threshold", "result": null, "aborted": false, "willRetry": false, "errorMessage": "provider detail"}},
+    {"direction": "send", "message": {"type": "agent_settled"}},
+    {"direction": "receive", "message": {"type": "prompt", "id": "rejected-task", "message": "rejected"}},
+    {"direction": "send", "message": {"type": "response", "id": "rejected-task", "success": false, "error": "provider detail"}}
+  ]
+}

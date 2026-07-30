@@ -21,29 +21,114 @@ $stdin.each_line do |line|
       }
     )
   when "prompt"
-    reset_behavior = :reject if command.fetch("message").include?("reject reset")
-    reset_behavior = :fail if command.fetch("message").include?("fail reset")
-    warn "fake Pi diagnostic" if command.fetch("message").include?("stderr output")
+    message = command.fetch("message")
+    reset_behavior = :reject if message.include?("reject reset")
+    reset_behavior = :fail if message.include?("fail reset")
+    warn "fake Pi diagnostic" if message.include?("stderr output")
 
-    if command.fetch("message").include?("stale response")
-      puts JSON.generate(type: "response", id: "task-stale-command", success: false)
+    if message.include?("rejected command")
+      puts JSON.generate(type: "response", id: command.fetch("id"), success: false, error: "raw provider rejection")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("unexpected response") || message.include?("stale response")
+      puts JSON.generate(type: "response", id: "unexpected-command", success: false, error: "raw provider rejection")
+      $stdout.flush
+      next
     end
 
     puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
-    puts JSON.generate(type: "agent_start")
 
-    if command.fetch("message").include?("oversized record")
+    activity_event =
+      if message.include?("activity agent_start")
+        {type: "agent_start"}
+      elsif message.include?("activity agent_end")
+        {type: "agent_end", messages: [], willRetry: false}
+      elsif message.include?("activity tool_start")
+        {type: "tool_execution_start", toolCallId: "tool-1", toolName: "read", args: {}}
+      elsif message.include?("activity tool_update")
+        {type: "tool_execution_update", toolCallId: "tool-1", toolName: "read", args: {}, partialResult: {}}
+      elsif message.include?("activity tool_end")
+        {type: "tool_execution_end", toolCallId: "tool-1", toolName: "read", result: {}, isError: false}
+      elsif message.include?("activity compaction_start")
+        {type: "compaction_start", reason: "threshold"}
+      elsif message.include?("activity compaction_end")
+        {type: "compaction_end", reason: "overflow", result: {}, aborted: false, willRetry: true}
+      elsif message.include?("activity retry_start")
+        {type: "auto_retry_start", attempt: 2, maxAttempts: 3, delayMs: 1, errorMessage: "raw provider error"}
+      elsif message.include?("activity retry_end")
+        {type: "auto_retry_end", success: true, attempt: 2}
+      end
+
+    if activity_event
+      puts JSON.generate(activity_event)
+      $stdout.flush
+      next
+    end
+
+    if message.include?("dialog request")
+      puts JSON.generate(type: "extension_ui_request", id: "dialog-1", method: "confirm", title: "Raw extension title", message: "Raw extension message")
+      $stdout.flush
+      response = JSON.parse($stdin.gets)
+      abort "dialog was not cancelled" unless response == {"type" => "extension_ui_response", "id" => "dialog-1", "cancelled" => true}
+      puts JSON.generate(type: "future_event", raw: "provider detail")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("oversized record")
       puts("x" * 1_000_001)
       next
     end
 
-    if command.fetch("message").include?("malformed record")
+    if message.include?("malformed record")
       puts("{not-json")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("non-object record")
+      puts("null")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("message error")
+      puts JSON.generate(type: "message_update", assistantMessageEvent: {type: "error", reason: "error", error: "raw provider error"})
       puts JSON.generate(type: "agent_settled")
       $stdout.flush
       next
     end
 
+    if message.include?("retry failure")
+      puts JSON.generate(type: "auto_retry_start", attempt: 3, maxAttempts: 3, delayMs: 1, errorMessage: "raw provider error")
+      puts JSON.generate(type: "auto_retry_end", success: false, attempt: 3, finalError: "raw provider error")
+      puts JSON.generate(type: "agent_settled")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("compaction failure")
+      puts JSON.generate(type: "compaction_start", reason: "threshold")
+      puts JSON.generate(type: "compaction_end", reason: "threshold", result: nil, aborted: false, willRetry: false, errorMessage: "raw provider error")
+      puts JSON.generate(type: "agent_settled")
+      $stdout.flush
+      next
+    end
+
+    if message.include?("bounded output")
+      puts JSON.generate(type: "agent_start")
+      puts JSON.generate(type: "message_update", assistantMessageEvent: {type: "text_delta", delta: "a" * 32_768})
+      puts JSON.generate(type: "agent_end", messages: [], willRetry: true)
+      puts JSON.generate(type: "message_update", assistantMessageEvent: {type: "text_delta", delta: "🙂z"})
+      puts JSON.generate(type: "future_event", raw: "provider detail")
+      puts JSON.generate(type: "agent_settled")
+      $stdout.flush
+      next
+    end
+
+    puts JSON.generate(type: "agent_start")
     puts JSON.generate(
       type: "message_update",
       assistantMessageEvent: {
@@ -51,7 +136,7 @@ $stdin.each_line do |line|
         delta: "Implemented the whole-page request."
       }
     )
-    puts JSON.generate(type: "agent_settled") unless command.fetch("message").include?("hold this task")
+    puts JSON.generate(type: "agent_settled") unless message.include?("hold this task")
   when "abort"
     puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
     $stdout.flush

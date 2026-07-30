@@ -110,6 +110,7 @@ for (const framework of Object.keys(assets)) {
         id: "opaque-task",
         status: "completed",
         output: "Implemented the whole-page request.",
+        output_truncated: true,
         activity: "Task completed",
       },
     },
@@ -188,6 +189,8 @@ for (const framework of Object.keys(assets)) {
   assert.doesNotMatch(JSON.stringify(body.context), /secret|editable|selected|raw_html|data-secret/);
   assert.deepEqual(body.context.truncation, [{ section: "page", reasons: ["depth", "string"] }]);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-output]").textContent, "Implemented the whole-page request.");
+  assert.equal(mounted.element.shadowRoot.querySelector("[data-output-truncated]").hidden, false);
+  assert.match(fs.readFileSync(path.join(root, assets[framework]), "utf8"), /older output was removed/u);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Finished");
   await assert.rejects(mounted.submit("🧪".repeat(1001)), /at most 4000 bytes/);
   assert.equal(requests.length, 2);
@@ -979,7 +982,7 @@ function fakeDocument() {
       this.elements = new Map();
       for (const selector of [
         "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
-        "[data-run]", "[data-output]", "[data-activity]", "[data-error]", "[data-mark]",
+        "[data-run]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
         "[data-cancel-warning]", "[data-reset]",
       ]) {

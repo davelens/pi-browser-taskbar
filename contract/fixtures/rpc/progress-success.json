@@ -1,0 +1,24 @@
+{
+  "contract_version": 1,
+  "name": "map progress, bounded output, dialogs, and settled completion",
+  "steps": [
+    {"direction": "receive", "message": {"type": "get_state", "id": "state-1"}},
+    {"direction": "send", "message": {"type": "response", "id": "state-1", "success": true, "data": {"sessionId": "fixture-session", "model": {"provider": "test", "id": "fake-pi"}}}},
+    {"direction": "receive", "message": {"type": "prompt", "id": "task-1", "message": "fixture prompt"}},
+    {"direction": "send", "message": {"type": "response", "id": "task-1", "success": true}},
+    {"direction": "send", "message": {"type": "agent_start"}},
+    {"direction": "send", "message": {"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "delta": "new output"}}},
+    {"direction": "send", "message": {"type": "tool_execution_start", "toolCallId": "tool-1", "toolName": "read", "args": {}}},
+    {"direction": "send", "message": {"type": "tool_execution_update", "toolCallId": "tool-1", "toolName": "read", "args": {}, "partialResult": {}}},
+    {"direction": "send", "message": {"type": "tool_execution_end", "toolCallId": "tool-1", "toolName": "read", "result": {}, "isError": false}},
+    {"direction": "send", "message": {"type": "agent_end", "messages": [], "willRetry": true}},
+    {"direction": "send", "message": {"type": "compaction_start", "reason": "overflow"}},
+    {"direction": "send", "message": {"type": "compaction_end", "reason": "overflow", "result": {}, "aborted": false, "willRetry": true}},
+    {"direction": "send", "message": {"type": "auto_retry_start", "attempt": 2, "maxAttempts": 3, "delayMs": 1, "errorMessage": "provider detail"}},
+    {"direction": "send", "message": {"type": "auto_retry_end", "success": true, "attempt": 2}},
+    {"direction": "send", "message": {"type": "extension_ui_request", "id": "dialog-1", "method": "confirm", "title": "Continue?", "message": "Continue?"}},
+    {"direction": "receive", "message": {"type": "extension_ui_response", "id": "dialog-1", "cancelled": true}},
+    {"direction": "send", "message": {"type": "future_event", "providerDetail": "ignored"}},
+    {"direction": "send", "message": {"type": "agent_settled"}}
+  ]
+}

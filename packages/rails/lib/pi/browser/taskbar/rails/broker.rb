@@ -18,6 +18,8 @@ module Pi
         module Broker
           PROTOCOL_VERSION = 1
           MAX_RECORD_BYTES = 1_000_000
+          MAX_OUTPUT_BYTES = 32 * 1024
+          DIALOG_METHODS = %w[select confirm input editor].freeze
 
           class Unavailable < StandardError; end
 
@@ -126,7 +128,8 @@ module Pi
                 @task = {
                   "id" => id, "prompt" => task.prompt, "status" => "running", "output" => "",
                   "output_truncated" => false, "activity" => "Starting Pi", "error" => nil,
-                  "started_at" => now, "finished_at" => nil, "command_id" => "task-#{id}"
+                  "started_at" => now, "finished_at" => nil, "command_id" => "task-#{id}",
+                  "prompt_accepted" => false, "pending_error" => nil
                 }
                 @phase = "busy"
                 write(type: "prompt", id: @task["command_id"], message: task.pi_prompt)
@@ -215,8 +218,11 @@ module Pi
               loop do
                 line = stdout.gets("\n", MAX_RECORD_BYTES + 1)
                 break unless line
-                if line.bytesize > MAX_RECORD_BYTES || !line.end_with?("\n")
+                if line.bytesize > MAX_RECORD_BYTES
                   protocol_failure(stdout, "Pi sent an oversized RPC record")
+                  break
+                elsif !line.end_with?("\n")
+                  protocol_failure(stdout, "Pi sent an unterminated RPC record")
                   break
                 end
                 event = JSON.parse(line)
@@ -235,9 +241,11 @@ module Pi
             end
 
             def consume(event)
+              return consume_extension_request_unlocked(event) if event["type"] == "extension_ui_request"
+
               if event["type"] == "response" && event["id"] == @startup_id
                 data = event["data"]
-                if event["success"] && data.is_a?(Hash) && data["sessionId"].is_a?(String) && !data["sessionId"].empty?
+                if event["success"] == true && valid_state?(data)
                   accept_state_unlocked(data)
                   if @reset_recovering
                     @task = nil
@@ -246,38 +254,124 @@ module Pi
                     @phase = "ready"
                   end
                 else
-                  unavailable_unlocked("Pi rejected its startup handshake")
+                  unavailable_unlocked(event["success"] == false ? "Pi rejected its startup handshake" : "Pi returned invalid startup state")
                   finish_reset_unlocked(:unavailable) if @reset_recovering
                 end
+              elsif event["type"] == "response" && @phase == "starting"
+                unavailable_unlocked("Pi returned an unexpected RPC response")
               elsif @phase == "resetting"
                 consume_reset_unlocked(event)
               elsif @phase == "busy"
-                if event["type"] == "response" && event["id"] == @task["command_id"] && event["success"] == false
-                  finish_unlocked("failed", "Pi rejected the task")
-                elsif event["type"] == "response" && event["id"] == @task["abort_command_id"] && event["success"] == false
-                  finish_unlocked("failed", "Pi rejected cancellation")
-                elsif event["type"] == "agent_start" && @task["status"] == "running"
-                  @task["activity"] = "Pi is working"
-                elsif event["type"] == "message_update" && event["assistantMessageEvent"].is_a?(Hash) &&
-                    event["assistantMessageEvent"]["type"] == "text_delta" && event["assistantMessageEvent"]["delta"].is_a?(String)
-                  append_output_unlocked(event["assistantMessageEvent"]["delta"])
-                elsif event["type"] == "tool_execution_start" && event["toolName"].is_a?(String) && @task["status"] == "running"
-                  @task["activity"] = "Running #{event["toolName"]}"
-                elsif event["type"] == "agent_settled"
-                  finish_unlocked(@task["status"] == "cancelling" ? "cancelled" : "completed", nil)
+                consume_busy_unlocked(event)
+              elsif event["type"] == "response"
+                restart_after_protocol_failure_unlocked("Pi returned an unexpected RPC response")
+              end
+            end
+
+            def consume_busy_unlocked(event)
+              if event["type"] == "response"
+                consume_task_response_unlocked(event)
+              elsif event["type"] == "agent_start" && running?
+                @task["activity"] = "Pi is working"
+              elsif event["type"] == "agent_end" && running?
+                @task["activity"] = "Pi finished a turn"
+              elsif event["type"] == "message_update"
+                consume_message_update_unlocked(event)
+              elsif event["type"] == "tool_execution_start" && running?
+                @task["activity"] = "Running #{safe_label(event["toolName"], "a tool")}"
+              elsif event["type"] == "tool_execution_update" && running?
+                @task["activity"] = "Running #{safe_label(event["toolName"], "a tool")}"
+              elsif event["type"] == "tool_execution_end" && running?
+                prefix = event["isError"] == true ? "Tool failed" : "Finished"
+                @task["activity"] = "#{prefix} #{safe_label(event["toolName"], "a tool")}"
+              elsif event["type"] == "compaction_start" && running?
+                @task["activity"] = "Compacting conversation"
+              elsif event["type"] == "compaction_end" && running?
+                if event["errorMessage"].is_a?(String) && !event["errorMessage"].empty?
+                  mark_pending_failure_unlocked("Pi could not compact the conversation")
+                else
+                  @task["activity"] = event["willRetry"] == true ? "Retrying after compaction" : "Conversation compacted"
+                end
+              elsif event["type"] == "auto_retry_start" && running?
+                attempt = event["attempt"]
+                maximum = event["maxAttempts"]
+                @task["activity"] = if attempt.is_a?(Integer) && attempt.between?(1, 999) && maximum.is_a?(Integer) && maximum.between?(1, 999)
+                  "Retrying request (#{attempt}/#{maximum})"
+                else
+                  "Retrying request"
+                end
+              elsif event["type"] == "auto_retry_end" && running?
+                event["success"] == false ? mark_pending_failure_unlocked("Pi could not complete the task after retries") : @task["activity"] = "Pi is working"
+              elsif event["type"] == "agent_settled"
+                if @task["status"] == "cancelling"
+                  finish_unlocked("cancelled", nil)
+                elsif @task["pending_error"]
+                  finish_unlocked("failed", @task["pending_error"])
+                else
+                  finish_unlocked("completed", nil)
                 end
               end
             end
 
+            def consume_task_response_unlocked(event)
+              if event["id"] == @task["command_id"] && !@task["prompt_accepted"]
+                if event["success"] == true
+                  @task["prompt_accepted"] = true
+                  @task["activity"] = "Pi accepted the task"
+                elsif event["success"] == false
+                  finish_unlocked("failed", "Pi rejected the task")
+                else
+                  restart_after_protocol_failure_unlocked("Pi returned an unexpected RPC response")
+                end
+              elsif event["id"] == @task["abort_command_id"] && @task["abort_command_id"]
+                if event["success"] == false
+                  restart_after_protocol_failure_unlocked("Pi rejected cancellation")
+                elsif event["success"] != true
+                  restart_after_protocol_failure_unlocked("Pi returned an unexpected RPC response")
+                end
+              else
+                restart_after_protocol_failure_unlocked("Pi returned an unexpected RPC response")
+              end
+            end
+
+            def consume_message_update_unlocked(event)
+              update = event["assistantMessageEvent"]
+              return unless update.is_a?(Hash)
+
+              if update["type"] == "text_delta"
+                return restart_after_protocol_failure_unlocked("Pi sent a malformed RPC event") unless update["delta"].is_a?(String)
+                append_output_unlocked(update["delta"])
+              elsif update["type"] == "error" && running?
+                mark_pending_failure_unlocked("Pi reported a message error")
+              end
+            end
+
+            def consume_extension_request_unlocked(event)
+              return unless DIALOG_METHODS.include?(event["method"])
+              return restart_after_protocol_failure_unlocked("Pi sent a malformed RPC event") unless event["id"].is_a?(String) && !event["id"].empty?
+
+              write(type: "extension_ui_response", id: event["id"], cancelled: true)
+            rescue IOError, SystemCallError
+              restart_after_protocol_failure_unlocked("Pi protocol failed")
+            end
+
             def append_output_unlocked(delta)
               output = (@task["output"] + delta).encode("UTF-8", invalid: :replace, undef: :replace, replace: "")
-              truncated = false
-              while output.bytesize > 32 * 1024
-                output = output.each_char.drop(1).join
-                truncated = true
+              if output.bytesize > MAX_OUTPUT_BYTES
+                output = output.byteslice(-MAX_OUTPUT_BYTES, MAX_OUTPUT_BYTES)
+                output = output.byteslice(1..) until output.valid_encoding?
+                @task["output_truncated"] = true
               end
               @task["output"] = output
-              @task["output_truncated"] ||= truncated
+            end
+
+            def mark_pending_failure_unlocked(message)
+              @task["pending_error"] = message
+              @task["activity"] = "Task failed"
+            end
+
+            def running?
+              @task["status"] == "running"
             end
 
             def consume_reset_unlocked(event)
@@ -294,7 +388,7 @@ module Pi
                 end
               elsif event["type"] == "response" && event["id"] == @reset_state_id
                 data = event["data"]
-                if event["success"] && data.is_a?(Hash) && data["sessionId"].is_a?(String) && !data["sessionId"].empty? && data["sessionId"] != @pi_session_id
+                if event["success"] && valid_state?(data) && data["sessionId"] != @pi_session_id
                   accept_state_unlocked(data)
                   @task = nil
                   @phase = "ready"
@@ -302,12 +396,13 @@ module Pi
                 else
                   recover_reset_unlocked
                 end
+              elsif event["type"] == "response"
+                recover_reset_unlocked
               end
             end
 
             def accept_state_unlocked(data)
-              model = data["model"]
-              @model = model.is_a?(Hash) ? [model["provider"], model["id"]].compact.join("/") : model
+              @model = model_name(data["model"])
               @pi_session_id = data["sessionId"]
               @session_id = SecureRandom.urlsafe_base64(18, false)
               @error = nil
@@ -316,8 +411,7 @@ module Pi
             def timeout(id)
               @mutex.synchronize do
                 return unless @phase == "busy" && @task["id"] == id
-                finish_unlocked("failed", "Pi task exceeded the configured time limit")
-                unavailable_unlocked("Pi is restarting")
+                restart_after_protocol_failure_unlocked("Pi task exceeded the configured time limit", "Pi is restarting")
               end
             end
 
@@ -326,8 +420,11 @@ module Pi
                 return unless @stdout.equal?(stdout)
                 return recover_reset_unlocked if @phase == "resetting"
 
-                finish_unlocked("failed", message) if @phase == "busy"
-                unavailable_unlocked("Pi protocol failed")
+                if %w[busy ready].include?(@phase)
+                  restart_after_protocol_failure_unlocked(message)
+                else
+                  unavailable_unlocked("Pi protocol failed")
+                end
               end
             end
 
@@ -337,9 +434,20 @@ module Pi
                 return recover_reset_unlocked if @phase == "resetting"
                 return if @phase == "unavailable"
 
-                finish_unlocked("failed", "Pi stopped unexpectedly") if @phase == "busy"
-                unavailable_unlocked("Pi stopped unexpectedly")
+                if %w[busy ready].include?(@phase)
+                  restart_after_protocol_failure_unlocked("Pi stopped unexpectedly", "Pi stopped unexpectedly")
+                else
+                  unavailable_unlocked("Pi stopped unexpectedly")
+                end
               end
+            end
+
+            def restart_after_protocol_failure_unlocked(task_message, session_message = "Pi protocol failed")
+              finish_unlocked("failed", task_message) if @phase == "busy"
+              unavailable_unlocked(session_message)
+              stop_pi_unlocked
+              @phase = "starting"
+              start_pi
             end
 
             def finish_unlocked(status, error)
@@ -396,8 +504,34 @@ module Pi
               end
             end
 
+            def valid_state?(data)
+              data.is_a?(Hash) && data["sessionId"].is_a?(String) && !data["sessionId"].empty? && !model_name(data["model"]).nil?
+            end
+
+            def model_name(model)
+              value = if model.is_a?(Hash) && model["provider"].is_a?(String) && model["id"].is_a?(String)
+                "#{model["provider"]}/#{model["id"]}"
+              elsif model.is_a?(String)
+                model
+              end
+              safe_label(value, nil, 256)
+            end
+
+            def safe_label(value, fallback, max_bytes = 100)
+              return fallback unless value.is_a?(String)
+
+              value = value.encode("UTF-8", invalid: :replace, undef: :replace, replace: "")
+                .gsub(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/, " ").strip.gsub(/\s+/, " ")
+              return fallback if value.empty?
+              return value if value.bytesize <= max_bytes
+
+              value = value.byteslice(0, max_bytes)
+              value = value.byteslice(0...-1) until value.valid_encoding?
+              value
+            end
+
             def snapshot_unlocked
-              task = @task && @task.reject { |key, _| %w[command_id abort_command_id].include?(key) }
+              task = @task && @task.reject { |key, _| %w[command_id abort_command_id prompt_accepted pending_error].include?(key) }
               {
                 "contract_version" => 1,
                 "session" => {"id" => @session_id, "status" => @phase, "model" => @model, "error" => @error},

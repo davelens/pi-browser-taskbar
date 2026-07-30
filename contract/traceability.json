@@ -10,6 +10,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/26",
       "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
       "acceptance_seam": "Shared reset HTTP scenarios and new-session transcripts exercised by Browser Client, native adapters, recovery tests, and packaged cross-adapter conformance"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/27",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Shared progress/failure transcripts, bounded-output rendering, native runtime tests, and packaged cross-adapter semantic comparison"
     }
   ],
   "sections": [
