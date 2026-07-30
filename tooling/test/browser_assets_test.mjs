@@ -189,6 +189,8 @@ for (const framework of Object.keys(assets)) {
   assert.deepEqual(body.context.truncation, [{ section: "page", reasons: ["depth", "string"] }]);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-output]").textContent, "Implemented the whole-page request.");
   assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Finished");
+  await assert.rejects(mounted.submit("🧪".repeat(1001)), /at most 4000 bytes/);
+  assert.equal(requests.length, 2);
   });
 }
 

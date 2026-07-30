@@ -49,8 +49,9 @@
       controls.prompt.addEventListener("input", renderControls);
 
       async function submit(prompt) {
-        const normalizedPrompt = String(prompt || "").trim();
+        const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
         if (!normalizedPrompt) throw new TypeError("A prompt is required");
+        if (utf8Size(normalizedPrompt) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
 
         const context = wholePageContext(document, pageLocation, host, bootstrap.route);
         const generation = ++snapshotGeneration;
@@ -271,7 +272,6 @@
     const type = String(element.getAttribute?.("type") || "").toLowerCase();
     if (name === "disabled" && ["button", "fieldset", "input", "optgroup", "option", "select", "textarea"].includes(tag) && typeof element.disabled === "boolean") return element.disabled;
     if (name === "checked" && tag === "input" && ["checkbox", "radio"].includes(type) && typeof element.checked === "boolean") return element.indeterminate ? "mixed" : element.checked;
-    if (name === "selected" && tag === "option" && typeof element.selected === "boolean") return element.selected;
     if (name === "required" && ["input", "select", "textarea"].includes(tag) && typeof element.required === "boolean") return element.required;
     if (name === "invalid" && typeof element.validity?.valid === "boolean") return !element.validity.valid;
     return undefined;

@@ -304,11 +304,33 @@ defmodule PiBrowserTaskbarPhoenix.Task do
          } <- URI.parse(origin),
          true <-
            scheme in ["http", "https"] and is_binary(host) and path in [nil, ""] and
-             is_integer(port) and port in 1..65_535 do
+             is_integer(port) and port in 1..65_535 and valid_host?(host) do
       :ok
     else
       {:error, _, _} = error -> error
       _other -> invalid("#{label}.origin must be an HTTP(S) origin without credentials or path")
+    end
+  end
+
+  defp valid_host?(host) do
+    cond do
+      String.contains?(host, ":") ->
+        valid_ip?(host, 8)
+
+      Regex.match?(~r/^[0-9.]+$/, host) ->
+        valid_ip?(host, 4)
+
+      true ->
+        host
+        |> String.split(".")
+        |> Enum.all?(&Regex.match?(~r/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/, &1))
+    end
+  end
+
+  defp valid_ip?(host, expected_size) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} -> tuple_size(address) == expected_size
+      {:error, _reason} -> false
     end
   end
 

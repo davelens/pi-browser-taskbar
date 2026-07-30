@@ -22,7 +22,7 @@ class RailsTaskTest < Minitest::Test
 
   def test_normalizes_rich_context_and_matches_the_shared_prompt_golden
     context = JSON.parse(File.read(RICH_CONTEXT))
-    value = {"prompt" => " \r\nImprove the checkout button.\u202e ", "context" => context}
+    value = {"prompt" => "\u00a0\u2003\r\nImprove the checkout button.\u202e\u2003\u00a0", "context" => context}
     value["context"]["route"]["method"] = "get"
     value["context"]["snapshot"]["tag"] = "MAIN"
     value["context"]["snapshot"]["name"] = "  Cards\r\n "

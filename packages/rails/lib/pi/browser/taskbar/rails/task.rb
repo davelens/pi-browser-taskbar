@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "ipaddr"
 require "json"
 require "uri"
 require "unicode_normalize/normalize" if RUBY_VERSION < "3.0"
@@ -175,7 +176,8 @@ module Pi
               %r{\Ahttps?://(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?\z}
             )
             unless valid_origin && %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo &&
-                   !uri.query && !uri.fragment && [nil, ""].include?(uri.path) && uri.port.between?(1, 65_535)
+                   !uri.query && !uri.fragment && [nil, ""].include?(uri.path) &&
+                   uri.port.between?(1, 65_535) && valid_host?(uri.host)
               invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")
             end
             string!(location["path"], "#{label}.path", 2_048)
@@ -183,8 +185,16 @@ module Pi
               invalid!("#{label}.path is invalid")
             end
             strings!(location["query_names"], "#{label}.query_names", 32, 128)
-          rescue URI::Error
+          rescue URI::Error, IPAddr::InvalidAddressError
             invalid!("#{label}.origin must be an HTTP(S) origin without credentials or path")
+          end
+
+          def valid_host?(host)
+            return IPAddr.new(host).ipv6? if host.include?(":")
+            return IPAddr.new(host).ipv4? if host.match?(/\A[0-9.]+\z/)
+            host.split(".").all? do |part|
+              part.match?(/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\z/)
+            end
           end
 
           def validate_route!(route)
@@ -290,7 +300,7 @@ module Pi
 
           def normalize_prompt(value)
             invalid!("prompt is required") unless value.is_a?(String) && value.valid_encoding?
-            normalized = normalize_value(value).strip
+            normalized = normalize_value(value).gsub(/\A[[:space:]]+|[[:space:]]+\z/, "")
             invalid!("prompt is required") if normalized.empty?
             invalid!("prompt must be at most 4000 bytes") if normalized.bytesize > 4_000
             normalized

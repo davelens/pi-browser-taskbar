@@ -26,7 +26,7 @@ defmodule PiBrowserTaskbarPhoenix.TaskTest do
     context = @rich_context |> File.read!() |> Jason.decode!()
 
     params = %{
-      "prompt" => " \r\nImprove the checkout button.\u202e ",
+      "prompt" => "\u00A0\u2003\r\nImprove the checkout button.\u202e\u2003\u00A0",
       "context" =>
         context
         |> put_in(["route", "method"], "get")

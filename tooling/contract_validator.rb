@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
+require "ipaddr"
 require "json"
 require "pathname"
+require "uri"
 
 module ContractValidation
   class SchemaValidator
@@ -135,7 +137,28 @@ module ContractValidation
       if schema["pattern"] && !Regexp.new(schema.fetch("pattern")).match?(value)
         errors << "#{path}: does not match #{schema.fetch("pattern")}"
       end
+      errors << "#{path}: invalid HTTP(S) origin" if schema["x-httpOrigin"] && !valid_origin?(value)
       errors
+    end
+
+    def valid_origin?(value)
+      uri = URI.parse(value)
+      return false unless %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo &&
+                          !uri.query && !uri.fragment && [nil, ""].include?(uri.path) &&
+                          uri.port.between?(1, 65_535)
+
+      valid_host?(uri.host)
+    rescue URI::Error, IPAddr::InvalidAddressError
+      false
+    end
+
+    def valid_host?(host)
+      return IPAddr.new(host).ipv6? if host.include?(":")
+      return IPAddr.new(host).ipv4? if host.match?(/\A[0-9.]+\z/)
+
+      host.split(".").all? do |label|
+        label.match?(/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\z/)
+      end
     end
 
     def validate_number(value, schema, path)

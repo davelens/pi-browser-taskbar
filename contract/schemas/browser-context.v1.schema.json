@@ -47,6 +47,7 @@
           "minLength": 1,
           "maxLength": 512,
           "x-maxUtf8Bytes": 512,
+          "x-httpOrigin": true,
           "pattern": "^https?://(?:\\[[0-9A-Fa-f:.]+\\]|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?$"
         },
         "path": {"type": "string", "minLength": 1, "maxLength": 2048, "x-maxUtf8Bytes": 2048, "pattern": "^/[^?#]*$"},
