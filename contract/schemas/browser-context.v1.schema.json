@@ -11,10 +11,10 @@
       "type": ["object", "null"],
       "required": ["method", "pattern", "handler", "action"],
       "properties": {
-        "method": {"type": "string", "minLength": 1, "maxLength": 16, "pattern": "^[A-Z]+$"},
-        "pattern": {"type": "string", "minLength": 1, "maxLength": 1000},
-        "handler": {"type": "string", "minLength": 1, "maxLength": 500},
-        "action": {"type": ["string", "null"], "maxLength": 256}
+        "method": {"type": "string", "minLength": 1, "maxLength": 16, "x-maxUtf8Bytes": 16, "pattern": "^[A-Z]+$"},
+        "pattern": {"type": "string", "minLength": 1, "maxLength": 1000, "x-maxUtf8Bytes": 1000},
+        "handler": {"type": "string", "minLength": 1, "maxLength": 500, "x-maxUtf8Bytes": 500},
+        "action": {"type": ["string", "null"], "maxLength": 256, "x-maxUtf8Bytes": 256}
       },
       "additionalProperties": false
     },
@@ -39,14 +39,15 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
+          "x-maxUtf8Bytes": 512,
           "pattern": "^https?://[^/?#@]+$"
         },
-        "path": {"type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^/"},
+        "path": {"type": "string", "minLength": 1, "maxLength": 2048, "x-maxUtf8Bytes": 2048, "pattern": "^/"},
         "query_names": {
           "type": "array",
           "maxItems": 32,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          "items": {"type": "string", "minLength": 1, "maxLength": 128, "x-maxUtf8Bytes": 128}
         }
       },
       "additionalProperties": false
@@ -55,18 +56,45 @@
       "type": "object",
       "required": ["tag", "children"],
       "properties": {
-        "tag": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
-        "role": {"type": "string", "minLength": 1, "maxLength": 64},
-        "name": {"type": "string", "maxLength": 512},
-        "text": {"type": "string", "maxLength": 1000},
-        "id": {"type": "string", "maxLength": 256},
+        "tag": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+        "role": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64},
+        "name": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "text": {"type": "string", "maxLength": 1000, "x-maxUtf8Bytes": 1000},
+        "id": {"type": "string", "maxLength": 256, "x-maxUtf8Bytes": 256},
         "classes": {
           "type": "array",
           "maxItems": 32,
           "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+          "items": {"type": "string", "minLength": 1, "maxLength": 128, "x-maxUtf8Bytes": 128}
         },
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "state": {"$ref": "#/$defs/state"},
+        "href": {"$ref": "#/$defs/location"},
+        "src": {"$ref": "#/$defs/location"},
         "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}
+      },
+      "additionalProperties": false
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256},
+        "type": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256},
+        "placeholder": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256},
+        "data-testid": {"type": "string", "minLength": 1, "maxLength": 256, "x-maxUtf8Bytes": 256}
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "disabled": {"type": "boolean"},
+        "checked": {"type": ["boolean", "string"], "enum": [true, false, "mixed"]},
+        "selected": {"type": "boolean"},
+        "expanded": {"type": "boolean"},
+        "pressed": {"type": ["boolean", "string"], "enum": [true, false, "mixed"]},
+        "required": {"type": "boolean"},
+        "invalid": {"type": ["boolean", "string"], "enum": [true, false, "grammar", "spelling"]}
       },
       "additionalProperties": false
     },
@@ -74,10 +102,10 @@
       "type": "object",
       "required": ["tag"],
       "properties": {
-        "tag": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9-]*$"},
-        "role": {"type": "string", "minLength": 1, "maxLength": 64},
-        "name": {"type": "string", "maxLength": 512},
-        "id": {"type": "string", "maxLength": 256}
+        "tag": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64, "pattern": "^[a-z][a-z0-9-]*$"},
+        "role": {"type": "string", "minLength": 1, "maxLength": 64, "x-maxUtf8Bytes": 64},
+        "name": {"type": "string", "maxLength": 512, "x-maxUtf8Bytes": 512},
+        "id": {"type": "string", "maxLength": 256, "x-maxUtf8Bytes": 256}
       },
       "additionalProperties": false
     },
@@ -85,7 +113,7 @@
       "type": "object",
       "required": ["selector", "source_status", "ancestors", "subtree"],
       "properties": {
-        "selector": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "selector": {"type": "string", "minLength": 1, "maxLength": 1000, "x-maxUtf8Bytes": 1000},
         "source_status": {
           "type": "string",
           "enum": ["available", "ambiguous", "external", "unavailable"]

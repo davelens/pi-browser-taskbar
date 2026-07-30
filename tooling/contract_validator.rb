@@ -108,6 +108,9 @@ module ContractValidation
       errors = []
       errors << "#{path}: string is shorter than #{schema["minLength"]}" if schema["minLength"] && value.length < schema["minLength"]
       errors << "#{path}: string is longer than #{schema["maxLength"]}" if schema["maxLength"] && value.length > schema["maxLength"]
+      if schema["x-maxUtf8Bytes"] && value.bytesize > schema["x-maxUtf8Bytes"]
+        errors << "#{path}: string exceeds #{schema["x-maxUtf8Bytes"]} UTF-8 bytes"
+      end
       if schema["pattern"] && !Regexp.new(schema.fetch("pattern")).match?(value)
         errors << "#{path}: does not match #{schema.fetch("pattern")}"
       end
@@ -207,6 +210,7 @@ module ContractValidation
 
         context = JSON.parse(@contract.join(context_path).read)
         canonical_context = JSON.generate(canonicalize(context))
+          .gsub("<", "\\u003c").gsub(">", "\\u003e").gsub("&", "\\u0026")
         expected = [
           golden.fetch("instruction"),
           "",

@@ -13,7 +13,7 @@ This index maps every normative section of [parent specification #17](https://gi
 | Pi RPC lifecycle | Conformance Contract | Transcript replay through the deterministic fake Pi peer | Foundation |
 | Normalized browser task context | Conformance Contract | Valid and invalid context fixtures parsed independently by both adapters | Foundation |
 | Source-hint contract | Conformance Contract | Cross-adapter source classification fixtures plus native attribution tests | Future |
-| Bounds, truncation, and normalization | Conformance Contract | Golden bounded-context fixtures compared across native validators | Future |
+| Bounds, truncation, and normalization | Conformance Contract | Golden bounded-context fixtures compared across native validators | Foundation |
 | Browser Client interaction | Browser Client | Browser-owned DOM tests and packaged example end-to-end flows | Adapter slices |
 | Security and configuration | Conformance Contract | Framework-native access, CSRF, activation, and startup validation tests | Adapter slices |
 | Rails Adapter | Rails Adapter | Built-gem clean-application integration and broker topology tests | Rails slice |

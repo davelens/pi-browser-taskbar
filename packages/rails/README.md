@@ -20,7 +20,9 @@ bin/rails generate pi_browser_taskbar:install
 The generated integration is inactive outside development and can boot when the development gem
 is absent. In development, Rails validates loopback host/client access and native session CSRF,
 then acts only as a client of the external checkout-scoped broker that owns Pi and canonical task
-state. Configuration currently accepts `PI_BROWSER_TASKBAR_EXECUTABLE` and
+state. A submitted prompt includes a bounded sanitized structural snapshot of the current page;
+visible text and URL paths may reach the configured Pi/model provider, so do not use it with
+sensitive datasets. Configuration currently accepts `PI_BROWSER_TASKBAR_EXECUTABLE` and
 `PI_BROWSER_TASKBAR_TASK_TIMEOUT` at process startup.
 
 ## Build and verify

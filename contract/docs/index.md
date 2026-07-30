@@ -21,7 +21,7 @@ must branch on incompatible wire behavior.
 
 A task request has exactly two fields:
 
-- `prompt`: a non-empty dedicated instruction, initially bounded to 4,000 characters by schema;
+- `prompt`: a non-empty normalized dedicated instruction bounded to 4,000 UTF-8 bytes;
 - `context`: required normalized browser reference data conforming to
   `browser-context.v1.schema.json`.
 
@@ -29,12 +29,32 @@ Unknown fields are invalid at every modeled level. The browser representation is
 not instruction text. Native adapters will independently validate and normalize requests before
 constructing prompts.
 
-## Initial browser context
+## Normalized browser context
 
-A browser context declares its contract version, sanitized location, optional route metadata,
-structural page snapshot, zero to eight advisory focus points, and explicit truncation records. A
-zero-length focus list means a whole-page task. The schema is deliberately smaller than the final
-normalized-context contract and will grow through contract fixtures before native implementation.
+A browser context declares its contract version, sanitized location, optional confident route
+metadata, structural page snapshot, zero to eight advisory focus points, and explicit truncation
+records. A zero-length focus list means a whole-page task.
+
+Location retains only an HTTP(S) origin, path, and unique query names in encounter order. URL
+credentials, fragments, and query values are forbidden. Route metadata is either `null` or the
+bounded method, pattern, handler, and nullable action supplied by a confident adapter seam.
+
+Snapshot nodes retain only tag, role, accessible name, normalized direct visible text, identifier,
+bounded class tokens, `name`/`type`/`placeholder`/`data-testid`, semantic control state, sanitized
+HTTP(S) `href`/`src` references, and children. Browser capture excludes taskbar content, metadata,
+scripts, styles, templates, non-rendered or inert content, hidden inputs, form values, editable
+content, arbitrary attributes, iframe contents, and nested Shadow DOM. It never serializes HTML.
+
+Normalized lengths are measured in UTF-8 bytes: request 128 KiB, context 96 KiB, prompt 4,000,
+page snapshot 48 KiB/750 nodes/depth 12, and combined focus detail 48 KiB. Focus subtrees are
+limited to 100 nodes/depth 6. Strings use the bounds encoded by `x-maxUtf8Bytes` in the schema.
+Truncation occurs only at Unicode code-point boundaries, retains page nodes breadth-first, and
+reports affected page or focus sections with canonical `bytes`, `nodes`, `depth`, and `string`
+reasons.
+
+Both adapters independently normalize NFC Unicode, line endings, controls, structural whitespace,
+tag/method case, optional empty fields, and truncation order before validation. Unknown fields,
+duplicates, malformed shapes, unsafe locations, and values outside any allocation are invalid.
 
 ## Fixture manifest
 
@@ -43,8 +63,9 @@ relative JSON file, and whether validation must succeed. An entry expecting reje
 an error fragment and is considered passing only when the validator rejects it for that reason.
 This prevents an invalid fixture from becoming inert sample data.
 
-The first negative fixture adds an unknown top-level browser-context property, proving that
-`additionalProperties: false` is executable.
+Negative fixtures prove unknown fields, duplicate query names, URL credentials, and UTF-8 byte
+bounds are rejected. Rich whole-page and prompt fixtures exercise every semantic node section and
+the trusted-instruction/untrusted-context boundary.
 
 ## Other executable formats
 
@@ -52,6 +73,9 @@ HTTP scenarios, prompt goldens, and Pi RPC transcript formats are versioned alon
 context. An HTTP scenario may name a contract task fixture as its request body. The deterministic
 fake RPC peer replays transcript `receive`/`send` steps. Both packages execute the whole-page scenario from `POST /tasks` through `agent_settled` and the
 canonical completed state. Root conformance rejects semantic drift except opaque IDs and timestamps.
+Only `prompt` is instructional; context is canonical JSON inside an explicitly untrusted delimiter,
+with HTML-significant characters escaped. Visible text and URL paths may reach the developer's
+configured Pi/model provider, so the taskbar is unsuitable for sensitive datasets.
 
 See the [traceability index](../traceability.md) for normative parent sections and their eventual
 acceptance seams.

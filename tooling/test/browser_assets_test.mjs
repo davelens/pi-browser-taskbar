@@ -36,7 +36,18 @@ for (const [framework, relativePath] of Object.entries(assets)) {
 for (const framework of Object.keys(assets)) {
   test(`${framework} Browser Client submits bounded whole-page context and renders completed output`, async () => {
   const document = fakeDocument();
-  const visible = document.createElement("p");
+  const visible = document.createElement("a");
+  visible.setAttribute("id", "checkout");
+  visible.setAttribute("class", "btn btn-primary");
+  visible.setAttribute("role", "button");
+  visible.setAttribute("aria-label", "  Chèque\u0301out  ");
+  visible.setAttribute("href", "/checkout?token=secret&step=2#payment");
+  visible.setAttribute("name", "checkout");
+  visible.setAttribute("type", "submit");
+  visible.setAttribute("placeholder", " Optional   note ");
+  visible.setAttribute("data-testid", "checkout-button");
+  visible.setAttribute("data-secret", "must not be captured");
+  visible.setAttribute("aria-expanded", "true");
   visible.childNodes.push({ nodeType: 3, nodeValue: "🧪".repeat(700) });
   document.body.appendChild(visible);
 
@@ -49,6 +60,29 @@ for (const framework of Object.keys(assets)) {
   editable.isContentEditable = true;
   editable.childNodes.push({ nodeType: 3, nodeValue: "editable secret" });
   document.body.appendChild(editable);
+
+  for (const [tag, secret] of [["script", "script secret"], ["style", "style secret"], ["meta", "metadata secret"], ["textarea", "textarea secret"], ["select", "selected secret"], ["iframe", "iframe secret"]]) {
+    const element = document.createElement(tag);
+    element.childNodes.push({ nodeType: 3, nodeValue: secret });
+    document.body.appendChild(element);
+  }
+
+  const input = document.createElement("input");
+  input.value = "form value secret";
+  input.setAttribute("value", "attribute value secret");
+  document.body.appendChild(input);
+
+  const hiddenInput = document.createElement("input");
+  hiddenInput.setAttribute("type", "hidden");
+  hiddenInput.value = "hidden input secret";
+  document.body.appendChild(hiddenInput);
+
+  let deepParent = document.body;
+  for (let depth = 0; depth < 14; depth += 1) {
+    const child = document.createElement("div");
+    deepParent.appendChild(child);
+    deepParent = child;
+  }
 
   const requests = [];
   const snapshots = [
@@ -71,6 +105,7 @@ for (const framework of Object.keys(assets)) {
 
   const sandbox = {
     TextEncoder,
+    URL,
     clearTimeout() {},
     setTimeout() { return 1; },
   };
@@ -86,10 +121,16 @@ for (const framework of Object.keys(assets)) {
       return { ok: true, status: options.method === "POST" ? 202 : 200, json: async () => snapshots.shift() };
     },
     location: {
-      href: "http://localhost:4000/cards?page=2&filter=owned",
+      href: "http://user:password@localhost:4000/cards?page=2&filter=owned#secret",
       origin: "http://localhost:4000",
       pathname: "/cards",
       search: "?page=2&filter=owned",
+    },
+    route: {
+      method: "get",
+      pattern: "/cards/:id",
+      handler: "DemoWeb.CardLive.Show",
+      action: "show",
     },
   });
 
@@ -101,20 +142,88 @@ for (const framework of Object.keys(assets)) {
   const body = JSON.parse(requests[0].options.body);
   assert.equal(body.prompt, "Explain this page.");
   assert.deepEqual(body.context.focus_points, []);
-  assert.deepEqual(body.context.location.query_names, ["page", "filter"]);
+  assert.deepEqual(body.context.location, {
+    origin: "http://localhost:4000",
+    path: "/cards",
+    query_names: ["page", "filter"],
+  });
+  assert.deepEqual(body.context.route, {
+    method: "GET",
+    pattern: "/cards/:id",
+    handler: "DemoWeb.CardLive.Show",
+    action: "show",
+  });
   assert.ok(Buffer.byteLength(JSON.stringify(body.context.snapshot), "utf8") <= 48 * 1024);
   assert.ok(Buffer.byteLength(body.context.snapshot.children[0].text, "utf8") <= 1000);
-  assert.doesNotMatch(JSON.stringify(body.context), /hidden secret|editable secret/);
+  assert.deepEqual(body.context.snapshot.children[0].classes, ["btn", "btn-primary"]);
+  assert.equal(body.context.snapshot.children[0].name, "Chèque\u0301out".normalize("NFC"));
+  assert.deepEqual(body.context.snapshot.children[0].attributes, {
+    name: "checkout",
+    type: "submit",
+    placeholder: "Optional note",
+    "data-testid": "checkout-button",
+  });
+  assert.deepEqual(body.context.snapshot.children[0].state, { expanded: true });
+  assert.deepEqual(body.context.snapshot.children[0].href, {
+    origin: "http://localhost:4000",
+    path: "/checkout",
+    query_names: ["token", "step"],
+  });
+  assert.doesNotMatch(JSON.stringify(body.context), /secret|editable|selected|raw_html|data-secret/);
+  assert.deepEqual(body.context.truncation, [{ section: "page", reasons: ["depth", "string"] }]);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-output]").textContent, "Implemented the whole-page request.");
   assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Finished");
   });
 }
 
+test("Browser Client retains page nodes in breadth-first order when byte-truncated", async () => {
+  const document = fakeDocument();
+  const earlyBranch = document.createElement("section");
+  earlyBranch.setAttribute("id", "early");
+  for (let index = 0; index < 60; index += 1) {
+    const paragraph = document.createElement("p");
+    paragraph.childNodes.push({ nodeType: 3, nodeValue: `${index}:`.padEnd(1000, "x") });
+    earlyBranch.appendChild(paragraph);
+  }
+  document.body.appendChild(earlyBranch);
+  const laterSibling = document.createElement("aside");
+  laterSibling.setAttribute("id", "later-sibling");
+  document.body.appendChild(laterSibling);
+
+  let requestBody;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  const source = fs.readFileSync(path.join(root, assets.phoenix), "utf8");
+  vm.runInNewContext(source, sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    csrfToken: "token",
+    document,
+    fetch: async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 202,
+        json: async () => ({
+          contract_version: 1,
+          session: { id: "session", status: "busy", model: "test/fake", error: null },
+          task: { id: "task", status: "running", output: "", activity: "Pi is working" },
+        }),
+      };
+    },
+    location: { href: "http://localhost:4000/", origin: "http://localhost:4000", pathname: "/", search: "" },
+  });
+
+  await mounted.submit("Keep broad structure.");
+
+  assert.equal(requestBody.context.snapshot.children[1].id, "later-sibling");
+  assert.deepEqual(requestBody.context.truncation, [{ section: "page", reasons: ["bytes"] }]);
+});
+
 test("Browser Client discards an older state read after task submission", async () => {
   const document = fakeDocument();
   let resolveInitialRefresh;
   const initialRefresh = new Promise((resolve) => { resolveInitialRefresh = resolve; });
-  const sandbox = { TextEncoder, clearTimeout() {}, setTimeout() { return 1; } };
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
   const source = fs.readFileSync(path.join(root, assets.phoenix), "utf8");
   vm.runInNewContext(source, sandbox);
 
@@ -164,14 +273,20 @@ function fakeDocument() {
       this.textContent = "";
       this.value = "";
       this.listeners = {};
+      this.attributes = new Map();
+      this.classList = [];
     }
 
     addEventListener(name, listener) { this.listeners[name] = listener; }
-    appendChild(child) { this.childNodes.push(child); this.children.push(child); return child; }
+    appendChild(child) { this.childNodes.push(child); this.children.push(child); child.parentElement = this; return child; }
     attachShadow() { this.shadowRoot = new FakeShadowRoot(); return this.shadowRoot; }
-    getAttribute() { return null; }
-    hasAttribute() { return false; }
-    setAttribute(name, value) { this[name] = String(value); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    hasAttribute(name) { return this.attributes.has(name); }
+    setAttribute(name, value) {
+      this.attributes.set(name, String(value));
+      if (name === "class") this.classList = String(value).split(/\s+/u).filter(Boolean);
+      else this[name] = String(value);
+    }
   }
 
   class FakeShadowRoot {

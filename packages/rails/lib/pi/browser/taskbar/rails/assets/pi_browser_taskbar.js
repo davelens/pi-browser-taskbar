@@ -52,7 +52,7 @@
         const normalizedPrompt = String(prompt || "").trim();
         if (!normalizedPrompt) throw new TypeError("A prompt is required");
 
-        const context = wholePageContext(document, pageLocation, host);
+        const context = wholePageContext(document, pageLocation, host, bootstrap.route);
         const generation = ++snapshotGeneration;
 
         try {
@@ -153,47 +153,150 @@
     return Object.freeze({ mount });
   }
 
-  function wholePageContext(document, location, taskbarHost) {
-    const queryNames = [];
-    for (const name of queryParameterNames(location)) {
-      const boundedName = normalizedText(name, 128);
-      if (boundedName && !queryNames.includes(boundedName) && queryNames.length < 32) queryNames.push(boundedName);
-    }
+  const truncationReasonOrder = ["bytes", "nodes", "depth", "string"];
+  const safeAttributeNames = ["name", "type", "placeholder", "data-testid"];
 
+  function wholePageContext(document, location, taskbarHost, route) {
     const state = { nodes: 0, reasons: [] };
-    const snapshot = captureNode(document.body, taskbarHost, state, 0, document) || { tag: "body", children: [] };
+    const snapshot = captureSnapshot(document.body, taskbarHost, state, document, location);
     enforceSnapshotBytes(snapshot, state, 48 * 1024);
+    const reasons = truncationReasonOrder.filter((reason) => state.reasons.includes(reason));
 
     return {
       contract_version: 1,
-      location: {
-        origin: location?.origin || "http://localhost",
-        path: normalizedText(location?.pathname || "/", 2048) || "/",
-        query_names: queryNames,
+      location: sanitizedLocation(location, state) || {
+        origin: "http://localhost",
+        path: "/",
+        query_names: [],
       },
-      route: null,
+      route: normalizedRoute(route, state),
       snapshot,
       focus_points: [],
-      truncation: state.reasons.length > 0 ? [{ section: "page", reasons: Array.from(new Set(state.reasons)) }] : [],
+      truncation: reasons.length > 0 ? [{ section: "page", reasons }] : [],
     };
   }
 
-  function captureNode(element, taskbarHost, state, depth, document) {
-    if (!element?.localName || element === taskbarHost || excluded(element, document)) return null;
-    if (state.nodes >= 750) {
-      state.reasons.push("nodes");
-      return null;
-    }
-    if (depth > 12) {
-      state.reasons.push("depth");
-      return null;
-    }
-    state.nodes += 1;
+  function captureSnapshot(root, taskbarHost, state, document, location) {
+    if (!root?.localName || excluded(root, document)) return { tag: "body", children: [] };
 
-    const node = { tag: String(element.localName).toLowerCase(), children: [] };
-    const name = normalizedText(element.getAttribute?.("aria-label"), 512, state);
+    const snapshot = captureNodeFields(root, state, document, location);
+    const queue = [{ depth: 0, element: root, node: snapshot }];
+    state.nodes = 1;
+
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const child of Array.from(current.element.children || [])) {
+        if (child === taskbarHost || excluded(child, document)) continue;
+        if (current.depth >= 12) {
+          state.reasons.push("depth");
+          continue;
+        }
+        if (state.nodes >= 750) {
+          state.reasons.push("nodes");
+          return snapshot;
+        }
+
+        const captured = captureNodeFields(child, state, document, location);
+        current.node.children.push(captured);
+        state.nodes += 1;
+        queue.push({ depth: current.depth + 1, element: child, node: captured });
+      }
+    }
+
+    return snapshot;
+  }
+
+  function captureNodeFields(element, state, document, location) {
+    const node = {
+      tag: normalizedText(String(element.localName).toLowerCase(), 64, state) || "div",
+      children: [],
+    };
+    const role = normalizedText(element.getAttribute?.("role"), 64, state);
+    const name = accessibleName(element, state, document);
+    const text = directVisibleText(element, state);
     const identifier = normalizedText(element.getAttribute?.("id"), 256, state);
-    const directText = normalizedText(
+    const classValues = Array.from(element.classList || []);
+    if (classValues.length > 32) state.reasons.push("string");
+    const classes = classValues.slice(0, 32)
+      .map((value) => normalizedText(value, 128, state))
+      .filter(Boolean);
+    const attributes = semanticAttributes(element, state);
+    const semanticState = semanticControlState(element);
+    const href = sanitizedReference(element.getAttribute?.("href"), location, state);
+    const src = sanitizedReference(element.getAttribute?.("src"), location, state);
+
+    if (role) node.role = role;
+    if (name) node.name = name;
+    if (text) node.text = text;
+    if (identifier) node.id = identifier;
+    if (classes.length > 0) node.classes = Array.from(new Set(classes));
+    if (Object.keys(attributes).length > 0) node.attributes = attributes;
+    if (Object.keys(semanticState).length > 0) node.state = semanticState;
+    if (href) node.href = href;
+    if (src) node.src = src;
+    return node;
+  }
+
+  function semanticAttributes(element, state) {
+    const attributes = {};
+    for (const name of safeAttributeNames) {
+      const value = normalizedText(element.getAttribute?.(name), 256, state);
+      if (value) attributes[name] = value;
+    }
+    return attributes;
+  }
+
+  function semanticControlState(element) {
+    const state = {};
+    for (const name of ["disabled", "checked", "selected", "expanded", "pressed", "required", "invalid"]) {
+      const raw = element.getAttribute?.(`aria-${name}`);
+      const value = semanticStateValue(name, raw);
+      if (value !== undefined) state[name] = value;
+    }
+    return state;
+  }
+
+  function semanticStateValue(name, raw) {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+    if (["checked", "pressed"].includes(name) && raw === "mixed") return "mixed";
+    if (name === "invalid" && ["grammar", "spelling"].includes(raw)) return raw;
+    return undefined;
+  }
+
+  function accessibleName(element, state, document) {
+    for (const value of [
+      element.getAttribute?.("aria-label"),
+      element.getAttribute?.("alt"),
+      element.getAttribute?.("title"),
+    ]) {
+      const name = normalizedText(value, 512, state);
+      if (name) return name;
+    }
+
+    if (!["a", "button", "summary"].includes(String(element.localName).toLowerCase()) && !element.getAttribute?.("role")) return "";
+    return descendantVisibleText(element, document, state, 512);
+  }
+
+  function descendantVisibleText(element, document, state, maximumBytes) {
+    const values = [];
+    const queue = [element];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      if (current !== element && excluded(current, document)) continue;
+      if (!sensitiveTextElement(current)) {
+        values.push(...Array.from(current.childNodes || [])
+          .filter((child) => child.nodeType === 3)
+          .map((child) => child.nodeValue || ""));
+      }
+      queue.push(...Array.from(current.children || []));
+    }
+    return normalizedText(values.join(" "), maximumBytes, state);
+  }
+
+  function directVisibleText(element, state) {
+    if (sensitiveTextElement(element)) return "";
+    return normalizedText(
       Array.from(element.childNodes || [])
         .filter((child) => child.nodeType === 3)
         .map((child) => child.nodeValue || "")
@@ -201,50 +304,80 @@
       1000,
       state,
     );
-    const classes = Array.from(element.classList || []).slice(0, 32).map((value) => normalizedText(value, 128, state)).filter(Boolean);
+  }
 
-    if (name) node.name = name;
-    if (directText) node.text = directText;
-    if (identifier) node.id = identifier;
-    if (classes.length > 0) node.classes = Array.from(new Set(classes));
-
-    for (const child of Array.from(element.children || [])) {
-      const captured = captureNode(child, taskbarHost, state, depth + 1, document);
-      if (captured) node.children.push(captured);
-    }
-    return node;
+  function sensitiveTextElement(element) {
+    return ["input", "option", "select", "textarea"].includes(String(element.localName).toLowerCase());
   }
 
   function excluded(element, document) {
     const tag = String(element.localName).toLowerCase();
-    if (["script", "style", "template", "meta", "link", "head", "iframe", "input", "textarea", "select"].includes(tag)) return true;
+    if (["base", "head", "iframe", "link", "meta", "noscript", "option", "script", "style", "template", "title"].includes(tag)) return true;
+    if (tag === "input" && String(element.getAttribute?.("type") || "").toLowerCase() === "hidden") return true;
     if (element.hidden || element.hasAttribute?.("hidden") || element.hasAttribute?.("inert")) return true;
-    if (element.isContentEditable || element.getAttribute?.("contenteditable") === "true") return true;
+    const editable = element.getAttribute?.("contenteditable");
+    if (element.isContentEditable || (editable !== null && editable !== "false")) return true;
     if (element.getAttribute?.("aria-hidden") === "true") return true;
 
     const style = document?.defaultView?.getComputedStyle?.(element);
     return style?.display === "none" || style?.visibility === "hidden" || style?.contentVisibility === "hidden" || Number(style?.opacity) === 0;
   }
 
-  function queryParameterNames(location) {
-    if (location?.searchParams?.keys) return Array.from(location.searchParams.keys());
+  function sanitizedLocation(location, state) {
+    const href = location?.href || `${location?.origin || "http://localhost"}${location?.pathname || "/"}${location?.search || ""}`;
+    return sanitizedUrl(href, href, state);
+  }
 
-    return String(location?.search || "")
-      .replace(/^\?/, "")
-      .split("&")
-      .filter(Boolean)
-      .map((pair) => {
-        const encodedName = pair.split("=", 1)[0].replace(/\+/g, " ");
-        try {
-          return decodeURIComponent(encodedName);
-        } catch (_error) {
-          return encodedName;
+  function sanitizedReference(value, location, state) {
+    if (!value) return null;
+    const base = location?.href || globalThis.location?.href || "http://localhost/";
+    return sanitizedUrl(value, base, state);
+  }
+
+  function sanitizedUrl(value, base, state) {
+    try {
+      const url = new URL(String(value), base);
+      if (!['http:', 'https:'].includes(url.protocol)) return null;
+      const queryNames = [];
+      for (const name of url.searchParams.keys()) {
+        const bounded = normalizedText(name, 128, state);
+        if (!bounded || queryNames.includes(bounded)) continue;
+        if (queryNames.length >= 32) {
+          state?.reasons?.push("string");
+          break;
         }
-      });
+        queryNames.push(bounded);
+      }
+      return {
+        origin: normalizedText(url.origin, 512, state),
+        path: normalizedText(url.pathname || "/", 2048, state) || "/",
+        query_names: queryNames,
+      };
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function normalizedRoute(route, state) {
+    if (!route || typeof route !== "object") return null;
+    const method = normalizedText(route.method, 16, state).toUpperCase();
+    const pattern = normalizedText(route.pattern, 1000, state);
+    const handler = normalizedText(route.handler, 500, state);
+    if (!method || !pattern || !handler || !/^[A-Z]+$/u.test(method)) return null;
+    return {
+      method,
+      pattern,
+      handler,
+      action: normalizedText(route.action, 256, state) || null,
+    };
   }
 
   function normalizedText(value, maximumBytes, state) {
-    const normalized = String(value || "").normalize("NFC").replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu, " ").replace(/\s+/gu, " ").trim();
+    const normalized = String(value || "").normalize("NFC")
+      .replace(/\r\n?/gu, "\n")
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, "")
+      .replace(/\s+/gu, " ")
+      .trim();
     let bounded = "";
     let bytes = 0;
     const encoder = new TextEncoder();
@@ -263,20 +396,26 @@
 
   function enforceSnapshotBytes(snapshot, state, maximumBytes) {
     while (utf8Size(JSON.stringify(snapshot)) > maximumBytes) {
-      const removable = [];
-      collectRemovableNodes(snapshot, removable);
+      const removable = collectRemovableNodes(snapshot);
       const candidate = removable.at(-1);
       if (!candidate) break;
-      candidate.parent.children.splice(candidate.index, 1);
+      const index = candidate.parent.children.indexOf(candidate.node);
+      if (index >= 0) candidate.parent.children.splice(index, 1);
       state.reasons.push("bytes");
     }
   }
 
-  function collectRemovableNodes(node, removable) {
-    for (const [index, child] of node.children.entries()) {
-      removable.push({ parent: node, index });
-      collectRemovableNodes(child, removable);
+  function collectRemovableNodes(root) {
+    const removable = [];
+    const queue = [root];
+    while (queue.length > 0) {
+      const parent = queue.shift();
+      for (const node of parent.children) {
+        removable.push({ parent, node });
+        queue.push(node);
+      }
     }
+    return removable;
   }
 
   function utf8Size(value) {

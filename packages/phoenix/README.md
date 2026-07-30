@@ -43,8 +43,10 @@ emit no assets, and start no taskbar process.
 ## Use
 
 Restart the development server, open any page, and use the lower-left **Page task** composer. A
-prompt with no marks submits a bounded whole-page structural snapshot. The package admits one task
-at a time to one persistent `pi --mode rpc` process and retains the latest completed output.
+prompt with no marks submits a bounded sanitized whole-page structural snapshot. Visible text and
+URL paths may reach the configured Pi/model provider, so do not use it with sensitive datasets. The
+package admits one task at a time to one persistent `pi --mode rpc` process and retains the latest
+completed output.
 
 ## Configuration
 

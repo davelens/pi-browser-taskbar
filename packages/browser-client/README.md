@@ -11,3 +11,8 @@ The provider interface currently requires:
 The client may call that interface but must not recognize Rails, Phoenix, Ruby, or Elixir. Package
 providers may depend on this interface during asset composition; the Browser Client never imports
 an adapter.
+
+Whole-page submission captures a deterministic breadth-first structural snapshot. It retains only
+the contract allowlist, sanitizes URL references, truncates on Unicode code-point boundaries, and
+reports every applied bound. A programmatic mount may supply confident normalized route metadata as
+`route`; absent or incomplete metadata becomes `null`.
