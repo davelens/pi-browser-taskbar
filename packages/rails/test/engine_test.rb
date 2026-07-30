@@ -89,6 +89,7 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     task = File.read(File.expand_path("../../../contract/fixtures/tasks/minimal-task.json", __dir__))
     post "/dev/pi-browser-taskbar/tasks", params: task, headers: {"CONTENT_TYPE" => "application/json"}
     assert_response :unprocessable_entity
+    assert_equal "no-store", response.headers["Cache-Control"]
     assert_empty @broker.submissions
 
     get "/"
@@ -102,6 +103,7 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
   def test_rejects_disallowed_host_and_non_loopback_client_before_broker
     get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "192.0.2.10"}
     assert_response :forbidden
+    assert_equal "no-store", response.headers["Cache-Control"]
 
     host! "evil.example"
     get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "127.0.0.1"}

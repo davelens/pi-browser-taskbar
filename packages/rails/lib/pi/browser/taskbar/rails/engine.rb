@@ -16,15 +16,17 @@ module Pi
 
         class ApplicationController < ActionController::Base
           protect_from_forgery with: :exception
-          before_action :require_taskbar_access
+          before_action :require_taskbar_access, prepend: true
 
           rescue_from ActionController::InvalidAuthenticityToken do
+            response.set_header("Cache-Control", "no-store")
             render json: {error: {code: "invalid_csrf", message: "The session CSRF token is invalid"}}, status: :unprocessable_entity
           end
 
           private
 
           def require_taskbar_access
+            response.set_header("Cache-Control", "no-store")
             host = request.host.to_s.downcase.sub(/\.\z/, "")
             allowed_hosts = Pi::Browser::Taskbar::Rails.allowed_hosts
             loopback = IPAddr.new(request.remote_ip).loopback?
