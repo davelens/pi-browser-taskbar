@@ -68,6 +68,15 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     assert Runtime.snapshot(runtime).task.error == "Pi sent a malformed RPC record"
   end
 
+  test "restarts after a non-object RPC record", %{runtime: runtime} do
+    assert {:ok, _running} = Runtime.submit(runtime, valid_task("non-object record"))
+
+    wait_until(fn -> Runtime.snapshot(runtime).task.status == "failed" end)
+    wait_until(fn -> Runtime.snapshot(runtime).session.status == "ready" end)
+
+    assert Runtime.snapshot(runtime).task.error == "Pi sent a non-object RPC record"
+  end
+
   test "admits a busy task atomically", %{runtime: runtime} do
     assert {:ok, running} = Runtime.submit(runtime, valid_task("hold this task"))
 

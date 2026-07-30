@@ -37,6 +37,12 @@ $stdin.each_line do |line|
       next
     end
 
+    if command.fetch("message").include?("non-object record")
+      puts("null")
+      $stdout.flush
+      next
+    end
+
     puts JSON.generate(
       type: "message_update",
       assistantMessageEvent: {

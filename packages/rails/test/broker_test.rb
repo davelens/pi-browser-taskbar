@@ -27,6 +27,32 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_identity_rejects_symlinked_runtime_directories_without_chmodding_targets
+    Dir.mktmpdir("broker-parent") do |parent|
+      Dir.mktmpdir("broker-project") do |project|
+        target = File.join(parent, "target")
+        Dir.mkdir(target, 0o700)
+        File.chmod(0o777, target)
+        root = File.join(parent, "runtime")
+        File.symlink(target, root)
+
+        assert_raises(Broker::Unavailable) { Broker::Identity.new(project, runtime_root: root) }
+        assert_equal 0o777, File.stat(target).mode & 0o777
+
+        File.unlink(root)
+        Dir.mkdir(root, 0o700)
+        key = Digest::SHA256.hexdigest("#{Process.uid}\0#{File.realpath(project)}")[0, 32]
+        checkout_target = File.join(parent, "checkout-target")
+        Dir.mkdir(checkout_target, 0o700)
+        File.chmod(0o777, checkout_target)
+        File.symlink(checkout_target, File.join(root, key))
+
+        assert_raises(Broker::Unavailable) { Broker::Identity.new(project, runtime_root: root) }
+        assert_equal 0o777, File.stat(checkout_target).mode & 0o777
+      end
+    end
+  end
+
   def test_election_metadata_handshake_fake_pi_completion_and_atomic_admission
     with_server do |client, second, identity, thread, startup_count|
       metadata = JSON.parse(File.read(identity.metadata_path))
@@ -103,6 +129,40 @@ class RailsBrokerTest < Minitest::Test
       assert_equal "accepted", client.submit(task)["result"]
       wait_until { client.snapshot.dig("snapshot", "task", "status") == "completed" }
       assert_equal "Implemented the whole-page request.", client.snapshot.dig("snapshot", "task", "output")
+    end
+  end
+
+  def test_non_object_pi_record_fails_startup_instead_of_hanging
+    with_runtime_fake(<<~RUBY) do |runtime|
+      #!/usr/bin/env ruby
+      $stdin.gets
+      puts "null"
+      $stdout.flush
+      sleep 5
+    RUBY
+      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+      assert_equal "Pi protocol failed", runtime.snapshot.dig("session", "error")
+    end
+  end
+
+  def test_unexpected_pi_eof_fails_an_accepted_task
+    with_runtime_fake(<<~RUBY) do |runtime|
+      #!/usr/bin/env ruby
+      require "json"
+      startup = JSON.parse($stdin.gets)
+      puts JSON.generate(type: "response", id: startup.fetch("id"), success: true, data: {model: "fake"})
+      $stdout.flush
+      $stdin.gets
+    RUBY
+      wait_until { runtime.snapshot.dig("session", "status") == "ready" }
+      result, = runtime.submit(JSON.parse(File.read(TASK)))
+      assert_equal :accepted, result
+      wait_until { runtime.snapshot.dig("session", "status") == "unavailable" }
+
+      task = runtime.snapshot.fetch("task")
+      assert_equal "failed", task["status"]
+      assert_equal "Pi stopped unexpectedly", task["error"]
+      refute_nil task["finished_at"]
     end
   end
 
@@ -189,6 +249,20 @@ class RailsBrokerTest < Minitest::Test
 
   def read_peer(peer)
     JSON.parse(peer.gets)
+  end
+
+  def with_runtime_fake(source)
+    Dir.mktmpdir("broker-runtime-fake") do |directory|
+      project = File.join(directory, "project")
+      Dir.mkdir(project)
+      executable = File.join(directory, "fake-pi")
+      File.write(executable, source)
+      File.chmod(0o700, executable)
+      runtime = Broker::Runtime.new(project_root: project, executable: executable)
+      yield runtime
+    ensure
+      runtime.close if runtime
+    end
   end
 
   def with_server

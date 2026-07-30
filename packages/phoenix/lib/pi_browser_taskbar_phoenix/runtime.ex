@@ -214,8 +214,14 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     line = trim_trailing_carriage_return(line)
 
     case Jason.decode(line) do
-      {:ok, event} -> handle_event(state, event)
-      {:error, _reason} -> restart_after_protocol_failure(state, "Pi sent a malformed RPC record")
+      {:ok, event} when is_map(event) ->
+        handle_event(state, event)
+
+      {:ok, _event} ->
+        restart_after_protocol_failure(state, "Pi sent a non-object RPC record")
+
+      {:error, _reason} ->
+        restart_after_protocol_failure(state, "Pi sent a malformed RPC record")
     end
   end
 

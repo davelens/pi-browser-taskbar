@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "digest"
-require "fileutils"
 require "json"
 require "open3"
 require "rbconfig"
@@ -30,12 +29,9 @@ module Pi
               @uid = Process.uid
               @key = Digest::SHA256.hexdigest("#{uid}\0#{@project_root}")[0, 32]
               root = runtime_root || default_runtime_root
-              FileUtils.mkdir_p(root, mode: 0o700)
-              File.chmod(0o700, root)
-              raise Unavailable, "broker runtime directory is not private" unless File.stat(root).uid == uid && (File.stat(root).mode & 0o077).zero?
+              secure_directory(root)
               @directory = File.join(root, key)
-              FileUtils.mkdir_p(@directory, mode: 0o700)
-              File.chmod(0o700, @directory)
+              secure_directory(@directory)
             rescue SystemCallError => error
               raise Unavailable, "broker identity is unavailable: #{error.message}"
             end
@@ -60,10 +56,39 @@ module Pi
 
             def default_runtime_root
               candidate = ENV["XDG_RUNTIME_DIR"]
-              if candidate && File.directory?(candidate) && File.stat(candidate).uid == uid && (File.stat(candidate).mode & 0o077).zero?
+              if candidate && private_directory?(candidate)
                 File.join(candidate, "pi-browser-taskbar")
               else
                 File.join(Dir.tmpdir, "pi-browser-taskbar-#{uid}")
+              end
+            end
+
+            def private_directory?(path)
+              stat = File.lstat(path)
+              stat.directory? && !stat.symlink? && stat.uid == uid && (stat.mode & 0o077).zero?
+            rescue SystemCallError
+              false
+            end
+
+            def secure_directory(path)
+              begin
+                Dir.mkdir(path, 0o700)
+              rescue Errno::EEXIST
+                nil
+              end
+
+              stat = File.lstat(path)
+              raise Unavailable, "broker runtime path is not a user-owned directory" unless stat.directory? && !stat.symlink? && stat.uid == uid
+
+              flags = File::RDONLY | (File.const_defined?(:NOFOLLOW) ? File::NOFOLLOW : 0)
+              File.open(path, flags) do |directory|
+                opened = directory.stat
+                current = File.lstat(path)
+                unless opened.directory? && opened.uid == uid && current.dev == opened.dev && current.ino == opened.ino
+                  raise Unavailable, "broker runtime path changed while being secured"
+                end
+                directory.chmod(0o700)
+                raise Unavailable, "broker runtime directory is not private" unless (directory.stat.mode & 0o077).zero?
               end
             end
           end
@@ -149,20 +174,25 @@ module Pi
                   break
                 end
                 event = JSON.parse(line)
+                unless event.is_a?(Hash)
+                  protocol_failure("Pi sent a non-object RPC record")
+                  break
+                end
                 @mutex.synchronize { consume(event) }
               rescue JSON::ParserError
                 protocol_failure("Pi sent a malformed RPC record")
                 break
               end
-              @mutex.synchronize { unavailable_unlocked("Pi stopped unexpectedly") unless @phase == "unavailable" }
+              unexpected_stop
             rescue IOError, SystemCallError
-              @mutex.synchronize { unavailable_unlocked("Pi stopped unexpectedly") }
+              unexpected_stop
             end
 
             def consume(event)
               if event["type"] == "response" && event["id"] == @startup_id
                 if event["success"]
-                  model = event.dig("data", "model")
+                  data = event["data"]
+                  model = data["model"] if data.is_a?(Hash)
                   @model = model.is_a?(Hash) ? [model["provider"], model["id"]].compact.join("/") : model
                   @session_id = SecureRandom.urlsafe_base64(18, false)
                   @phase = "ready"
@@ -175,8 +205,9 @@ module Pi
                   finish_unlocked("failed", "Pi rejected the task")
                 elsif event["type"] == "agent_start"
                   @task["activity"] = "Pi is working"
-                elsif event["type"] == "message_update" && event.dig("assistantMessageEvent", "type") == "text_delta" && event.dig("assistantMessageEvent", "delta").is_a?(String)
-                  append_output_unlocked(event.dig("assistantMessageEvent", "delta"))
+                elsif event["type"] == "message_update" && event["assistantMessageEvent"].is_a?(Hash) &&
+                    event["assistantMessageEvent"]["type"] == "text_delta" && event["assistantMessageEvent"]["delta"].is_a?(String)
+                  append_output_unlocked(event["assistantMessageEvent"]["delta"])
                 elsif event["type"] == "tool_execution_start" && event["toolName"].is_a?(String)
                   @task["activity"] = "Running #{event["toolName"]}"
                 elsif event["type"] == "agent_settled"
@@ -208,6 +239,14 @@ module Pi
               @mutex.synchronize do
                 finish_unlocked("failed", message) if @phase == "busy"
                 unavailable_unlocked("Pi protocol failed")
+              end
+            end
+
+            def unexpected_stop
+              @mutex.synchronize do
+                return if @phase == "unavailable"
+                finish_unlocked("failed", "Pi stopped unexpectedly") if @phase == "busy"
+                unavailable_unlocked("Pi stopped unexpectedly")
               end
             end
 
