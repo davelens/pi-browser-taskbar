@@ -44,6 +44,7 @@ ${client
   .map((line) => (line.length > 0 ? `  ${line}` : ""))
   .join("\n")}
 
+  const taskbarStyles = ${JSON.stringify(styles)};
   const contextProvider = ${provider};
   const client = createBrowserClient({
     contractVersion: 1,
@@ -58,6 +59,14 @@ ${client
     mount: client.mount,
     productVersion: "${version}",
   });
+
+  const bootstrap = globalThis.document?.querySelector?.("[data-pi-browser-taskbar-bootstrap]");
+  if (bootstrap) {
+    client.mount({
+      csrfToken: bootstrap.dataset.csrfToken,
+      mountBase: bootstrap.dataset.mountBase,
+    });
+  }
 })();
 `;
 }

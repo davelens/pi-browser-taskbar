@@ -12,7 +12,8 @@
       "required": ["method", "path"],
       "properties": {
         "method": {"type": "string", "enum": ["GET", "POST", "DELETE"]},
-        "path": {"type": "string", "minLength": 1, "pattern": "^/"}
+        "path": {"type": "string", "minLength": 1, "pattern": "^/"},
+        "body_fixture": {"type": "string", "minLength": 1}
       },
       "additionalProperties": false
     },

@@ -11,9 +11,13 @@ defmodule PiBrowserTaskbarPhoenix do
 
   @doc "Returns the package-owned prebuilt browser bootstrap path."
   @spec browser_asset_path() :: String.t()
-  def browser_asset_path do
+  def browser_asset_path, do: Path.join(static_path(), "pi_browser_taskbar.js")
+
+  @doc "Returns the package-owned static asset directory."
+  @spec static_path() :: String.t()
+  def static_path do
     :pi_browser_taskbar_phoenix
     |> :code.priv_dir()
-    |> Path.join("static/pi_browser_taskbar.js")
+    |> Path.join("static")
   end
 end

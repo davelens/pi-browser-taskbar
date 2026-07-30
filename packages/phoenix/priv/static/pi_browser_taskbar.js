@@ -9,19 +9,316 @@
 
     function mount(bootstrap = {}) {
       const mountBase = bootstrap.mountBase || "/dev/pi-browser-taskbar";
+      const metadata = { contractVersion, framework, mountBase, productVersion };
+      const document = bootstrap.document || globalThis.document;
 
-      return Object.freeze({
-        contractVersion,
-        framework,
-        mountBase,
-        productVersion,
-        sourceHint: (element) => contextProvider.sourceHint(element),
+      if (!document?.body) return Object.freeze(metadata);
+
+      const existing = document.querySelector?.("[data-pi-browser-taskbar-host]");
+      if (existing?.piBrowserTaskbar) return existing.piBrowserTaskbar;
+
+      const host = document.createElement("div");
+      host.setAttribute("data-pi-browser-taskbar-host", "");
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = markup();
+      document.body.appendChild(host);
+
+      const controls = {
+        activity: shadow.querySelector("[data-activity]"),
+        error: shadow.querySelector("[data-error]"),
+        output: shadow.querySelector("[data-output]"),
+        panel: shadow.querySelector("[data-panel]"),
+        prompt: shadow.querySelector("[data-prompt]"),
+        run: shadow.querySelector("[data-run]"),
+        scope: shadow.querySelector("[data-scope]"),
+        status: shadow.querySelector("[data-status]"),
+        toggle: shadow.querySelector("[data-toggle]"),
+      };
+      const fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
+      const pageLocation = bootstrap.location || globalThis.location;
+      let snapshot = null;
+      let pollTimer = null;
+      let snapshotGeneration = 0;
+
+      controls.toggle.addEventListener("click", () => {
+        controls.panel.hidden = !controls.panel.hidden;
+        controls.toggle.setAttribute("aria-expanded", String(!controls.panel.hidden));
+        if (!controls.panel.hidden) controls.prompt.focus?.();
       });
+      controls.run.addEventListener("click", () => submit(controls.prompt.value).catch(showError));
+      controls.prompt.addEventListener("input", renderControls);
+
+      async function submit(prompt) {
+        const normalizedPrompt = String(prompt || "").trim();
+        if (!normalizedPrompt) throw new TypeError("A prompt is required");
+
+        const context = wholePageContext(document, pageLocation, host);
+        const generation = ++snapshotGeneration;
+
+        try {
+          const nextSnapshot = await request("/tasks", {
+            method: "POST",
+            body: { prompt: normalizedPrompt, context },
+          });
+          if (generation !== snapshotGeneration) return snapshot;
+          snapshot = nextSnapshot;
+          render();
+          schedulePoll(500);
+          return snapshot;
+        } catch (error) {
+          if (generation === snapshotGeneration) throw error;
+          return snapshot;
+        }
+      }
+
+      async function refresh() {
+        const generation = ++snapshotGeneration;
+
+        try {
+          const nextSnapshot = await request("/state", { method: "GET" });
+          if (generation !== snapshotGeneration) return snapshot;
+          snapshot = nextSnapshot;
+          render();
+          schedulePoll(active(snapshot) ? 500 : 30000);
+          return snapshot;
+        } catch (error) {
+          if (generation === snapshotGeneration) throw error;
+          return snapshot;
+        }
+      }
+
+      async function request(path, { method, body } = {}) {
+        if (typeof fetchRequest !== "function") throw new Error("Browser fetch is unavailable");
+        const headers = { accept: "application/json" };
+        const options = { method: method || "GET", headers };
+
+        if (body) {
+          headers["content-type"] = "application/json";
+          options.body = JSON.stringify(body);
+        }
+        if (options.method !== "GET") {
+          headers["x-csrf-token"] = bootstrap.csrfToken || "";
+        }
+
+        const response = await fetchRequest(`${mountBase}${path}`, options);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(payload.error?.message || `Pi task request failed (${response.status})`);
+          error.code = payload.error?.code;
+          error.status = response.status;
+          throw error;
+        }
+        return payload;
+      }
+
+      function render() {
+        const session = snapshot?.session || { status: "starting" };
+        const task = snapshot?.task;
+        controls.status.textContent = visibleStatus(session, task);
+        controls.status.setAttribute("data-state", task?.status || session.status);
+        controls.scope.textContent = "Whole page · bounded structural context";
+        controls.activity.textContent = task?.activity || connectingActivity(session);
+        controls.activity.hidden = !controls.activity.textContent;
+        controls.output.textContent = task?.output || "";
+        controls.output.hidden = !controls.output.textContent;
+        controls.error.textContent = task?.error || session.error || "";
+        controls.error.hidden = !controls.error.textContent;
+        renderControls();
+      }
+
+      function renderControls() {
+        const busy = active(snapshot);
+        controls.prompt.disabled = busy;
+        controls.run.disabled = busy || !String(controls.prompt.value || "").trim();
+        controls.run.textContent = busy ? "Working…" : "Run with Pi";
+      }
+
+      function schedulePoll(delay) {
+        globalThis.clearTimeout?.(pollTimer);
+        pollTimer = globalThis.setTimeout?.(() => refresh().catch(showError), delay);
+      }
+
+      function showError(error) {
+        controls.error.textContent = error?.message || "Pi Browser Taskbar is unavailable";
+        controls.error.hidden = false;
+      }
+
+      const mounted = Object.freeze({ ...metadata, element: host, refresh, submit });
+      host.piBrowserTaskbar = mounted;
+      render();
+      if (bootstrap.autoRefresh !== false) refresh().catch(showError);
+      return mounted;
     }
 
     return Object.freeze({ mount });
   }
 
+  function wholePageContext(document, location, taskbarHost) {
+    const queryNames = [];
+    for (const name of queryParameterNames(location)) {
+      const boundedName = normalizedText(name, 128);
+      if (boundedName && !queryNames.includes(boundedName) && queryNames.length < 32) queryNames.push(boundedName);
+    }
+
+    const state = { nodes: 0, reasons: [] };
+    const snapshot = captureNode(document.body, taskbarHost, state, 0, document) || { tag: "body", children: [] };
+    enforceSnapshotBytes(snapshot, state, 48 * 1024);
+
+    return {
+      contract_version: 1,
+      location: {
+        origin: location?.origin || "http://localhost",
+        path: normalizedText(location?.pathname || "/", 2048) || "/",
+        query_names: queryNames,
+      },
+      route: null,
+      snapshot,
+      focus_points: [],
+      truncation: state.reasons.length > 0 ? [{ section: "page", reasons: Array.from(new Set(state.reasons)) }] : [],
+    };
+  }
+
+  function captureNode(element, taskbarHost, state, depth, document) {
+    if (!element?.localName || element === taskbarHost || excluded(element, document)) return null;
+    if (state.nodes >= 750) {
+      state.reasons.push("nodes");
+      return null;
+    }
+    if (depth > 12) {
+      state.reasons.push("depth");
+      return null;
+    }
+    state.nodes += 1;
+
+    const node = { tag: String(element.localName).toLowerCase(), children: [] };
+    const name = normalizedText(element.getAttribute?.("aria-label"), 512, state);
+    const identifier = normalizedText(element.getAttribute?.("id"), 256, state);
+    const directText = normalizedText(
+      Array.from(element.childNodes || [])
+        .filter((child) => child.nodeType === 3)
+        .map((child) => child.nodeValue || "")
+        .join(" "),
+      1000,
+      state,
+    );
+    const classes = Array.from(element.classList || []).slice(0, 32).map((value) => normalizedText(value, 128, state)).filter(Boolean);
+
+    if (name) node.name = name;
+    if (directText) node.text = directText;
+    if (identifier) node.id = identifier;
+    if (classes.length > 0) node.classes = Array.from(new Set(classes));
+
+    for (const child of Array.from(element.children || [])) {
+      const captured = captureNode(child, taskbarHost, state, depth + 1, document);
+      if (captured) node.children.push(captured);
+    }
+    return node;
+  }
+
+  function excluded(element, document) {
+    const tag = String(element.localName).toLowerCase();
+    if (["script", "style", "template", "meta", "link", "head", "iframe", "input", "textarea", "select"].includes(tag)) return true;
+    if (element.hidden || element.hasAttribute?.("hidden") || element.hasAttribute?.("inert")) return true;
+    if (element.isContentEditable || element.getAttribute?.("contenteditable") === "true") return true;
+    if (element.getAttribute?.("aria-hidden") === "true") return true;
+
+    const style = document?.defaultView?.getComputedStyle?.(element);
+    return style?.display === "none" || style?.visibility === "hidden" || style?.contentVisibility === "hidden" || Number(style?.opacity) === 0;
+  }
+
+  function queryParameterNames(location) {
+    if (location?.searchParams?.keys) return Array.from(location.searchParams.keys());
+
+    return String(location?.search || "")
+      .replace(/^\?/, "")
+      .split("&")
+      .filter(Boolean)
+      .map((pair) => {
+        const encodedName = pair.split("=", 1)[0].replace(/\+/g, " ");
+        try {
+          return decodeURIComponent(encodedName);
+        } catch (_error) {
+          return encodedName;
+        }
+      });
+  }
+
+  function normalizedText(value, maximumBytes, state) {
+    const normalized = String(value || "").normalize("NFC").replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu, " ").replace(/\s+/gu, " ").trim();
+    let bounded = "";
+    let bytes = 0;
+    const encoder = new TextEncoder();
+
+    for (const character of normalized) {
+      const characterBytes = encoder.encode(character).byteLength;
+      if (bytes + characterBytes > maximumBytes) {
+        state?.reasons?.push("string");
+        break;
+      }
+      bounded += character;
+      bytes += characterBytes;
+    }
+    return bounded;
+  }
+
+  function enforceSnapshotBytes(snapshot, state, maximumBytes) {
+    while (utf8Size(JSON.stringify(snapshot)) > maximumBytes) {
+      const removable = [];
+      collectRemovableNodes(snapshot, removable);
+      const candidate = removable.at(-1);
+      if (!candidate) break;
+      candidate.parent.children.splice(candidate.index, 1);
+      state.reasons.push("bytes");
+    }
+  }
+
+  function collectRemovableNodes(node, removable) {
+    for (const [index, child] of node.children.entries()) {
+      removable.push({ parent: node, index });
+      collectRemovableNodes(child, removable);
+    }
+  }
+
+  function utf8Size(value) {
+    return new TextEncoder().encode(value).byteLength;
+  }
+
+  function active(snapshot) {
+    return snapshot?.session?.status === "busy" || ["running", "cancelling"].includes(snapshot?.task?.status);
+  }
+
+  function visibleStatus(session, task) {
+    if (task?.status === "running" || task?.status === "cancelling") return "Working";
+    if (task?.status === "completed" || task?.status === "failed") return "Finished";
+    if (task?.status === "cancelled") return "Stopped";
+    if (session.status === "ready") return "Ready";
+    if (session.status === "unavailable") return "Unavailable";
+    return "Connecting";
+  }
+
+  function connectingActivity(session) {
+    if (session.status === "starting") return "Connecting to the local Pi session";
+    if (session.status === "unavailable") return "Check that Pi is installed and authenticated";
+    return "";
+  }
+
+  function markup() {
+    return `
+      <style>${taskbarStyles}</style>
+      <section data-panel hidden aria-label="Pi browser task">
+        <header><strong>PI / PAGE TASK</strong><span data-status aria-live="polite">Connecting</span></header>
+        <p data-scope>Whole page · bounded structural context</p>
+        <label>What should change?<textarea data-prompt maxlength="4000" rows="3"></textarea></label>
+        <p data-activity aria-live="polite"></p>
+        <pre data-output hidden></pre>
+        <p data-error hidden role="alert"></p>
+        <button data-run type="button" disabled>Run with Pi</button>
+      </section>
+      <button data-toggle type="button" aria-expanded="false" aria-label="Open Pi browser taskbar">π <span>Page task</span></button>
+    `;
+  }
+
+  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run] {\n  width: 100%;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
   const contextProvider = ({
   framework: "phoenix",
   sourceHint(_element) {
@@ -41,4 +338,12 @@
     mount: client.mount,
     productVersion: "0.1.0",
   });
+
+  const bootstrap = globalThis.document?.querySelector?.("[data-pi-browser-taskbar-bootstrap]");
+  if (bootstrap) {
+    client.mount({
+      csrfToken: bootstrap.dataset.csrfToken,
+      mountBase: bootstrap.dataset.mountBase,
+    });
+  }
 })();

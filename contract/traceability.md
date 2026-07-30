@@ -9,15 +9,15 @@ This index maps every normative section of [parent specification #17](https://gi
 | User Stories | Conformance Contract | Versioned contract scenarios mapped to adapter and browser acceptance | Future |
 | Product and distribution | Root tooling | Self-contained gem and Hex package built at one root version | Foundation |
 | Ownership boundaries | Root tooling | Machine-readable dependency graph and negative coupling checks | Foundation |
-| Shared task API | Conformance Contract | Identical black-box HTTP scenarios against both packaged adapters | Future |
+| Shared task API | Conformance Contract | Identical black-box HTTP scenarios against both packaged adapters | Phoenix slice |
 | Pi RPC lifecycle | Conformance Contract | Transcript replay through the deterministic fake Pi peer | Foundation |
 | Normalized browser task context | Conformance Contract | Valid and invalid context fixtures parsed independently by both adapters | Foundation |
 | Source-hint contract | Conformance Contract | Cross-adapter source classification fixtures plus native attribution tests | Future |
 | Bounds, truncation, and normalization | Conformance Contract | Golden bounded-context fixtures compared across native validators | Future |
-| Browser Client interaction | Browser Client | Browser-owned DOM tests and packaged example end-to-end flows | Future |
-| Security and configuration | Conformance Contract | Framework-native access, CSRF, activation, and startup validation tests | Future |
+| Browser Client interaction | Browser Client | Browser-owned DOM tests and packaged example end-to-end flows | Phoenix slice |
+| Security and configuration | Conformance Contract | Framework-native access, CSRF, activation, and startup validation tests | Phoenix slice |
 | Rails Adapter | Rails Adapter | Built-gem clean-application integration and broker topology tests | Foundation |
-| Phoenix Adapter | Phoenix Adapter | Built-Hex clean-application integration and supervision tests | Foundation |
+| Phoenix Adapter | Phoenix Adapter | Built-Hex clean-application integration and supervision tests | Phoenix slice |
 | Documentation and examples | Root tooling | Documentation checks and examples installed only from built artifacts | Future |
 | Versioning and coordinated release | Root tooling | Version drift, immutable artifact, checksum, and registry reconciliation gates | Foundation |
 | Implementation sequence and change control | Root tooling | Traceability and clean vertical-slice gates before dependent work | Foundation |
@@ -26,7 +26,7 @@ This index maps every normative section of [parent specification #17](https://gi
 | Browser Client | Browser Client | Fast browser module tests and cross-browser packaged example flows | Foundation |
 | Accessibility | Browser Client | Automated WCAG checks, keyboard flows, and recorded assistive-technology pass | Future |
 | Rails-native integration | Rails Adapter | Rails installer, engine, CSRF, attribution, and broker process tests | Future |
-| Phoenix-native integration | Phoenix Adapter | Phoenix installer, Plug, CSRF, attribution, and OTP isolation tests | Future |
+| Phoenix-native integration | Phoenix Adapter | Phoenix installer, Plug, CSRF, attribution, and OTP isolation tests | Phoenix slice |
 | Compatibility matrix | Root tooling | Published matrix synchronized to clean generated application CI rows | Future |
 | Examples, artifacts, documentation, and release | Root tooling | Packaged example, artifact content, documentation, and release rehearsal gates | Future |
 | Out of Scope | Conformance Contract | Contract and architecture review rejects accidental unsupported interfaces | Foundation |

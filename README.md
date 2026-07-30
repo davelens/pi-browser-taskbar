@@ -12,9 +12,10 @@ package do not need Node or a JavaScript package manager.
 
 ## Repository foundation
 
-The first executable foundation contains versioned contract schemas and fixtures, native package
-skeletons, deterministic browser asset generation, and automated ownership checks. Runtime task
-handling will be added in subsequent vertical slices.
+The executable foundation contains versioned contract schemas and fixtures, native package
+artifacts, deterministic browser asset generation, and automated ownership checks. The Phoenix
+adapter now includes the first whole-page tracer bullet: installer, Browser Client, native HTTP
+security, one supervised Pi RPC session, and completed fake-Pi output.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
 [architecture guide](docs/architecture.md) explains package ownership and dependency direction.
@@ -29,7 +30,8 @@ bin/verify
 
 It validates contract fixtures (including an intentionally invalid fixture), rejects ownership or
 version drift, checks generated assets, runs native package tests, builds both package artifacts,
-and inspects their contents. Artifacts are written to `build/`.
+inspects their contents, and installs the built Phoenix artifact into a clean conventional host for
+development-flow and production-isolation conformance. Artifacts are written to `build/`.
 
 To regenerate committed package assets after changing Browser Client or provider source, run:
 

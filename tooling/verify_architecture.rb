@@ -151,7 +151,9 @@ class ArchitectureVerifier
     error("Rails adapter declares a runtime package dependency") if rails_gemspec.match?(/add_(runtime_)?dependency/)
 
     phoenix_mix = @root.join("packages/phoenix/mix.exs").read
-    error("Phoenix adapter must begin with no runtime dependencies") unless phoenix_mix.match?(/deps:\s*\[\]/)
+    if phoenix_mix.match?(/pi-browser-taskbar-rails|pi_browser_taskbar_rails|packages\/rails/i)
+      error("Phoenix adapter declares an adapter-to-adapter dependency")
+    end
   end
 
   def verify_traceability
@@ -167,7 +169,9 @@ class ArchitectureVerifier
     sections.each do |section|
       error("traceability owner unknown for #{section["heading"]}") unless REQUIRED_MODULES.include?(section.fetch("owner"))
       error("traceability seam empty for #{section["heading"]}") if section.fetch("acceptance_seam").strip.empty?
-      error("traceability status invalid for #{section["heading"]}") unless %w[foundation future].include?(section.fetch("status"))
+      unless %w[foundation future phoenix-slice].include?(section.fetch("status"))
+        error("traceability status invalid for #{section["heading"]}")
+      end
     end
 
     markdown = @root.join("contract/traceability.md").read

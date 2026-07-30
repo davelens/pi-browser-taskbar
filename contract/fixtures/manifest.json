@@ -27,6 +27,12 @@
       "expected_valid": true
     },
     {
+      "id": "phoenix-whole-page-http",
+      "schema": "https://pi-browser-taskbar.dev/contract/schemas/http-scenario.v1.schema.json",
+      "path": "fixtures/scenarios/phoenix-whole-page.json",
+      "expected_valid": true
+    },
+    {
       "id": "startup-rpc-success",
       "schema": "https://pi-browser-taskbar.dev/contract/schemas/rpc-transcript.v1.schema.json",
       "path": "fixtures/rpc/startup-success.json",
