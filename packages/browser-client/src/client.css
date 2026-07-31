@@ -588,7 +588,6 @@ button:disabled {
 
 [data-toggle]:hover {
   background: var(--pi-toggle-hover);
-  transform: translateY(-1px);
 }
 
 [data-toggle]:focus-visible {
@@ -651,7 +650,7 @@ button:disabled {
 
 @media (prefers-reduced-motion: no-preference) {
   [data-toggle] {
-    transition: background-color 120ms ease, transform 120ms ease;
+    transition: background-color 120ms ease;
   }
 
   [data-status][data-state="running"]::before {

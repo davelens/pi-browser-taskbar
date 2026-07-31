@@ -140,6 +140,11 @@ async function runKeyboardFlow(page, framework) {
   const run = taskbar.locator("[data-run]");
   const reset = taskbar.locator("[data-reset]");
 
+  const toggleBeforeHover = await toggle.boundingBox();
+  await toggle.hover();
+  const toggleWhileHovered = await toggle.boundingBox();
+  assert.equal(toggleWhileHovered.y, toggleBeforeHover.y, "launcher stays still on hover");
+
   await toggle.focus();
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-prompt]", "keyboard open moves focus to instruction");
