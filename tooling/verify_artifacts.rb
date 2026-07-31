@@ -15,7 +15,8 @@ class ArtifactVerifier
   def run
     verify_gem
     verify_hex
-    puts "package artifacts are self-contained and version-aligned"
+    verify_hex_docs
+    puts "package and documentation artifacts are self-contained and version-aligned"
   end
 
   private
@@ -90,6 +91,15 @@ class ArtifactVerifier
     mix = files.fetch("mix.exs")
     raise "Phoenix artifact version drift" unless mix.include?(%(version: "#{@version}"))
     raise "Phoenix artifact unexpectedly requires Node" if files.key?("package.json")
+  end
+
+  def verify_hex_docs
+    path = File.join(@root, "build/pi_browser_taskbar_phoenix-docs-#{@version}.tar.gz")
+    raise "missing preserved Phoenix documentation artifact #{path}" unless File.file?(path)
+
+    files = Zlib::GzipReader.open(path) { |gzip| tar_entries(gzip) }
+    raise "Phoenix documentation artifact omits index.html" unless files.key?("index.html")
+    raise "Phoenix documentation artifact unexpectedly contains credentials" if files.keys.any? { |name| name.match?(/credentials|\.env|\.key\z/i) }
   end
 
   def tar_entries(io)

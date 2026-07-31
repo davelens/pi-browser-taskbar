@@ -6,6 +6,7 @@ require "json"
 require "rubygems/package"
 require "stringio"
 require "tmpdir"
+require "time"
 require "zlib"
 
 class ReleaseGate
@@ -35,6 +36,7 @@ class ReleaseGate
     require_value(workflow_attempt, "workflow attempt")
 
     artifacts = [rails_artifact, phoenix_artifact]
+    hex_docs = hex_docs_artifact
     directory = File.expand_path(output)
     FileUtils.rm_rf(directory)
     FileUtils.mkdir_p(directory)
@@ -48,12 +50,24 @@ class ReleaseGate
       "build_environment" => build_environment,
       "generated_assets" => generated_assets,
       "acceptance_inputs" => acceptance_inputs(require_acceptance),
-      "artifacts" => artifacts
+      "artifacts" => artifacts,
+      "hex_docs" => hex_docs
     }
-    File.write(File.join(directory, "release-manifest.json"), JSON.pretty_generate(manifest) + "\n")
-    File.write(File.join(directory, "SHA256SUMS"), artifacts.map { |item| "#{item.fetch("sha256")}  #{item.fetch("filename")}" }.join("\n") + "\n")
+    manifest_path = File.join(directory, "release-manifest.json")
+    File.write(manifest_path, JSON.pretty_generate(manifest) + "\n")
+    release_files = artifacts + [hex_docs]
+    File.write(File.join(directory, "SHA256SUMS"), release_files.map { |item| "#{item.fetch("sha256")}  #{item.fetch("filename")}" }.join("\n") + "\n")
     File.write(File.join(directory, "RELEASE_NOTES.md"), release_notes)
-    artifacts.each { |item| FileUtils.cp(File.join(@root, "build", item.fetch("filename")), directory) }
+    release_files.each { |item| FileUtils.cp(File.join(@root, "build", item.fetch("filename")), directory) }
+    state = {
+      "state_version" => 1,
+      "manifest_sha256" => Digest::SHA256.file(manifest_path).hexdigest,
+      "product_version" => @version,
+      "source_commit" => source_commit,
+      "stage" => "prepared",
+      "checkpoints" => [{"stage" => "prepared", "at" => Time.now.utc.iso8601}]
+    }
+    File.write(File.join(directory, "release-state.json"), JSON.pretty_generate(state) + "\n")
     puts "prepared immutable release inputs for #{@version} from #{source_commit}"
   end
 
@@ -164,6 +178,19 @@ class ReleaseGate
     }
   end
 
+  def hex_docs_artifact
+    filename = "pi_browser_taskbar_phoenix-docs-#{@version}.tar.gz"
+    path = build_path(filename)
+    {
+      "distribution" => "phoenix_docs",
+      "name" => "pi_browser_taskbar_phoenix",
+      "version" => @version,
+      "filename" => filename,
+      "bytes" => File.size(path),
+      "sha256" => Digest::SHA256.file(path).hexdigest
+    }
+  end
+
   def artifact_asset_digests(path, distribution)
     entries = {}
     Dir.mktmpdir("release-gem") do |directory|
@@ -249,6 +276,14 @@ class ReleaseGate
       ## Phoenix adapter
 
       #{phoenix}
+
+      ## Distribution and release evidence
+
+      - [Hex package](https://hex.pm/packages/pi_browser_taskbar_phoenix/#{@version}) and [Hex documentation](https://hexdocs.pm/pi_browser_taskbar_phoenix/#{@version})
+      - [RubyGems package](https://rubygems.org/gems/pi-browser-taskbar-rails/versions/#{@version})
+      - [Compatibility](https://github.com/davelens/pi-browser-taskbar/blob/v#{@version}/docs/compatibility.md), [security](https://github.com/davelens/pi-browser-taskbar/blob/v#{@version}/docs/security.md), and [migration](https://github.com/davelens/pi-browser-taskbar/blob/v#{@version}/docs/recollect-migration.md)
+
+      The attached manifest, checksums, preserved artifacts, and acceptance-input digests are the release provenance.
     MARKDOWN
   end
 

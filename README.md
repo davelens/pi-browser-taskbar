@@ -22,8 +22,8 @@ submitted visible page text and URL paths to the developer's configured Pi/model
 - [Contributing](docs/contributing.md) defines source ownership, generated outputs, and verification.
 - [Browser and accessibility acceptance](docs/accessibility-acceptance.md) separates deterministic
   packaged-browser evidence from the required human assistive-technology smoke pass.
-- [Coordinated release preparation](docs/releasing.md) defines the protected-main, reproducibility,
-  evidence, manifest, checksum, and unpublished-draft gates.
+- [Coordinated releases](docs/releasing.md) define protected preparation, preserved artifacts,
+  resumable registry reconciliation, durable checkpoints, and announcement gates.
 - [Recollect migration](docs/recollect-migration.md) records the one-time install, proof, removal, and
   rollback order.
 - [Conformance Contract v1](contract/docs/index.md) is the single normative source for shared API,
@@ -60,7 +60,7 @@ Browser Client assets, native suites, package contents, clean artifact-installed
 packaged Chromium/Firefox/WebKit accessibility matrix, fail-closed non-development boot, and
 cross-adapter semantics. Built artifacts are written to
 `build/` and examples are deliberately excluded from them. Release candidates additionally use the
-[protected preparation workflow](docs/releasing.md), which makes no registry write.
+[protected coordinated workflow](docs/releasing.md); preparation makes no registry write.
 
 To regenerate committed Browser Client assets and staged offline package documents, run:
 

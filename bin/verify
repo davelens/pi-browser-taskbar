@@ -8,6 +8,9 @@ printf '%s\n' '==> Validate shell entry points'
 bash -n bin/build bin/verify tooling/build_packages.sh tooling/verify_reproducible_artifacts.sh tooling/test/phoenix_clean_app_conformance.sh tooling/test/rails_clean_app_conformance.sh
 ruby -c tooling/prepare_release.rb
 ruby -c tooling/release_gate.rb
+ruby -c tooling/release_workflow.rb
+ruby -c tooling/release_services.rb
+ruby -c tooling/coordinated_release.rb
 ruby -c tooling/rails_compatibility_matrix.rb
 ruby -c tooling/phoenix_compatibility_matrix.rb
 ruby -c tooling/verify_rails_evidence.rb
@@ -45,6 +48,7 @@ ruby packages/rails/test/package_test.rb
 (
   cd packages/phoenix
   mix format --check-formatted
+  mix format --check-formatted ../../tooling/build_hex_docs.exs
   mix test --warnings-as-errors
 )
 
@@ -52,6 +56,7 @@ printf '%s\n' '==> Build and inspect ecosystem artifacts'
 tooling/build_packages.sh
 ruby tooling/verify_artifacts.rb
 ruby tooling/test/release_gate_test.rb
+ruby tooling/test/release_workflow_test.rb
 tooling/verify_reproducible_artifacts.sh
 
 printf '%s\n' '==> Run packaged Chromium, Firefox, WebKit, and accessibility acceptance'

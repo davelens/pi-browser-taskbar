@@ -31,17 +31,21 @@ class ReleaseGateTest < Minitest::Test
       assert_equal 1, manifest.fetch("contract_version")
       assert_equal commit, manifest.dig("source", "commit")
       assert_equal %w[phoenix rails], manifest.fetch("artifacts").map { |entry| entry.fetch("distribution") }.sort
+      assert_equal "phoenix_docs", manifest.fetch("hex_docs").fetch("distribution")
 
-      manifest.fetch("artifacts").each do |entry|
+      (manifest.fetch("artifacts") + [manifest.fetch("hex_docs")]).each do |entry|
         path = File.join(ROOT, "build", entry.fetch("filename"))
         assert_equal File.size(path), entry.fetch("bytes")
         assert_equal Digest::SHA256.file(path).hexdigest, entry.fetch("sha256")
       end
 
       checksums = File.read(File.join(directory, "SHA256SUMS"))
-      manifest.fetch("artifacts").each do |entry|
+      (manifest.fetch("artifacts") + [manifest.fetch("hex_docs")]).each do |entry|
         assert_includes checksums, "#{entry.fetch("sha256")}  #{entry.fetch("filename")}"
       end
+      state = JSON.parse(File.read(File.join(directory, "release-state.json")))
+      assert_equal "prepared", state.fetch("stage")
+      assert_equal Digest::SHA256.file(File.join(directory, "release-manifest.json")).hexdigest, state.fetch("manifest_sha256")
       assert_includes File.read(File.join(directory, "RELEASE_NOTES.md")), "Pi Browser Taskbar #{version}"
     end
   end

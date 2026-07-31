@@ -1,0 +1,80 @@
+name: Publish, resume, or verify coordinated release
+
+"on":
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Protected release operation
+        required: true
+        type: choice
+        options:
+          - publish-resume
+          - verify
+          - break-glass-resume
+      source_commit:
+        description: Exact protected-main commit recorded by preparation
+        required: true
+        type: string
+      manifest_sha256:
+        description: Exact manifest SHA-256 (required only for break-glass resume)
+        required: false
+        type: string
+      break_glass_reason:
+        description: Incident/change reference (required only for break-glass resume)
+        required: false
+        type: string
+
+concurrency:
+  group: coordinated-release
+  cancel-in-progress: false
+
+jobs:
+  coordinated-release:
+    runs-on: ubuntu-latest
+    environment: coordinated-release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+      - name: Require the exact protected-main preparation source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo 'source_commit must be a full lowercase Git SHA' >&2; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]] || { echo 'checkout does not match source_commit' >&2; exit 1; }
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$SOURCE_COMMIT" origin/main || { echo 'source_commit is not retained on protected main' >&2; exit 1; }
+          [[ "$(gh api "repos/$REPOSITORY/branches/main" --jq .protected)" == true ]] || { echo 'main is not protected; coordinated release is blocked' >&2; exit 1; }
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.3"
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.17"
+      - name: Install public-fetch tooling
+        run: mix local.hex --force
+      - name: Download the preserved draft candidate without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(<VERSION)
+          mkdir -p "$RUNNER_TEMP/release-candidate"
+          gh release download "v$version" --dir "$RUNNER_TEMP/release-candidate"
+          test -f "$RUNNER_TEMP/release-candidate/release-manifest.json" || { echo 'draft release manifest is missing' >&2; exit 1; }
+      - name: Configure RubyGems OIDC trusted publishing
+        if: inputs.operation != 'verify'
+        uses: rubygems/configure-rubygems-credentials@dc5a8d8553e6ee01fc26761a49e99e733d17954a # v2.1.0
+      - name: Publish, resume, or verify preserved bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEX_API_KEY: ${{ inputs.operation != 'verify' && secrets.HEX_API_KEY || '' }}
+          RELEASE_MANIFEST_SHA256: ${{ inputs.manifest_sha256 }}
+          RELEASE_BREAK_GLASS_REASON: ${{ inputs.break_glass_reason }}
+        run: ruby tooling/coordinated_release.rb "${{ inputs.operation }}" "$RUNNER_TEMP/release-candidate"

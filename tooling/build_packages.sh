@@ -21,6 +21,8 @@ mkdir -p "$build"
 (
   cd "$root/packages/phoenix"
   mix hex.build --output "$build/pi_browser_taskbar_phoenix-$version.tar"
+  MIX_ENV=docs mix deps.get >/dev/null
+  MIX_ENV=docs mix run "$root/tooling/build_hex_docs.exs" "$build/pi_browser_taskbar_phoenix-docs-$version.tar.gz"
 )
 
 mkdir "$build/pi_browser_taskbar_phoenix"

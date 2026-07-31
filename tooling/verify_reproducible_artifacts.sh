@@ -7,7 +7,7 @@ epoch=946684800
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pi-browser-taskbar-repro.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
-for distribution in pi-browser-taskbar-rails-$version.gem pi_browser_taskbar_phoenix-$version.tar; do
+for distribution in pi-browser-taskbar-rails-$version.gem pi_browser_taskbar_phoenix-$version.tar pi_browser_taskbar_phoenix-docs-$version.tar.gz; do
   [[ -f "$root/build/$distribution" ]] || { echo "missing candidate build/$distribution; build artifacts once before checking reproducibility" >&2; exit 1; }
 done
 
@@ -23,7 +23,7 @@ for run in first second; do
 
 done
 
-for distribution in pi-browser-taskbar-rails-$version.gem pi_browser_taskbar_phoenix-$version.tar; do
+for distribution in pi-browser-taskbar-rails-$version.gem pi_browser_taskbar_phoenix-$version.tar pi_browser_taskbar_phoenix-docs-$version.tar.gz; do
   first="$tmp/first/build/$distribution"
   second="$tmp/second/build/$distribution"
   candidate="$root/build/$distribution"

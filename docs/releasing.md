@@ -46,6 +46,45 @@ SHA-256 values for automated, clean-example, commit-check, and human acceptance 
 
 `actions/upload-artifact` preserves that run-specific directory as an immutable workflow artifact for
 the repository's configured retention period. The same files are attached to an unpublished draft
-GitHub Release for durable preparation handoff. A pre-existing release name stops the workflow rather
-than mixing runs or commits. No tag is created or release announced by preparation; later publication
-must reuse these bytes and this manifest.
+GitHub Release for durable preparation handoff, including the preserved Hex documentation archive and
+an initial `prepared` state checkpoint. A pre-existing release name stops the workflow rather than
+mixing runs or commits. No tag is created or release announced by preparation; publication reuses
+these bytes and this manifest.
+
+## Publish, resume, and verify
+
+Configure a protected `coordinated-release` GitHub environment with required reviewers. Store one
+Hex API key limited to package and documentation publication as its `HEX_API_KEY` secret, and register
+the **Publish, resume, or verify coordinated release** workflow as the RubyGems Trusted Publisher for
+`pi-browser-taskbar-rails`. Permit that workflow to create protected annotated `v*` tags while keeping
+other tag creation blocked. The workflow receives its RubyGems credential through GitHub OIDC; do not
+store a RubyGems API key.
+
+Dispatch the workflow with the prepared source commit and `publish-resume`. It validates the draft and
+manifest, then handles Hex package, Hex documentation, and RubyGems in that order. Every step queries
+first, writes only an absent preserved artifact, polls with bounded retries, compares public bytes and
+metadata, and performs a clean public fetch or install. It uploads `release-state.json` after
+`hex_package_verified`, `hex_docs_verified`, `rubygems_verified`, `tagged`, and `announced`.
+
+A timeout stops without repeating a write. Dispatch `publish-resume` again: it downloads the same
+draft, accepts only an identical public artifact, and continues with the missing step. A checksum or
+metadata mismatch stops for incident handling. If publication is already partial and a permanent
+failure is recorded, do not yank, replace, rebuild, or bypass the state; document the incomplete
+version and prepare the next coordinated patch. `verify` is read-only and rechecks the public package,
+documentation, gem, tag, and announcement implied by the durable state.
+
+The annotated `vVERSION` tag and draft-to-public GitHub Release transition occur only after a fresh
+verification of all three public registry surfaces. Both operations reconcile exact existing state,
+so an ambiguous tag or announcement result is safe to resume.
+
+## Constrained break-glass resume
+
+Use `break-glass-resume` only when `release-state.json` is missing from an otherwise intact prepared
+draft. Supply the exact SHA-256 of `release-manifest.json` and a non-empty incident or change reference.
+The operation reconstructs only `prepared`, records the reason, and runs the same protected
+reconciliation and announcement gates. It cannot replace artifacts, rebuild bytes, skip a registry
+check, clear an incomplete record, or operate on a different source commit.
+
+Release output intentionally omits credentials, registry response bodies, command output, and absolute
+paths. Errors identify the failed public surface and whether an operator should resume or begin
+incident handling.

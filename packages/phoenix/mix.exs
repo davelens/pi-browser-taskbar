@@ -9,7 +9,18 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description: "Development-only Pi browser taskbar adapter for Phoenix",
-      package: package()
+      package: package(),
+      docs: [
+        main: "readme",
+        extras: [
+          "README.md",
+          "CHANGELOG.md",
+          "contract/docs/index.md",
+          "contract/traceability.md",
+          "docs/security.md",
+          "docs/troubleshooting.md"
+        ]
+      ]
     ]
   end
 
@@ -20,7 +31,8 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
   defp deps do
     [
       {:jason, ">= 1.4.0 and < 2.0.0"},
-      {:phoenix, ">= 1.7.0 and < 2.0.0"}
+      {:phoenix, ">= 1.7.0 and < 2.0.0"},
+      {:ex_doc, "~> 0.38", only: :docs, runtime: false}
     ]
   end
 
