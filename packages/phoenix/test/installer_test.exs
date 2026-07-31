@@ -29,7 +29,7 @@ defmodule PiBrowserTaskbarPhoenix.InstallerTest do
     assert first.router =~ "# pi-browser-taskbar:start routes"
     assert first.router =~ "DemoWeb.PiBrowserTaskbar.routes()"
     assert first.layout =~ "<%!-- pi-browser-taskbar:start layout --%>"
-    assert first.layout =~ "<%= DemoWeb.PiBrowserTaskbar.layout_bootstrap() %>"
+    assert first.layout =~ "{DemoWeb.PiBrowserTaskbar.layout_bootstrap()}"
     assert first.config =~ "config :phoenix_live_view, debug_heex_annotations: true"
   end
 
