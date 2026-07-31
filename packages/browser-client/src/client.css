@@ -195,8 +195,8 @@ header {
   width: 1.45rem;
   height: 1.45rem;
   flex: 0 0 auto;
-  place-items: center;
   border-radius: 50%;
+  text-align: center;
   background: var(--pi-signal);
   color: var(--pi-on-signal);
   font-size: 1rem;
