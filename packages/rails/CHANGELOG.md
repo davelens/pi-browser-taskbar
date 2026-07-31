@@ -12,3 +12,4 @@
 - Report Pi progress, bounded UTF-8 output, cancelled extension dialogs, and safe recoverable protocol failures.
 - Recover from task and abort deadlines, startup failures, and process exits with bounded process-tree replacement.
 - Preserve one verified checkout-scoped broker across Rails reload, forked/clustered/phased Puma processes, and concurrent servers, with idle-only grace and graceful process-tree cleanup.
+- Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across full and Turbo navigation without stale marks.

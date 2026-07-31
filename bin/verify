@@ -17,6 +17,7 @@ ruby tooling/verify_architecture.rb
 printf '%s\n' '==> Check generated Browser Client assets'
 node tooling/build_browser_assets.mjs --check
 node --test tooling/test/browser_assets_test.mjs
+node tooling/test/current_browser_test.mjs
 
 printf '%s\n' '==> Install native adapter test dependencies'
 rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3}

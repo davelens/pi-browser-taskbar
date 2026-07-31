@@ -13,3 +13,4 @@
 - Add confirmed in-process session reset with retained-state rejection and process-recovery fallback.
 - Report Pi progress, bounded UTF-8 output, cancelled extension dialogs, and safe recoverable protocol failures.
 - Recover from task and abort deadlines, startup failures, and process exits with bounded process-tree replacement.
+- Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across controller and LiveView navigation/patches without stale marks.

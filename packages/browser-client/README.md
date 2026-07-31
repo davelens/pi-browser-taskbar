@@ -20,6 +20,12 @@ hint, outer-to-inner ancestor summaries, and a bounded subtree. Confident provid
 appear on captured snapshot nodes. Focus detail is shared
 fairly before the page receives the remaining context allocation.
 
+Each tab reconciles through canonical state polling: 500 ms while connecting or active, 30 seconds
+while stable, and bounded one-to-30-second backoff without clearing rendered state after failed reads.
+Mutations are sent once and any failed or ambiguous result is reconciled only through a state read.
+The single Shadow DOM host survives partial host navigation, remounts after full navigation, and
+removes marks whose elements or unique selectors no longer belong to the current DOM.
+
 Capture retains only the contract allowlist, sanitizes URL references, truncates on Unicode
 code-point boundaries, and reports every applied bound. A programmatic mount may supply confident
 normalized route metadata as `route`; absent or incomplete metadata becomes `null`.

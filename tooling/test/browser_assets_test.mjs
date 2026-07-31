@@ -193,6 +193,7 @@ for (const framework of Object.keys(assets)) {
   assert.match(fs.readFileSync(path.join(root, assets[framework]), "utf8"), /older output was removed/u);
   assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Finished");
   await assert.rejects(mounted.submit("🧪".repeat(1001)), /at most 4000 bytes/);
+  assert.match(mounted.element.shadowRoot.querySelector("[data-error]").textContent, /at most 4000 bytes/u);
   assert.equal(requests.length, 2);
   });
 }
@@ -920,6 +921,267 @@ test("Browser Client discards an older state read after task submission", async 
   assert.equal(mounted.element.shadowRoot.querySelector("[data-prompt]").disabled, true);
 });
 
+test("Browser Client uses rapid/stable polling and bounded recovery backoff without clearing state", async () => {
+  const document = fakeDocument();
+  const delays = [];
+  const responses = [
+    { contract_version: 1, session: { id: "session", status: "ready" }, task: null },
+    { contract_version: 1, session: { id: "session", status: "starting" }, task: null },
+  ];
+  let malformedSnapshot = true;
+  const sandbox = {
+    TextEncoder,
+    URL,
+    clearTimeout() {},
+    setTimeout(_callback, delay) { delays.push(delay); return delays.length; },
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async () => {
+      if (responses.length > 0) return { ok: true, status: 200, json: async () => responses.shift() };
+      if (malformedSnapshot) {
+        malformedSnapshot = false;
+        return { ok: true, status: 200, json: async () => { throw new SyntaxError("malformed snapshot"); } };
+      }
+      throw new TypeError("offline");
+    },
+  });
+
+  await mounted.refresh();
+  await mounted.refresh();
+  await assert.rejects(mounted.refresh(), /malformed snapshot/u);
+  for (let attempt = 0; attempt < 7; attempt += 1) await assert.rejects(mounted.refresh(), /offline/u);
+
+  assert.deepEqual(delays, [30000, 500, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+  assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Connecting");
+  assert.match(mounted.element.shadowRoot.querySelector("[data-error]").textContent, /Connection lost.*last known state/u);
+});
+
+test("Browser Client reconciles an ambiguous mutation through one state read without retrying it", async () => {
+  const document = fakeDocument();
+  const requests = [];
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const running = {
+    contract_version: 1,
+    session: { id: "session", status: "busy" },
+    task: { id: "accepted-task", status: "running", output: "", activity: "Pi is working" },
+  };
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async (_url, options) => {
+      requests.push(options.method);
+      if (options.method === "POST") throw new TypeError("connection closed");
+      return { ok: true, status: 200, json: async () => running };
+    },
+  });
+
+  await assert.rejects(mounted.submit("Run once."), /connection closed/u);
+
+  assert.deepEqual(requests, ["POST", "GET"]);
+  assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Working");
+  assert.match(mounted.element.shadowRoot.querySelector("[data-error]").textContent, /result was uncertain.*reconciled/u);
+});
+
+test("Browser Client keeps a successful mutation newer than a concurrent stale read", async () => {
+  const document = fakeDocument();
+  let resolveSubmission;
+  let resolveRefresh;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async (_url, options) => new Promise((resolve) => {
+      if (options.method === "POST") resolveSubmission = resolve;
+      else resolveRefresh = resolve;
+    }),
+  });
+
+  const submission = mounted.submit("Run once.");
+  const refresh = mounted.refresh();
+  resolveSubmission({
+    ok: true,
+    status: 202,
+    json: async () => ({
+      contract_version: 1,
+      session: { id: "session", status: "busy" },
+      task: { id: "task", status: "running", output: "", activity: "Pi is working" },
+    }),
+  });
+  await submission;
+  resolveRefresh({
+    ok: true,
+    status: 200,
+    json: async () => ({ contract_version: 1, session: { id: "session", status: "ready" }, task: null }),
+  });
+  await refresh;
+
+  assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Working");
+});
+
+test("Browser Client reconciles an ambiguous mutation after a newer read", async () => {
+  const document = fakeDocument();
+  const requests = [];
+  let canonical = { contract_version: 1, session: { id: "session", status: "ready" }, task: null };
+  let rejectSubmission;
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async (_url, options) => {
+      requests.push(options.method);
+      if (options.method === "POST") return new Promise((_resolve, reject) => { rejectSubmission = reject; });
+      return { ok: true, status: 200, json: async () => canonical };
+    },
+  });
+
+  const submission = mounted.submit("Run once.");
+  await new Promise((resolve) => setImmediate(resolve));
+  await mounted.refresh();
+  canonical = {
+    contract_version: 1,
+    session: { id: "session", status: "busy" },
+    task: { id: "accepted-task", status: "running", output: "", activity: "Pi is working" },
+  };
+  rejectSubmission(new TypeError("connection closed"));
+  await assert.rejects(submission, /connection closed/u);
+
+  assert.deepEqual(requests, ["POST", "GET", "GET"]);
+  assert.equal(mounted.element.shadowRoot.querySelector("[data-status]").textContent, "Working");
+});
+
+test("two Browser Client tabs reconcile admission, progress, cancellation, terminal output, and reset", async () => {
+  const documents = [fakeDocument(), fakeDocument()];
+  const requests = [];
+  let canonical = { contract_version: 1, session: { id: "session", status: "ready" }, task: null };
+  const fetch = async (_url, options) => {
+    requests.push(options.method);
+    if (options.method === "POST" && _url.endsWith("/tasks")) {
+      canonical = {
+        contract_version: 1,
+        session: { id: "session", status: "busy" },
+        task: { id: "task", status: "running", output: "", activity: "Starting work" },
+      };
+    } else if (options.method === "DELETE") {
+      canonical = { ...canonical, task: { ...canonical.task, status: "cancelling", activity: "Stopping Pi" } };
+    } else if (options.method === "POST") {
+      canonical = { contract_version: 1, session: { id: "fresh-session", status: "ready" }, task: null };
+    }
+    return { ok: true, status: 200, json: async () => canonical };
+  };
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const tabs = documents.map((document) => sandbox.PiBrowserTaskbar.mount({ autoRefresh: false, document, fetch }));
+
+  await Promise.all(tabs.map((tab) => tab.refresh()));
+  await tabs[0].submit("Coordinate both tabs.");
+  await tabs[1].refresh();
+  assert.equal(tabs[1].element.shadowRoot.querySelector("[data-prompt]").disabled, true);
+
+  canonical = { ...canonical, task: { ...canonical.task, output: "Halfway", activity: "Editing files" } };
+  await Promise.all(tabs.map((tab) => tab.refresh()));
+  assert.equal(tabs[0].element.shadowRoot.querySelector("[data-output]").textContent, "Halfway");
+  assert.equal(tabs[1].element.shadowRoot.querySelector("[data-activity]").textContent, "Editing files");
+
+  tabs[1].element.shadowRoot.querySelector("[data-run]").dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await tabs[0].refresh();
+  assert.equal(tabs[0].element.shadowRoot.querySelector("[data-run]").textContent, "Stopping…");
+
+  canonical = {
+    ...canonical,
+    session: { id: "session", status: "ready" },
+    task: { ...canonical.task, status: "cancelled", output: "Stopped output", activity: "Task stopped" },
+  };
+  await Promise.all(tabs.map((tab) => tab.refresh()));
+  assert.equal(tabs[0].element.shadowRoot.querySelector("[data-status]").textContent, "Stopped");
+  assert.equal(tabs[1].element.shadowRoot.querySelector("[data-output]").textContent, "Stopped output");
+
+  const reset = tabs[0].element.shadowRoot.querySelector("[data-reset]");
+  reset.dispatchEvent({ type: "click" });
+  reset.dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+  await tabs[1].refresh();
+  assert.equal(tabs[0].element.shadowRoot.querySelector("[data-status]").textContent, "Ready");
+  assert.equal(tabs[1].element.shadowRoot.querySelector("[data-output]").hidden, true);
+  assert.ok(requests.includes("DELETE"));
+});
+
+for (const [framework, navigationEvent] of [["rails", "turbo:load"], ["phoenix", "phx:page-loading-stop"]]) {
+  test(`${framework} Browser Client mounts once and reconciles idle and active navigation`, async () => {
+    const document = fakeDocument();
+    const target = document.createElement("button");
+    target.setAttribute("data-testid", "stale-target");
+    document.body.appendChild(target);
+    let snapshot = { contract_version: 1, session: { id: "session", status: "ready" }, task: null };
+    let mutationCallback;
+    let mutationOptions;
+    const sandbox = {
+      TextEncoder,
+      URL,
+      clearTimeout() {},
+      setTimeout() { return 1; },
+      MutationObserver: class {
+        constructor(callback) { mutationCallback = callback; }
+        disconnect() {}
+        observe(_target, options) { mutationOptions = options; }
+      },
+    };
+    vm.runInNewContext(fs.readFileSync(path.join(root, assets[framework]), "utf8"), sandbox);
+    const bootstrap = {
+      autoRefresh: false,
+      document,
+      fetch: async () => ({ ok: true, status: 200, json: async () => snapshot }),
+    };
+    const mounted = sandbox.PiBrowserTaskbar.mount(bootstrap);
+    const shadow = mounted.element.shadowRoot;
+    await mounted.refresh();
+    select(shadow.querySelector("[data-mark]"), document, target);
+
+    assert.equal(sandbox.PiBrowserTaskbar.mount(bootstrap), mounted);
+    assert.equal(document.querySelectorAll("[data-pi-browser-taskbar-host]").length, 1);
+    assert.deepEqual(Array.from(mutationOptions.attributeFilter), ["id", "data-testid"]);
+
+    target.setAttribute("data-testid", "patched-target");
+    mutationCallback();
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
+    select(shadow.querySelector("[data-mark]"), document, target);
+
+    document.body.replaceChildren(mounted.element);
+    document.dispatch(navigationEvent, document.body);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(shadow.querySelector("[data-status]").textContent, "Ready");
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
+    assert.equal(shadow.querySelector("[data-overlays]").children.length, 0);
+
+    snapshot = {
+      contract_version: 1,
+      session: { id: "session", status: "busy" },
+      task: { id: "task", status: "running", output: "Still running", activity: "Editing files" },
+    };
+    document.dispatch(navigationEvent, document.body);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(shadow.querySelector("[data-status]").textContent, "Working");
+    assert.equal(shadow.querySelector("[data-output]").textContent, "Still running");
+
+    const nextDocument = fakeDocument();
+    const remounted = sandbox.PiBrowserTaskbar.mount({ ...bootstrap, document: nextDocument });
+    await remounted.refresh();
+    assert.notEqual(remounted, mounted);
+    assert.equal(remounted.element.shadowRoot.querySelector("[data-status]").textContent, "Working");
+
+    const nextBody = document.createElement("body");
+    document.dispatch("turbo:before-render", document.body, { detail: { newBody: nextBody } });
+    assert.equal(nextBody.contains(mounted.element), true);
+    assert.equal(mounted.element.getAttribute("data-turbo-permanent"), "");
+  });
+}
+
 function fakeDocument() {
   class FakeElement {
     constructor(localName = "div") {
@@ -939,6 +1201,10 @@ function fakeDocument() {
 
     addEventListener(name, listener) { (this.listeners[name] ||= []).push(listener); }
     appendChild(child) {
+      if (child.parentNode?.childNodes) {
+        child.parentNode.childNodes = child.parentNode.childNodes.filter((candidate) => candidate !== child);
+        child.parentNode.children = child.parentNode.children.filter((candidate) => candidate !== child);
+      }
       child.previousSibling = this.childNodes.at(-1) || null;
       child.parentNode = this;
       this.childNodes.push(child);
@@ -962,6 +1228,10 @@ function fakeDocument() {
     hasAttribute(name) { return this.attributes.has(name); }
     removeAttribute(name) { this.attributes.delete(name); }
     replaceChildren(...children) {
+      this.childNodes.forEach((child) => {
+        child.parentNode = null;
+        if (child.nodeType === 1) child.parentElement = null;
+      });
       this.childNodes = [];
       this.children = [];
       children.forEach((child) => this.appendChild(child));
@@ -1006,6 +1276,8 @@ function fakeDocument() {
     return result;
   };
   const matches = (element, segment) => {
+    const presence = segment.match(/^\[([a-z-]+)\]$/u);
+    if (presence) return element.hasAttribute(presence[1]);
     const attribute = segment.match(/^\[([a-z-]+)="(.*)"\]$/u);
     if (attribute) return element.getAttribute(attribute[1]) === attribute[2].replace(/\\"/gu, '"').replace(/\\\\/gu, "\\");
     const parsed = segment.match(/^([a-z][a-z0-9-]*)(?::nth-of-type\(([0-9]+)\))?$/u);
@@ -1036,7 +1308,7 @@ function fakeDocument() {
     },
     createElement(localName) { return new FakeElement(localName); },
     getElementById(id) { return allElements().find((element) => element.getAttribute?.("id") === id) || null; },
-    querySelector() { return null; },
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
     querySelectorAll(selector) {
       const segments = selector.split(" > ");
       return allElements().filter((element) => {

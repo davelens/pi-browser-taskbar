@@ -162,6 +162,31 @@ grace begins only after both conditions become false, so disconnected work settl
 starts. Graceful broker shutdown closes and reaps the Pi process group with bounded TERM-to-KILL
 cleanup; a broker or Pi replacement truthfully starts a new conversation.
 
+## Browser reconciliation and host navigation
+
+Each mounted Browser Client reads the complete canonical snapshot independently. It polls every 500
+milliseconds while the session is `starting`, `resetting`, or `busy`, or the task is `running` or
+`cancelling`, and every 30 seconds while stable. Failed reads preserve the last rendered snapshot,
+show a connection/retry indication, and retry with exponential delays bounded between one and 30
+seconds. Returning browser visibility triggers an immediate read.
+
+A task, cancellation, or reset mutation is sent exactly once. Any HTTP failure or ambiguous network
+result is reconciled with `GET /state`; the client never retries the mutation. This makes admission,
+progress, output, cancellation, reset, terminal feedback, and busy controls converge across tabs
+without browser-to-browser coordination.
+
+The client appends one Shadow DOM host as a direct body child, marks it permanent for partial
+navigation, and reuses an existing host if packaged scripts execute again. Before a body replacement
+it moves that host into the incoming body; navigation completion refreshes canonical state. Full
+controller/document navigation mounts one new host and reads state. Live page patches leave the host
+outside their owned roots. Removed or selector-displaced marked elements are discarded with their
+outlines; source hints are captured again from the current DOM at submission rather than retained
+across patches. Draft text remains browser-local while a surviving partial-navigation host is reused.
+
+Current-browser acceptance exercises two tabs, ambiguous submission, shared busy,
+progress, cancellation, reset and output, plus idle/active partial navigation, live patching, and full
+navigation remounts.
+
 ## Session reset
 
 `POST /session/reset` is accepted only while the session is `ready`; a running, cancelling, or

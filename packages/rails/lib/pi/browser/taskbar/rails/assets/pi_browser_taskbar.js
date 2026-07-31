@@ -15,10 +15,15 @@
       if (!document?.body) return Object.freeze(metadata);
 
       const existing = document.querySelector?.("[data-pi-browser-taskbar-host]");
-      if (existing?.piBrowserTaskbar) return existing.piBrowserTaskbar;
+      if (existing?.piBrowserTaskbar) {
+        existing.piBrowserTaskbar.reconcile(bootstrap);
+        return existing.piBrowserTaskbar;
+      }
 
       const host = document.createElement("div");
+      host.id = "pi-browser-taskbar-host";
       host.setAttribute("data-pi-browser-taskbar-host", "");
+      host.setAttribute("data-turbo-permanent", "");
       const shadow = host.attachShadow({ mode: "open" });
       shadow.innerHTML = markup();
       document.body.appendChild(host);
@@ -42,15 +47,18 @@
         status: shadow.querySelector("[data-status]"),
         toggle: shadow.querySelector("[data-toggle]"),
       };
-      const fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
-      const pageLocation = bootstrap.location || globalThis.location;
+      let currentBootstrap = bootstrap;
+      let fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
+      let pageLocation = bootstrap.location || globalThis.location;
       const marks = [];
       let selecting = false;
       let snapshot = null;
       let pollTimer = null;
       let snapshotGeneration = 0;
+      let pollFailures = 0;
       let confirmingReset = false;
       let resetPending = false;
+      let mutationObserver = null;
 
       controls.toggle.addEventListener("click", () => {
         controls.panel.hidden = !controls.panel.hidden;
@@ -59,8 +67,8 @@
       });
       controls.mark.addEventListener("click", () => setSelecting(!selecting));
       controls.clear.addEventListener("click", clearMarks);
-      controls.run.addEventListener("click", () => primaryAction().catch(showError));
-      controls.reset.addEventListener("click", () => resetAction().catch(showError));
+      controls.run.addEventListener("click", () => primaryAction().catch(() => {}));
+      controls.reset.addEventListener("click", () => resetAction().catch(() => {}));
       controls.prompt.addEventListener("input", renderControls);
       document.addEventListener?.("pointermove", hoverSelection, true);
       document.addEventListener?.("click", selectElement, true);
@@ -73,54 +81,66 @@
       }, true);
       document.defaultView?.addEventListener?.("resize", positionMarkOutlines);
       document.defaultView?.addEventListener?.("scroll", positionMarkOutlines, true);
+      document.addEventListener?.("turbo:before-render", preserveHost, true);
+      for (const eventName of ["turbo:load", "turbo:render", "phx:page-loading-stop"]) {
+        document.addEventListener?.(eventName, reconcileNavigation, true);
+      }
+      document.addEventListener?.("visibilitychange", () => {
+        if (document.visibilityState !== "hidden") refresh().catch(() => {});
+      });
+      observeHostPage();
 
       async function submit(prompt) {
         const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
-        if (!normalizedPrompt) throw new TypeError("A prompt is required");
-        if (utf8Size(normalizedPrompt) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
+        if (!normalizedPrompt) {
+          const error = new TypeError("A prompt is required");
+          showError(error);
+          throw error;
+        }
+        if (utf8Size(normalizedPrompt) > 4000) {
+          const error = new TypeError("The prompt must be at most 4000 bytes");
+          showError(error);
+          throw error;
+        }
 
         const context = browserContext(
           document,
           pageLocation,
           host,
-          bootstrap.route,
+          currentBootstrap.route,
           marks,
           contextProvider,
-          bootstrap.projectApp,
+          currentBootstrap.projectApp,
         );
-        const generation = ++snapshotGeneration;
+        ++snapshotGeneration;
 
         try {
           const nextSnapshot = await request("/tasks", {
             method: "POST",
             body: { prompt: normalizedPrompt, context },
           });
-          if (generation !== snapshotGeneration) return snapshot;
-          snapshot = nextSnapshot;
-          render();
-          schedulePoll(500);
+          ++snapshotGeneration;
+          acceptSnapshot(nextSnapshot);
           return snapshot;
         } catch (error) {
-          if (generation === snapshotGeneration) throw error;
-          return snapshot;
+          await reconcileMutationFailure(error);
+          throw error;
         }
       }
 
       async function cancel() {
         const taskId = snapshot?.task?.id;
         if (!taskId || snapshot.task.status !== "running") return snapshot;
-        const generation = ++snapshotGeneration;
+        ++snapshotGeneration;
 
         try {
           const nextSnapshot = await request(`/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
-          if (generation !== snapshotGeneration) return snapshot;
-          snapshot = nextSnapshot;
-          render();
-          schedulePoll(500);
+          ++snapshotGeneration;
+          acceptSnapshot(nextSnapshot);
           return snapshot;
         } catch (error) {
-          if (generation === snapshotGeneration) throw error;
-          return snapshot;
+          await reconcileMutationFailure(error);
+          throw error;
         }
       }
 
@@ -138,19 +158,24 @@
         confirmingReset = false;
         resetPending = true;
         render();
-        const generation = ++snapshotGeneration;
+        ++snapshotGeneration;
+        let resetError = null;
 
         try {
           const nextSnapshot = await request("/session/reset", { method: "POST" });
-          if (generation !== snapshotGeneration) return snapshot;
-          snapshot = nextSnapshot;
-          render();
-          schedulePoll(30000);
-          return snapshot;
+          ++snapshotGeneration;
+          acceptSnapshot(nextSnapshot);
+        } catch (error) {
+          resetError = error;
         } finally {
           resetPending = false;
-          if (generation === snapshotGeneration) render();
+          render();
         }
+        if (resetError) {
+          await reconcileMutationFailure(resetError);
+          throw resetError;
+        }
+        return snapshot;
       }
 
       async function refresh() {
@@ -159,13 +184,14 @@
         try {
           const nextSnapshot = await request("/state", { method: "GET" });
           if (generation !== snapshotGeneration) return snapshot;
-          snapshot = nextSnapshot;
-          render();
-          schedulePoll(active(snapshot) ? 500 : 30000);
+          acceptSnapshot(nextSnapshot);
           return snapshot;
         } catch (error) {
-          if (generation === snapshotGeneration) throw error;
-          return snapshot;
+          if (generation !== snapshotGeneration) return snapshot;
+          pollFailures += 1;
+          showRecovery(error);
+          schedulePoll(backoffDelay(pollFailures));
+          throw error;
         }
       }
 
@@ -179,11 +205,20 @@
           options.body = JSON.stringify(body);
         }
         if (options.method !== "GET") {
-          headers["x-csrf-token"] = bootstrap.csrfToken || "";
+          headers["x-csrf-token"] = currentBootstrap.csrfToken || "";
         }
 
-        const response = await fetchRequest(`${mountBase}${path}`, options);
-        const payload = await response.json().catch(() => ({}));
+        let response;
+        try {
+          response = await fetchRequest(`${mountBase}${path}`, options);
+        } catch (error) {
+          error.networkFailure = true;
+          throw error;
+        }
+        const payload = await response.json().catch((error) => {
+          if (response.ok) throw error;
+          return {};
+        });
         if (!response.ok) {
           const error = new Error(payload.error?.message || `Pi task request failed (${response.status})`);
           error.code = payload.error?.code;
@@ -193,20 +228,39 @@
         return payload;
       }
 
+      function acceptSnapshot(nextSnapshot) {
+        snapshot = nextSnapshot;
+        pollFailures = 0;
+        render();
+        schedulePoll(rapid(snapshot) ? 500 : 30000);
+      }
+
+      async function reconcileMutationFailure(error) {
+        showError(error);
+        try {
+          await refresh();
+          showError(new Error(error.networkFailure
+            ? "The request result was uncertain; current project state was reconciled."
+            : error.message));
+        } catch (_refreshError) {
+          // The read schedules bounded recovery polling and preserves the last rendered snapshot.
+        }
+      }
+
       function render() {
         const session = snapshot?.session || { status: "starting" };
         const task = snapshot?.task;
         const renderedSession = resetPending ? { ...session, status: "resetting" } : session;
-        controls.status.textContent = visibleStatus(renderedSession, task);
+        setControlText(controls.status, visibleStatus(renderedSession, task));
         controls.status.setAttribute("data-state", task?.status || renderedSession.status);
-        controls.activity.textContent = renderedSession.status === "resetting"
+        setControlText(controls.activity, renderedSession.status === "resetting"
           ? "Starting a fresh session"
-          : task?.activity || connectingActivity(renderedSession);
+          : task?.activity || connectingActivity(renderedSession));
         controls.activity.hidden = !controls.activity.textContent;
         controls.output.textContent = task?.output || "";
         controls.output.hidden = !controls.output.textContent;
         controls.outputTruncated.hidden = !task?.output_truncated;
-        controls.error.textContent = task?.error || session.error || "";
+        setControlText(controls.error, task?.error || session.error || "");
         controls.error.hidden = !controls.error.textContent;
         controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
         renderMarks();
@@ -307,6 +361,25 @@
         renderControls();
       }
 
+      function reconcileMarks() {
+        const retained = marks.filter((mark) => {
+          if (!elementConnected(mark.element, document)) return false;
+          try {
+            const matches = Array.from(document.querySelectorAll?.(mark.selector) || []);
+            return matches.length === 1 && matches[0] === mark.element;
+          } catch (_error) {
+            return false;
+          }
+        });
+        if (retained.length === marks.length) {
+          positionMarkOutlines();
+          return;
+        }
+        marks.splice(0, marks.length, ...retained);
+        setSelecting(false);
+        renderMarks();
+      }
+
       function positionMarkOutlines() {
         controls.overlays.replaceChildren?.();
         marks.forEach((mark, index) => {
@@ -319,20 +392,64 @@
         });
       }
 
-      function schedulePoll(delay) {
-        globalThis.clearTimeout?.(pollTimer);
-        pollTimer = globalThis.setTimeout?.(() => refresh().catch(showError), delay);
+      function preserveHost(event) {
+        const nextBody = event?.detail?.newBody;
+        if (nextBody?.appendChild && !nextBody.contains?.(host)) nextBody.appendChild(host);
       }
 
-      function showError(error) {
-        controls.error.textContent = error?.message || "Pi Browser Taskbar is unavailable";
+      function reconcileNavigation() {
+        currentBootstrap = { ...currentBootstrap, route: null };
+        observeHostPage();
+        reconcileMarks();
+        refresh().catch(() => {});
+      }
+
+      function observeHostPage() {
+        mutationObserver?.disconnect?.();
+        const Observer = document.defaultView?.MutationObserver || globalThis.MutationObserver;
+        if (!Observer || !document.body) return;
+        mutationObserver = new Observer(reconcileMarks);
+        mutationObserver.observe(document.body, {
+          attributeFilter: ["id", "data-testid"],
+          attributes: true,
+          childList: true,
+          subtree: true,
+        });
+      }
+
+      function schedulePoll(delay) {
+        globalThis.clearTimeout?.(pollTimer);
+        pollTimer = globalThis.setTimeout?.(() => refresh().catch(() => {}), delay);
+      }
+
+      function showRecovery(error) {
+        setControlText(controls.error, error?.networkFailure
+          ? "Connection lost. Retrying without clearing the last known state."
+          : `${error?.message || "Pi Browser Taskbar is unavailable"} Retrying…`);
         controls.error.hidden = false;
       }
 
-      const mounted = Object.freeze({ ...metadata, element: host, refresh, submit });
+      function showError(error) {
+        setControlText(controls.error, error?.message || "Pi Browser Taskbar is unavailable");
+        controls.error.hidden = false;
+      }
+
+      function setControlText(control, text) {
+        if (control.textContent !== text) control.textContent = text;
+      }
+
+      function reconcile(nextBootstrap = {}) {
+        currentBootstrap = { ...currentBootstrap, ...nextBootstrap };
+        fetchRequest = nextBootstrap.fetch || fetchRequest;
+        pageLocation = nextBootstrap.location || pageLocation;
+        reconcileMarks();
+        if (nextBootstrap.autoRefresh !== false) refresh().catch(() => {});
+      }
+
+      const mounted = Object.freeze({ ...metadata, element: host, reconcile, refresh, submit });
       host.piBrowserTaskbar = mounted;
       render();
-      if (bootstrap.autoRefresh !== false) refresh().catch(showError);
+      if (bootstrap.autoRefresh !== false) refresh().catch(() => {});
       return mounted;
     }
 
@@ -899,6 +1016,19 @@
 
   function active(snapshot) {
     return ["busy", "resetting"].includes(snapshot?.session?.status) || ["running", "cancelling"].includes(snapshot?.task?.status);
+  }
+
+  function rapid(snapshot) {
+    return snapshot?.session?.status === "starting" || active(snapshot);
+  }
+
+  function backoffDelay(failures) {
+    return Math.min(30000, 1000 * (2 ** Math.max(0, failures - 1)));
+  }
+
+  function elementConnected(element, document) {
+    if (typeof element?.isConnected === "boolean") return element.isConnected;
+    return Boolean(document?.body?.contains?.(element));
   }
 
   function visibleStatus(session, task) {
