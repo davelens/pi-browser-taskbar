@@ -85,7 +85,7 @@ class ArtifactVerifier
   def verify_contents(label, files, asset)
     required = [asset, asset.sub(/\.js\z/, ".css"), "README.md", "CHANGELOG.md", "LICENSE",
       "contract/docs/index.md", "contract/traceability.md", "contract/traceability.json",
-      "docs/security.md", "docs/troubleshooting.md"]
+      "docs/accessibility-acceptance.md", "docs/security.md", "docs/troubleshooting.md"]
     missing = required - files
     raise "#{label} artifact omits required content: #{missing.join(", ")}" unless missing.empty?
     raise "#{label} artifact unexpectedly requires Node" if files.any? { |file| File.basename(file) == "package.json" }
@@ -95,7 +95,7 @@ class ArtifactVerifier
   end
 
   def verify_shared_docs(label)
-    %w[contract/docs/index.md contract/traceability.md contract/traceability.json docs/security.md docs/troubleshooting.md].each do |path|
+    %w[contract/docs/index.md contract/traceability.md contract/traceability.json docs/accessibility-acceptance.md docs/security.md docs/troubleshooting.md].each do |path|
       raise "#{label} staged #{path} differs from canonical source" unless yield(path) == File.binread(File.join(@root, path))
     end
   end

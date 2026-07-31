@@ -20,6 +20,8 @@ submitted visible page text and URL paths to the developer's configured Pi/model
 - [Compatibility](docs/compatibility.md) records claims checked against package metadata and CI
   configuration.
 - [Contributing](docs/contributing.md) defines source ownership, generated outputs, and verification.
+- [Browser and accessibility acceptance](docs/accessibility-acceptance.md) separates deterministic
+  packaged-browser evidence from the required human assistive-technology smoke pass.
 - [Recollect migration](docs/recollect-migration.md) records the one-time install, proof, removal, and
   rollback order.
 - [Conformance Contract v1](contract/docs/index.md) is the single normative source for shared API,
@@ -46,12 +48,15 @@ checkout-scoped broker; Phoenix uses an OTP-supervised runtime. Exact behavior b
 Install Ruby, Node, Elixir/Mix, and Hex, then run:
 
 ```sh
+npm ci
+npx playwright install --with-deps chromium firefox webkit
 bin/verify
 ```
 
 The command checks contract artifacts, documentation and links, generated shared documents and
-Browser Client assets, native suites, package contents, clean artifact-installed host flows,
-fail-closed non-development boot, and cross-adapter semantics. Built artifacts are written to
+Browser Client assets, native suites, package contents, clean artifact-installed host flows, the
+packaged Chromium/Firefox/WebKit accessibility matrix, fail-closed non-development boot, and
+cross-adapter semantics. Built artifacts are written to
 `build/` and examples are deliberately excluded from them.
 
 To regenerate committed Browser Client assets and staged offline package documents, run:

@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "test:browser": "node tooling/test/current_browser_test.mjs"
+  },
+  "devDependencies": {
+    "axe-core": "4.12.1",
+    "playwright": "1.62.1"
+  }
+}

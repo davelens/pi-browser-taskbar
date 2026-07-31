@@ -25,6 +25,10 @@ jobs:
           node-version: "22"
       - name: Install Hex
         run: mix local.hex --force
+      - name: Install browser acceptance dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
       - name: Verify monorepo
         run: bin/verify
       - uses: actions/upload-artifact@v4

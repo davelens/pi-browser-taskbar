@@ -326,10 +326,19 @@ work disables editing, marking, clearing, and reset while leaving **Stop task** 
 
 The composer fits the available narrow viewport, caps its block size so content remains scrollable at
 200% zoom, and removes animation and transition effects under `prefers-reduced-motion: reduce`.
-Automated DOM and current-browser checks exercise every material lifecycle state in both generated
-bundles, taskbar-owned names/states/live regions, keyboard focus paths, Shadow DOM style isolation,
-narrow reflow, and reduced motion. The WCAG 2.2 AA target and these checks apply only to the
-Shadow-DOM taskbar interface; they neither test nor claim accessibility for the host application.
+Automated acceptance extracts each Browser Client from the built gem or Hex archive and runs both
+equivalent example surfaces in current Playwright Chromium, Firefox, and WebKit. It covers every
+material lifecycle state, whole-page and focused tasks, mark removal/clear, progress/output, stop,
+reset confirmation, unavailable/network recovery, cross-tab reconciliation, Turbo navigation,
+LiveView navigation/patching, taskbar-owned axe results, names/states/live regions, keyboard focus,
+Shadow DOM isolation, desktop/narrow reflow, 200% CSS-zoom reflow emulation, and reduced motion. Artifact hashes, exact engine
+versions, scope, and scenarios form deterministic build evidence.
+
+The WCAG 2.2 AA target and automated checks apply only to the Shadow-DOM taskbar interface; they
+neither test nor claim accessibility for the host application. Before first release and after a
+material interaction change, a person must complete and record the repeatable VoiceOver/Safari or
+NVDA/Firefox keyboard and screen-reader checklist. Automation never counts as that human pass, and a
+missing record remains explicitly pending.
 
 ## Session reset
 

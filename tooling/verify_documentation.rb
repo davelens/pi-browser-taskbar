@@ -88,7 +88,7 @@ end
   error.call("#{adapter} dependency or contract version drift") unless readme.scan(version).length >= 2
 end
 
-staged = %w[contract/docs/index.md contract/traceability.md contract/traceability.json docs/security.md docs/troubleshooting.md]
+staged = %w[contract/docs/index.md contract/traceability.md contract/traceability.json docs/accessibility-acceptance.md docs/security.md docs/troubleshooting.md]
 %w[rails phoenix].product(staged).each do |adapter, source|
   destination = root.join("packages", adapter, source)
   error.call("#{adapter} staged #{source} differs") unless destination.file? && destination.binread == root.join(source).binread

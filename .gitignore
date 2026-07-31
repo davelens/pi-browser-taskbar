@@ -1,4 +1,5 @@
 /build/
+/node_modules/
 /packages/phoenix/_build/
 /packages/phoenix/cover/
 /packages/phoenix/doc/

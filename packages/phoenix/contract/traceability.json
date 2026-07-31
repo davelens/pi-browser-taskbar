@@ -55,6 +55,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/36",
       "sections": ["phoenix-adapter", "phoenix-integration-tests", "documentation-examples", "sequence-change-control"],
       "acceptance_seam": "Built Phoenix artifact and public installer proven in Recollect before removal of application-local behavior, with development migration verification, non-development isolation, and ordered rollback documentation"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/40",
+      "sections": ["browser-interaction", "browser-client-tests", "accessibility", "documentation-examples", "release-acceptance"],
+      "acceptance_seam": "Artifact-isolated Chromium, Firefox, and WebKit equivalent-example flows, taskbar-owned axe and lifecycle checks, deterministic browser evidence, and a repeatable human assistive-technology release checklist"
     }
   ],
   "sections": [
@@ -77,8 +82,8 @@
     {"id": "sequence-change-control", "heading": "Implementation sequence and change control", "owner": "root-tooling", "acceptance_seam": "Traceability and clean vertical-slice gates before dependent work", "status": "foundation"},
     {"id": "test-philosophy", "heading": "Test philosophy and primary seam", "owner": "conformance-contract", "acceptance_seam": "Behavior exercised at packaged adapter interfaces", "status": "foundation"},
     {"id": "shared-conformance", "heading": "Shared Conformance Contract", "owner": "conformance-contract", "acceptance_seam": "Schema, fixture, scenario, transcript, and golden validation", "status": "foundation"},
-    {"id": "browser-client-tests", "heading": "Browser Client", "owner": "browser-client", "acceptance_seam": "Fast DOM and current-browser lifecycle, keyboard, focus, cross-tab, navigation, reflow, reduced-motion, and isolation tests plus future cross-browser packaged example flows", "status": "adapter-slices"},
-    {"id": "accessibility", "heading": "Accessibility", "owner": "browser-client", "acceptance_seam": "Taskbar-owned lifecycle semantics, names/states, one live region, keyboard/focus flows, narrow/200% reflow, and reduced motion in both packaged bundles; recorded assistive-technology pass remains release evidence", "status": "adapter-slices"},
+    {"id": "browser-client-tests", "heading": "Browser Client", "owner": "browser-client", "acceptance_seam": "Fast DOM plus artifact-isolated Chromium, Firefox, and WebKit lifecycle, keyboard, focus, cross-tab, Turbo/LiveView navigation, reflow, reduced-motion, and axe example flows", "status": "adapter-slices"},
+    {"id": "accessibility", "heading": "Accessibility", "owner": "browser-client", "acceptance_seam": "Taskbar-owned automated lifecycle, axe, keyboard, and reflow evidence in both artifacts; the repeatable recorded assistive-technology pass remains an explicit release gate", "status": "adapter-slices"},
     {"id": "rails-integration-tests", "heading": "Rails-native integration", "owner": "rails-adapter", "acceptance_seam": "Rails installer, engine, CSRF, attribution, and broker process tests", "status": "rails-slice"},
     {"id": "phoenix-integration-tests", "heading": "Phoenix-native integration", "owner": "phoenix-adapter", "acceptance_seam": "Phoenix installer, Plug, CSRF, attribution, and OTP isolation tests", "status": "phoenix-slice"},
     {"id": "compatibility-matrix", "heading": "Compatibility matrix", "owner": "root-tooling", "acceptance_seam": "Published matrix synchronized to clean generated application CI rows", "status": "adapter-slices"},

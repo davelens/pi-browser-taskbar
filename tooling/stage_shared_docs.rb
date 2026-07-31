@@ -7,6 +7,7 @@ sources = %w[
   contract/docs/index.md
   contract/traceability.json
   contract/traceability.md
+  docs/accessibility-acceptance.md
   docs/security.md
   docs/troubleshooting.md
 ]

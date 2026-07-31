@@ -2,9 +2,11 @@
 
 ## Verification
 
-Run `bin/verify` from the repository root. Do not substitute package-local checks for this command:
-it is the clean-checkout acceptance seam for contracts, generated assets, ownership, both native
-test suites, and both built artifacts.
+Run `npm ci`, `npx playwright install --with-deps chromium firefox webkit`, then `bin/verify` from
+the repository root. Do not substitute package-local checks for this command: it is the
+clean-checkout acceptance seam for contracts, generated assets, ownership, both native test suites,
+both built artifacts, and the packaged browser/accessibility matrix. See the
+[browser and accessibility acceptance checklist](accessibility-acceptance.md).
 
 ## Ownership rules
 
