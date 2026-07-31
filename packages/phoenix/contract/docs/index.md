@@ -280,9 +280,10 @@ cleanup; a broker or Pi replacement truthfully starts a new conversation.
 
 Each mounted Browser Client reads the complete canonical snapshot independently. It polls every 500
 milliseconds while the session is `starting`, `resetting`, or `busy`, or the task is `running` or
-`cancelling`, and every 30 seconds while stable. Failed reads preserve the last rendered snapshot,
-show a connection/retry indication, and retry with exponential delays bounded between one and 30
-seconds. Returning browser visibility triggers an immediate read.
+`cancelling`, and every 30 seconds while stable. Failed reads preserve the last rendered snapshot
+and retry with exponential delays bounded between one and 30 seconds. One isolated network failure
+stays quiet; repeated network failures or other read errors show a retry indication. Returning
+browser visibility triggers an immediate read.
 
 A task, cancellation, or reset mutation is sent exactly once. Any HTTP failure or ambiguous network
 result is reconciled with `GET /state`; the client never retries the mutation. This makes admission,

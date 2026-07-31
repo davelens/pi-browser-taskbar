@@ -186,7 +186,7 @@
         } catch (error) {
           if (generation !== snapshotGeneration) return snapshot;
           pollFailures += 1;
-          showRecovery(error);
+          if (!error.networkFailure || pollFailures > 1) showRecovery(error);
           schedulePoll(backoffDelay(pollFailures));
           throw error;
         }

@@ -396,7 +396,9 @@ function harnessHtml(framework) {
     clientA.reconcile({ fetch: async () => { throw new TypeError("offline"); } });
     await clientA.refresh().catch(() => {});
     check(shadowA.querySelector("[data-status]").textContent === "Ready", "network failure preserves state");
-    check(shadowA.querySelector("[data-error]").textContent.includes("Connection lost"), "network recovery message");
+    check(shadowA.querySelector("[data-error]").hidden, "single transient network failure stays quiet");
+    await clientA.refresh().catch(() => {});
+    check(shadowA.querySelector("[data-error]").textContent.includes("Connection lost"), "persistent network failure shows recovery message");
     clientA.reconcile({ fetch: winA.fetch.bind(winA) });
     await clientA.refresh();
 
