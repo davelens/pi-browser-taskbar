@@ -145,6 +145,23 @@ Equivalent Rails and Phoenix fake-Pi runtime scenarios cover task timeout, misse
 startup failure, active and idle crashes, successful replacement, exhausted replacement, and owned
 child cleanup.
 
+## Rails broker topology
+
+Rails serving processes never own Pi. One gem-packaged external broker owns Pi and canonical task and
+session state for the canonical checkout path and OS user. A user-private runtime directory, exclusive
+OS lock, Unix socket, atomic endpoint metadata, protocol version, canonical identity, and fresh
+instance token make concurrent single-process, threaded, preloaded, clustered, phased, and separate
+server invocations converge on the same verified broker. An incompatible or unverifiable live broker
+is not terminated, and failure to establish a verified connection is unavailable rather than a
+process-local fallback.
+
+Each Rails process lazily retains one PID-aware client outside application reload paths. Reloads keep
+the connection; a fork discards only the child's inherited socket and mutex state before lazy
+reconnection. The broker remains alive while a client is connected or work is active. Its five-minute
+grace begins only after both conditions become false, so disconnected work settles before the timer
+starts. Graceful broker shutdown closes and reaps the Pi process group with bounded TERM-to-KILL
+cleanup; a broker or Pi replacement truthfully starts a new conversation.
+
 ## Session reset
 
 `POST /session/reset` is accepted only while the session is `ready`; a running, cancelling, or

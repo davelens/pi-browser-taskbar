@@ -27,11 +27,16 @@ class TaskbarHostController < ActionController::Base
 end
 
 TaskbarTestApplication.initialize!
-TaskbarTestApplication.routes.draw do
-  root to: "taskbar_host#index"
-  get "/annotated", to: "taskbar_host#annotated"
-  mount Pi::Browser::Taskbar::Rails::Engine => "/dev/pi-browser-taskbar"
+
+def draw_taskbar_test_routes
+  TaskbarTestApplication.routes.draw do
+    root to: "taskbar_host#index"
+    get "/annotated", to: "taskbar_host#annotated"
+    mount Pi::Browser::Taskbar::Rails::Engine => "/dev/pi-browser-taskbar"
+  end
 end
+
+draw_taskbar_test_routes
 
 class RailsEngineTest < ActionDispatch::IntegrationTest
   class FakeBroker
@@ -87,6 +92,14 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
 
   def teardown
     Pi::Browser::Taskbar::Rails.instance_variable_set(:@broker_client, nil)
+  end
+
+  def test_process_keeps_one_lazy_client_across_application_reload
+    first = Pi::Browser::Taskbar::Rails.broker_client
+    TaskbarTestApplication.reloader.reload!
+    assert_same first, Pi::Browser::Taskbar::Rails.broker_client
+  ensure
+    draw_taskbar_test_routes
   end
 
   def test_active_adapter_enables_native_erb_annotations_before_templates_compile

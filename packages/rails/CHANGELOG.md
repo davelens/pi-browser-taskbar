@@ -11,3 +11,4 @@
 - Add confirmed in-process session reset through the broker with retained-state rejection and process-recovery fallback.
 - Report Pi progress, bounded UTF-8 output, cancelled extension dialogs, and safe recoverable protocol failures.
 - Recover from task and abort deadlines, startup failures, and process exits with bounded process-tree replacement.
+- Preserve one verified checkout-scoped broker across Rails reload, forked/clustered/phased Puma processes, and concurrent servers, with idle-only grace and graceful process-tree cleanup.

@@ -21,6 +21,9 @@ module Pi
           end
         end
 
+        @client_mutex = Mutex.new
+        @client_mutex_pid = Process.pid
+
         class << self
           def browser_asset_path
             File.join(__dir__, "rails", "assets", "pi_browser_taskbar.js")
@@ -39,7 +42,10 @@ module Pi
           end
 
           def broker_client
-            @client_mutex ||= Mutex.new
+            if @client_mutex_pid != Process.pid
+              @client_mutex = Mutex.new
+              @client_mutex_pid = Process.pid
+            end
             @client_mutex.synchronize do
               root = configuration.project_root || ::Rails.root.to_s
               @broker_client ||= Broker::Client.new(
@@ -47,6 +53,11 @@ module Pi
                 executable: configuration.executable,
                 task_timeout: configuration.task_timeout
               )
+              unless @client_exit_pid == Process.pid
+                @client_exit_pid = Process.pid
+                at_exit { @broker_client.close if @broker_client.respond_to?(:close) }
+              end
+              @broker_client
             end
           end
 

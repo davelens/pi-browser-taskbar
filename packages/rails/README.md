@@ -20,7 +20,13 @@ bin/rails generate pi_browser_taskbar:install
 The generated integration is inactive outside development and can boot when the development gem
 is absent. In development, Rails validates loopback host/client access and native session CSRF,
 then acts only as a client of the external checkout-scoped broker that owns Pi and canonical task
-state. While active in development, the adapter enables Rails' native rendered-template filename
+state. Canonical checkout path plus OS user is the broker identity, so Rails reloads, threads, Puma
+workers/preload/phased replacement, and concurrent server invocations share one conversation. Each Rails
+process keeps one lazy PID-aware connection; forked workers discard inherited descriptors and
+reconnect without closing the parent's connection. Verified lock/socket/token election has no
+process-local fallback. The broker waits for disconnected work to settle, then starts its five-minute
+zero-client grace; normal shutdown reaps its owned Pi process tree. While active in development, the
+adapter enables Rails' native rendered-template filename
 annotations before ERB compilation and verifies that later application configuration did not disable
 them. Focused tasks may include one conservative project-relative ERB template hint; the hint has
 template precision only and never claims an exact element or source line. Malformed, overlapping,

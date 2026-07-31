@@ -35,6 +35,11 @@ Phoenix Adapter ---------> Phoenix example (eventual)
 There is no shared Ruby or Elixir runtime. The adapters never load one another. Generated browser
 assets are package-owned build outputs and are checked against their private source inputs.
 
+Rails serving processes are reload- and fork-safe clients of one gem-packaged external broker keyed
+by canonical checkout and OS user. The broker alone owns Pi and shared state; OS locking and a
+versioned Unix-socket identity handshake converge Puma workers, phased replacements, and concurrent
+servers without a process-local fallback. Phoenix retains its separate OTP-supervised ownership.
+
 ## Version ownership
 
 The root [`VERSION`](../VERSION) is the canonical semantic product version. Ecosystem metadata and

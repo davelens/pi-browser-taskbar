@@ -15,7 +15,10 @@ class RailsBrokerTest < Minitest::Test
       Dir.mktmpdir("broker-project") do |project|
         identity = Broker::Identity.new(project, runtime_root: runtime_root)
         same = Broker::Identity.new(File.join(project, "."), runtime_root: runtime_root)
+        linked = File.join(runtime_root, "linked-checkout")
+        File.symlink(project, linked)
         assert_equal identity.key, same.key
+        assert_equal identity.key, Broker::Identity.new(linked, runtime_root: runtime_root).key
         assert_equal "#{Process.uid}:#{File.realpath(project)}", identity.identity
         assert_equal 0, File.stat(runtime_root).mode & 0o077
         assert_includes identity.socket_path, identity.key
@@ -23,6 +26,35 @@ class RailsBrokerTest < Minitest::Test
       Dir.mktmpdir("other-project") do |other|
         refute_equal Broker::Identity.new(other, runtime_root: runtime_root).key,
           Broker::Identity.new(Dir.pwd, runtime_root: runtime_root).key
+      end
+    end
+  end
+
+  def test_client_rejects_symlinked_or_non_private_endpoint_artifacts
+    Dir.mktmpdir("broker-runtime") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root)
+        identity = client.identity
+        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "0" * 48,
+          "socket" => identity.socket_path, "pid" => Process.pid}
+        target = File.join(runtime_root, "foreign-metadata")
+        File.write(target, JSON.generate(metadata))
+        File.symlink(target, identity.metadata_path)
+        assert_nil client.send(:load_metadata)
+
+        File.unlink(identity.metadata_path)
+        File.write(identity.metadata_path, JSON.generate(metadata))
+        File.chmod(0o644, identity.metadata_path)
+        assert_nil client.send(:load_metadata)
+        File.chmod(0o600, identity.metadata_path)
+        assert_equal metadata, client.send(:load_metadata)
+
+        listener = UNIXServer.new(identity.socket_path)
+        File.chmod(0o666, identity.socket_path)
+        assert_equal :incompatible, client.send(:connect_metadata, metadata)
+      ensure
+        client.close if client
+        listener.close if listener
       end
     end
   end
@@ -70,6 +102,9 @@ class RailsBrokerTest < Minitest::Test
       held["prompt"] = "hold this task"
       results = [client, second].map { |item| Thread.new { item.submit(held) } }.map(&:value)
       assert_equal ["accepted", "busy"], results.map { |item| item["result"] }.sort
+      task_id = results.find { |item| item["result"] == "accepted" }.dig("snapshot", "task", "id")
+      client.cancel(task_id)
+      wait_until { client.snapshot.dig("snapshot", "task", "status") == "cancelled" }
 
       client.close
       second.close
@@ -219,6 +254,170 @@ class RailsBrokerTest < Minitest::Test
       assert_equal "ready", recovered.dig("snapshot", "session", "status")
       assert_nil recovered.dig("snapshot", "task")
       assert_equal 2, File.readlines(startup_count).length
+    end
+  end
+
+  def test_zero_client_grace_starts_only_after_orphaned_work_settles
+    source = <<~RUBY
+      #!/usr/bin/env ruby
+      require "json"
+      $stdin.each_line do |line|
+        command = JSON.parse(line)
+        case command.fetch("type")
+        when "get_state"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+            data: {sessionId: "grace-session", model: "fake"})
+        when "prompt"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+          $stdout.flush
+          sleep 0.3
+          puts JSON.generate(type: "agent_settled")
+        end
+        $stdout.flush
+      end
+    RUBY
+
+    Dir.mktmpdir("broker-grace") do |directory|
+      project = File.join(directory, "project")
+      Dir.mkdir(project)
+      executable = File.join(directory, "fake-pi")
+      File.write(executable, source)
+      File.chmod(0o700, executable)
+      identity = Broker::Identity.new(project, runtime_root: directory)
+      server = Broker::Server.new(identity: identity, executable: executable, grace: 0.1)
+      thread = Thread.new { server.run }
+      wait_until { File.file?(identity.metadata_path) }
+      client = Broker::Client.new(project_root: project, runtime_root: directory)
+      wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+      assert_equal "accepted", client.submit(JSON.parse(File.read(TASK)))["result"]
+      client.close
+
+      sleep 0.2
+      assert thread.alive?, "broker expired while disconnected task was active"
+      assert thread.join(1), "broker did not start grace after the task settled"
+    ensure
+      client.close if client
+      server.stop if server
+      thread.join(2) if thread
+    end
+  end
+
+  def test_concurrent_processes_and_phased_replacement_share_one_external_broker
+    skip "fork unavailable" unless Process.respond_to?(:fork)
+    Dir.mktmpdir("broker-topology") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        startup_count = File.join(runtime_root, "pi-startups")
+        executable = counted_fake(runtime_root, startup_count)
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+        session_id = client.snapshot.dig("snapshot", "session", "id")
+
+        reader, writer = IO.pipe
+        children = 4.times.map do |index|
+          fork do
+            writer.close
+            reader.read(1)
+            replacement = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+            snapshot = replacement.snapshot.fetch("snapshot")
+            File.write(File.join(runtime_root, "worker-#{index}"), snapshot.dig("session", "id"))
+            sleep 0.05
+            replacement.close
+            exit! 0
+          end
+        end
+        reader.close
+        4.times { writer.write("x") }
+        writer.close
+        children.each { |pid| assert_equal pid, Process.wait(pid) }
+
+        assert_equal [session_id], 4.times.map { |index| File.read(File.join(runtime_root, "worker-#{index}")) }.uniq
+        assert_equal 1, File.readlines(startup_count).length
+        assert_equal session_id, client.snapshot.dig("snapshot", "session", "id")
+
+        client.close
+        sleep 0.05
+        replacement = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+        assert_equal session_id, replacement.snapshot.dig("snapshot", "session", "id")
+        assert_equal 1, File.readlines(startup_count).length
+        client = replacement
+      ensure
+        client.close if client
+        stop_external_broker(client.identity) if client
+      end
+    end
+  end
+
+  def test_external_broker_crash_re_elects_once_and_reaps_pi_on_pipe_close
+    Dir.mktmpdir("broker-crash") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        startup_count = File.join(runtime_root, "pi-startups")
+        executable = counted_fake(runtime_root, startup_count)
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+        identity = client.identity
+        first = JSON.parse(File.read(identity.metadata_path))
+        first_pi = File.readlines(startup_count).last.to_i
+
+        Process.kill("KILL", first.fetch("pid"))
+        wait_until { !process_alive?(first.fetch("pid")) }
+        assert_raises(Broker::Unavailable) { client.snapshot }
+        wait_until { !process_alive?(first_pi) }
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+        second = JSON.parse(File.read(identity.metadata_path))
+
+        refute_equal first.fetch("token"), second.fetch("token")
+        refute_equal first.fetch("pid"), second.fetch("pid")
+        assert_equal 2, File.readlines(startup_count).length
+      ensure
+        client.close if client
+        stop_external_broker(client.identity) if client
+      end
+    end
+  end
+
+  def test_graceful_broker_shutdown_reaps_the_owned_process_tree
+    source = <<~RUBY
+      #!/usr/bin/env ruby
+      require "json"
+      trap("TERM", "IGNORE")
+      File.write(File.join(Dir.pwd, "pi-pid"), Process.pid)
+      $stdin.each_line do |line|
+        command = JSON.parse(line)
+        if command.fetch("type") == "get_state"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+            data: {sessionId: "shutdown-session", model: "fake"})
+        elsif command.fetch("type") == "prompt"
+          puts JSON.generate(type: "response", id: command.fetch("id"), success: true)
+          child = fork { trap("TERM", "IGNORE"); sleep 60 }
+          File.write(File.join(Dir.pwd, "pi-child"), child)
+        end
+        $stdout.flush
+      end
+    RUBY
+
+    Dir.mktmpdir("broker-shutdown") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        executable = File.join(runtime_root, "stubborn-pi")
+        File.write(executable, source)
+        File.chmod(0o700, executable)
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+        client.submit(JSON.parse(File.read(TASK)).merge("prompt" => "hold this task"))
+        wait_until { File.file?(File.join(project, "pi-child")) }
+        pi_pid = File.read(File.join(project, "pi-pid")).to_i
+        child_pid = File.read(File.join(project, "pi-child")).to_i
+        broker_pid = JSON.parse(File.read(client.identity.metadata_path)).fetch("pid")
+        client.close
+
+        Process.kill("TERM", broker_pid)
+        wait_until(500) { !process_alive?(broker_pid) }
+        wait_until(500) { !process_alive?(pi_pid) && !process_alive?(child_pid) }
+        refute File.exist?(client.identity.metadata_path)
+        refute File.exist?(client.identity.socket_path)
+      ensure
+        client.close if client
+        stop_external_broker(client.identity) if client
+      end
     end
   end
 
@@ -458,19 +657,32 @@ class RailsBrokerTest < Minitest::Test
     Dir.mktmpdir("broker-runtime") do |runtime_root|
       Dir.mktmpdir("broker-project") do |project|
         identity = Broker::Identity.new(project, runtime_root: runtime_root)
+        lock = File.open(identity.lock_path, File::RDWR | File::CREAT, 0o600)
+        assert lock.flock(File::LOCK_EX | File::LOCK_NB)
         socket = UNIXServer.new(identity.socket_path)
-        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "wrong", "socket" => identity.socket_path, "pid" => Process.pid}
+        File.chmod(0o600, identity.socket_path)
+        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "0" * 48, "socket" => identity.socket_path, "pid" => Process.pid}
         File.write(identity.metadata_path, JSON.generate(metadata))
+        File.chmod(0o600, identity.metadata_path)
         responder = Thread.new do
-          peer = socket.accept
-          peer.gets
-          peer.puts JSON.generate(type: "error", code: "incompatible")
-          peer.close
+          loop do
+            peer = socket.accept
+            peer.gets
+            peer.puts JSON.generate(type: "error", code: "incompatible")
+            peer.close
+          end
+        rescue IOError, Errno::EBADF
+          nil
         end
         client = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: "/must/not/start")
         assert_raises(Broker::Unavailable) { client.snapshot }
-        responder.join
-        socket.close
+        assert File.socket?(identity.socket_path)
+        assert_equal Process.pid, JSON.parse(File.read(identity.metadata_path))["pid"]
+      ensure
+        client.close if client
+        socket.close if socket
+        responder.join if responder
+        lock.close if lock
       end
     end
   end
@@ -480,7 +692,8 @@ class RailsBrokerTest < Minitest::Test
       Dir.mktmpdir("broker-project") do |project|
         identity = Broker::Identity.new(project, runtime_root: runtime_root)
         listener = UNIXServer.new(identity.socket_path)
-        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "token", "socket" => identity.socket_path}
+        File.chmod(0o600, identity.socket_path)
+        metadata = {"protocol" => 1, "identity" => identity.identity, "token" => "0" * 48, "socket" => identity.socket_path, "pid" => Process.pid}
         responder = Thread.new do
           peer = listener.accept
           peer.gets
@@ -577,6 +790,25 @@ class RailsBrokerTest < Minitest::Test
         thread.join(2) if thread
       end
     end
+  end
+
+  def counted_fake(directory, startup_count)
+    executable = File.join(directory, "counted-fake-pi")
+    File.write(executable, <<~RUBY)
+      #!/usr/bin/env ruby
+      File.open(#{startup_count.inspect}, "a") { |file| file.puts(Process.pid) }
+      exec(#{FAKE_PI.inspect}, *ARGV)
+    RUBY
+    File.chmod(0o700, executable)
+    executable
+  end
+
+  def stop_external_broker(identity)
+    metadata = JSON.parse(File.read(identity.metadata_path))
+    Process.kill("TERM", metadata.fetch("pid"))
+    wait_until { !File.exist?(identity.metadata_path) || !process_alive?(metadata.fetch("pid")) }
+  rescue Errno::ENOENT, Errno::ESRCH, JSON::ParserError
+    nil
   end
 
   def process_alive?(pid)

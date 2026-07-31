@@ -28,15 +28,15 @@ module Pi
           class Unavailable < StandardError; end
 
           class Identity
-            attr_reader :project_root, :uid, :key, :directory
+            attr_reader :project_root, :uid, :key, :directory, :runtime_root
 
             def initialize(project_root, runtime_root: nil)
               @project_root = File.realpath(project_root)
               @uid = Process.uid
               @key = Digest::SHA256.hexdigest("#{uid}\0#{@project_root}")[0, 32]
-              root = runtime_root || default_runtime_root
-              secure_directory(root)
-              @directory = File.join(root, key)
+              @runtime_root = runtime_root || default_runtime_root
+              secure_directory(@runtime_root)
+              @directory = File.join(@runtime_root, key)
               secure_directory(@directory)
             rescue SystemCallError => error
               raise Unavailable, "broker identity is unavailable: #{error.message}"
@@ -129,6 +129,10 @@ module Pi
 
             def snapshot
               @mutex.synchronize { snapshot_unlocked }
+            end
+
+            def work_active?
+              @mutex.synchronize { %w[starting busy resetting].include?(@phase) }
             end
 
             def submit(value)
@@ -635,7 +639,12 @@ module Pi
               @token = SecureRandom.hex(24)
               @clients = 0
               @clients_mutex = Mutex.new
-              @last_zero = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+              @idle_since = nil
+              @stopping = false
+            end
+
+            def stop
+              @stopping = true
             end
 
             def run
@@ -643,7 +652,7 @@ module Pi
               File.open(@identity.lock_path, File::RDWR | File::CREAT, 0o600) do |lock|
                 return false unless lock.flock(File::LOCK_EX | File::LOCK_NB)
                 owner = true
-                File.unlink(@identity.socket_path) if File.exist?(@identity.socket_path)
+                unlink_if_present(@identity.socket_path)
                 @socket = UNIXServer.new(@identity.socket_path)
                 File.chmod(0o600, @identity.socket_path)
                 @runtime = Runtime.new(project_root: @identity.project_root, executable: @executable, task_timeout: @task_timeout)
@@ -653,8 +662,8 @@ module Pi
                 if owner
                   @socket.close if @socket && !@socket.closed?
                   @runtime.close if @runtime
-                  File.unlink(@identity.socket_path) if File.exist?(@identity.socket_path)
-                  File.unlink(@identity.metadata_path) if File.exist?(@identity.metadata_path)
+                  unlink_if_present(@identity.socket_path)
+                  unlink_if_present(@identity.metadata_path)
                 end
               end
               true
@@ -662,12 +671,18 @@ module Pi
 
             private
 
+            def unlink_if_present(path)
+              File.unlink(path)
+            rescue Errno::ENOENT
+              nil
+            end
+
             def publish_metadata
               metadata = {
                 "protocol" => PROTOCOL_VERSION, "identity" => @identity.identity, "token" => @token,
                 "socket" => @identity.socket_path, "pid" => Process.pid
               }
-              temporary = "#{@identity.metadata_path}.#{Process.pid}.tmp"
+              temporary = "#{@identity.metadata_path}.#{Process.pid}.#{@token}.tmp"
               File.open(temporary, "w", 0o600) do |file|
                 file.write(JSON.generate(metadata))
                 file.flush
@@ -682,19 +697,33 @@ module Pi
             def accept_loop
               loop do
                 ready = IO.select([@socket], nil, nil, 0.1)
-                Thread.new(@socket.accept) { |client| serve(client) } if ready
-                break if expired?
+                if ready
+                  client = @socket.accept
+                  @clients_mutex.synchronize do
+                    @clients += 1
+                    @idle_since = nil
+                  end
+                  Thread.new(client) { |connection| serve(connection) }
+                end
+                break if @stopping || expired?
               end
             end
 
             def expired?
+              active = @runtime.work_active?
               @clients_mutex.synchronize do
-                @clients.zero? && Process.clock_gettime(Process::CLOCK_MONOTONIC) - @last_zero >= @grace
+                if @clients.positive? || active
+                  @idle_since = nil
+                  false
+                else
+                  now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+                  @idle_since ||= now
+                  now - @idle_since >= @grace
+                end
               end
             end
 
             def serve(client)
-              @clients_mutex.synchronize { @clients += 1 }
               handshake = read_record(client)
               unless handshake == {"type" => "handshake", "protocol" => PROTOCOL_VERSION, "identity" => @identity.identity, "token" => @token}
                 return write_record(client, "type" => "error", "code" => "incompatible")
@@ -724,7 +753,7 @@ module Pi
               client.close rescue nil
               @clients_mutex.synchronize do
                 @clients -= 1
-                @last_zero = Process.clock_gettime(Process::CLOCK_MONOTONIC) if @clients.zero?
+                @idle_since = nil if @clients.zero?
               end
             end
 
@@ -747,10 +776,14 @@ module Pi
           end
 
           class Client
+            CONNECT_ATTEMPTS = 100
+            CONNECT_DELAY = 0.02
+
             def initialize(project_root:, executable: "pi", task_timeout: 1_800, runtime_root: nil)
               @identity = Identity.new(project_root, runtime_root: runtime_root)
               @executable = executable
               @task_timeout = task_timeout
+              @runtime_root = runtime_root
               @mutex = Mutex.new
               @pid = Process.pid
             end
@@ -774,10 +807,8 @@ module Pi
             end
 
             def close
-              @mutex.synchronize do
-                @socket.close if @socket && !@socket.closed?
-                @socket = nil
-              end
+              reset_after_fork
+              @mutex.synchronize { discard_socket }
             rescue IOError, SystemCallError
               @socket = nil
             end
@@ -785,8 +816,8 @@ module Pi
             private
 
             def request(command)
+              reset_after_fork
               @mutex.synchronize do
-                reset_after_fork
                 connect unless @socket
                 command = command.merge("id" => SecureRandom.hex(12))
                 write_record(command)
@@ -804,8 +835,14 @@ module Pi
 
             def reset_after_fork
               return if @pid == Process.pid
-              discard_socket
+
+              inherited = @socket
+              @socket = nil
+              @mutex = Mutex.new
               @pid = Process.pid
+              inherited.close if inherited && !inherited.closed?
+            rescue IOError, SystemCallError
+              nil
             end
 
             def discard_socket
@@ -818,33 +855,41 @@ module Pi
 
             def connect
               metadata = load_metadata
-              if metadata
-                result = connect_metadata(metadata)
-                return if result == :connected
-                raise Unavailable, "broker identity handshake failed" if result == :incompatible
-              end
+              return if metadata && connect_metadata(metadata) == :connected
+
               launch
-              100.times do
-                sleep 0.02
+              CONNECT_ATTEMPTS.times do
+                sleep CONNECT_DELAY
                 metadata = load_metadata
                 next unless metadata
-                result = connect_metadata(metadata)
-                return if result == :connected
-                raise Unavailable, "broker identity handshake failed" if result == :incompatible
+                return if connect_metadata(metadata) == :connected
               end
-              raise Unavailable, "broker did not become available"
+              raise Unavailable, "broker did not become available with a verified identity"
             end
 
             def load_metadata
-              JSON.parse(File.read(@identity.metadata_path))
-            rescue Errno::ENOENT, JSON::ParserError
+              stat = File.lstat(@identity.metadata_path)
+              return nil unless stat.file? && !stat.symlink? && stat.uid == @identity.uid && (stat.mode & 0o077).zero? && stat.size <= MAX_RECORD_BYTES
+
+              flags = File::RDONLY | (File.const_defined?(:NOFOLLOW) ? File::NOFOLLOW : 0)
+              File.open(@identity.metadata_path, flags) do |file|
+                opened = file.stat
+                return nil unless opened.dev == stat.dev && opened.ino == stat.ino
+                JSON.parse(file.read(MAX_RECORD_BYTES + 1))
+              end
+            rescue SystemCallError, JSON::ParserError
               nil
             end
 
             def connect_metadata(metadata)
-              required = metadata["protocol"] == PROTOCOL_VERSION && metadata["identity"] == @identity.identity &&
-                metadata["socket"] == @identity.socket_path && metadata["token"].is_a?(String)
+              required = metadata.is_a?(Hash) && metadata.keys.sort == %w[identity pid protocol socket token] &&
+                metadata["protocol"] == PROTOCOL_VERSION && metadata["identity"] == @identity.identity &&
+                metadata["socket"] == @identity.socket_path && metadata["token"].is_a?(String) &&
+                metadata["token"].match?(/\A[0-9a-f]{48}\z/) && metadata["pid"].is_a?(Integer) && metadata["pid"].positive?
               return :incompatible unless required
+              socket_stat = File.lstat(metadata["socket"])
+              return :incompatible unless socket_stat.socket? && socket_stat.uid == @identity.uid && (socket_stat.mode & 0o077).zero?
+
               socket = UNIXSocket.new(metadata["socket"])
               socket.write(JSON.generate("type" => "handshake", "protocol" => PROTOCOL_VERSION, "identity" => @identity.identity, "token" => metadata["token"]) << "\n")
               socket.flush
@@ -855,7 +900,7 @@ module Pi
               end
               @socket = socket
               :connected
-            rescue Errno::ENOENT, Errno::ECONNREFUSED, IOError, JSON::ParserError
+            rescue SystemCallError, IOError, JSON::ParserError
               begin
                 socket.close if socket && !socket.closed?
               rescue IOError, SystemCallError
@@ -870,6 +915,7 @@ module Pi
                 "PI_BROWSER_TASKBAR_EXECUTABLE" => @executable,
                 "PI_BROWSER_TASKBAR_TASK_TIMEOUT" => @task_timeout.to_s
               }
+              env["PI_BROWSER_TASKBAR_RUNTIME_ROOT"] = @runtime_root if @runtime_root
               launcher = File.expand_path("broker_launcher.rb", __dir__)
               pid = Process.spawn(env, RbConfig.ruby, launcher, out: File::NULL, err: File::NULL, close_others: true)
               Process.detach(pid)

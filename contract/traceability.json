@@ -20,6 +20,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/28",
       "sections": ["shared-task-api", "pi-rpc-lifecycle", "security-configuration", "rails-adapter", "phoenix-adapter"],
       "acceptance_seam": "Equivalent native fake-Pi timeout, abort-deadline, startup, crash, bounded process-tree cleanup, replacement, and exhaustion scenarios"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/29",
+      "sections": ["security-configuration", "rails-adapter", "rails-integration-tests"],
+      "acceptance_seam": "Rails reload, fork, concurrent-process, phased-replacement, election/identity, broker/Pi crash, idle-grace, and process-tree integration tests"
     }
   ],
   "sections": [
