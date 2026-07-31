@@ -5,11 +5,22 @@ defmodule PiBrowserTaskbarPhoenix.CSRF do
 
   @behaviour Plug
 
+  @assets ~w(pi_browser_taskbar.js pi_browser_taskbar.css)
+
   @impl true
   def init(opts), do: Plug.CSRFProtection.init(opts)
 
   @impl true
   def call(conn, opts) do
+    conn =
+      case {conn.method, Enum.take(conn.path_info, -2)} do
+        {"GET", ["assets", asset]} when asset in @assets ->
+          put_private(conn, :plug_skip_csrf_protection, true)
+
+        _other ->
+          conn
+      end
+
     Plug.CSRFProtection.call(conn, opts)
   rescue
     Plug.CSRFProtection.InvalidCSRFTokenError ->

@@ -85,6 +85,15 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
     assert Plug.Conn.get_resp_header(rejected, "access-control-allow-origin") == []
   end
 
+  test "router mount serves its JavaScript asset to a normal script request" do
+    response =
+      request(:get, "/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js")
+      |> HostRouter.call(HostRouter.init([]))
+
+    assert response.status == 200
+    assert response.resp_body =~ ~s(productVersion: "0.1.0")
+  end
+
   test "layout bootstrap uses package routes, native CSRF, and remote-access warning state" do
     {:safe, safe_html} =
       Layout.render(
