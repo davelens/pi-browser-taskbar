@@ -32,6 +32,7 @@ class RailsConfigurationTest < Minitest::Test
       assert_equal true, config.enabled
       assert_equal [], config.allowed_hosts
       assert_equal "pi", config.executable
+      assert_equal "/dev/pi-browser-taskbar", config.mount_path
       assert_equal File.realpath(root), config.project_root
       assert_equal 1_800, config.task_timeout
       assert config.frozen?
@@ -94,6 +95,22 @@ class RailsConfigurationTest < Minitest::Test
     config.finalize!(default_project_root: "/also-missing")
 
     assert_equal false, config.enabled
+  end
+
+  def test_accepts_normalized_installation_mount_metadata
+    config = Pi::Browser::Taskbar::Rails::Configuration.new
+    config.mount_path = "/internal/pi/"
+    config.finalize!(default_project_root: Dir.pwd)
+
+    assert_equal "/internal/pi", config.mount_path
+  end
+
+  def test_rejects_invalid_mount_metadata
+    config = Pi::Browser::Taskbar::Rails::Configuration.new
+    config.mount_path = "/internal/../pi"
+
+    error = assert_raises(ArgumentError) { config.finalize!(default_project_root: Dir.pwd) }
+    assert_includes error.message, "mount_path"
   end
 
   def test_rejects_invalid_allowed_host_entries

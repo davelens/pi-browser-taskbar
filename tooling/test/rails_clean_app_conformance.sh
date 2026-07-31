@@ -405,6 +405,25 @@ RUBY
   RAILS_ENV=development ruby conformance.rb
 )
 
+# Prove a recognized older generated initializer updates, then remove all owned seams through Rails' inverse.
+ruby -I"$gem_home/gems/pi-browser-taskbar-rails-$version/lib" - "$app/config/initializers/pi_browser_taskbar.rb" <<'RUBY'
+require "generators/pi_browser_taskbar/install_generator"
+path = ARGV.fetch(0)
+source = File.read(path).sub("# pi-browser-taskbar:start configuration", "# pi-browser-taskbar:start configuration\n# older generated release")
+File.write(path, PiBrowserTaskbar::Generators::InstallGenerator.refresh_initializer_checksum(source))
+RUBY
+(
+  cd "$app"
+  RAILS_ENV=development ruby bin/rails generate pi_browser_taskbar:install >/dev/null
+  ! grep -q "older generated release" config/initializers/pi_browser_taskbar.rb
+  RAILS_ENV=development ruby bin/rails destroy pi_browser_taskbar:install
+  RAILS_ENV=development ruby bin/rails destroy pi_browser_taskbar:install >/dev/null
+  test ! -e config/initializers/pi_browser_taskbar.rb
+  ! grep -R "pi-browser-taskbar:start\|pi_browser_taskbar_tags" config/routes.rb app/views/layouts/application.html.erb
+  grep -q 'root "home#index"' config/routes.rb
+)
+echo "clean Rails update and uninstall conformance passed"
+
 # End the development broker before proving a package-absent production boot.
 ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json
 for _ in $(seq 1 100); do

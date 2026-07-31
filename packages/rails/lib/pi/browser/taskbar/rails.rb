@@ -11,8 +11,14 @@ module Pi
   module Browser
     module Taskbar
       module Rails
+        module LayoutHelper
+          def pi_browser_taskbar_tags
+            Pi::Browser::Taskbar::Rails.layout_bootstrap(self)
+          end
+        end
+
         class Configuration
-          attr_accessor :enabled, :allowed_hosts, :executable, :project_root, :task_timeout
+          attr_accessor :enabled, :allowed_hosts, :executable, :project_root, :task_timeout, :mount_path
 
           ENVIRONMENT = {
             enabled: "PI_BROWSER_TASKBAR_ENABLED",
@@ -26,6 +32,7 @@ module Pi
             enabled: true,
             allowed_hosts: [],
             executable: "pi",
+            mount_path: "/dev/pi-browser-taskbar",
             task_timeout: 1_800
           }.freeze
 
@@ -35,6 +42,7 @@ module Pi
 
             @allowed_hosts = parse_allowed_hosts(setting(:allowed_hosts, DEFAULTS[:allowed_hosts]))
             @executable = non_empty_string(setting(:executable, DEFAULTS[:executable]), :executable)
+            @mount_path = parse_mount_path(setting(:mount_path, DEFAULTS[:mount_path]))
             @project_root = canonical_root(setting(:project_root, default_project_root))
             @task_timeout = parse_timeout(setting(:task_timeout, DEFAULTS[:task_timeout]))
             freeze
@@ -44,7 +52,8 @@ module Pi
 
           def setting(name, default)
             return instance_variable_get("@#{name}") if instance_variable_defined?("@#{name}")
-            ENV.fetch(ENVIRONMENT.fetch(name), default)
+            environment = ENVIRONMENT[name]
+            environment ? ENV.fetch(environment, default) : default
           end
 
           def parse_boolean(value, _name)
@@ -81,6 +90,14 @@ module Pi
             IPAddr.new(host).to_s
           rescue IPAddr::InvalidAddressError
             host
+          end
+
+          def parse_mount_path(value)
+            mount = non_empty_string(value, :mount_path).sub(%r{/+\z}, "")
+            segments = mount.split("/")
+            valid = mount.match?(%r{\A/[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)*\z}) && segments.none? { |segment| segment == "." || segment == ".." }
+            return mount if valid
+            raise ArgumentError, "pi_browser_taskbar mount_path must be an absolute application path without traversal"
           end
 
           def canonical_root(value)
@@ -158,14 +175,15 @@ module Pi
             end
           end
 
-          def layout_bootstrap(view, mount: "/dev/pi-browser-taskbar")
+          def layout_bootstrap(view, mount: nil)
             return "" unless active?
+            mount ||= configuration.mount_path
             escape = ERB::Util.method(:html_escape)
             token = view.form_authenticity_token
             html = [
               %(<link rel="stylesheet" href="#{escape.call(mount)}/assets/pi_browser_taskbar.css">),
               %(<div data-pi-browser-taskbar-bootstrap data-mount-base="#{escape.call(mount)}" data-contract-version="1" data-csrf-token="#{escape.call(token)}" data-remote-access="#{!allowed_hosts.empty?}"></div>),
-              %(<script defer src="#{escape.call(mount)}/assets/pi_browser_taskbar.js"></script>)
+              %(<script type="module" src="#{escape.call(mount)}/assets/pi_browser_taskbar.js"></script>)
             ].join
             html.respond_to?(:html_safe) ? html.html_safe : html
           end

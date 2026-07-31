@@ -22,7 +22,7 @@ class TaskbarHostController < ActionController::Base
   protect_from_forgery with: :exception
 
   def index
-    render html: Pi::Browser::Taskbar::Rails.layout_bootstrap(view_context)
+    render html: view_context.pi_browser_taskbar_tags
   end
 
   def annotated
@@ -114,6 +114,13 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     assert_match(/<!-- BEGIN .*inline template\n--><main>Annotated ERB<\/main><!-- END .*inline template -->/m, response.body)
   end
 
+  def test_public_layout_helper_uses_installation_mount_metadata
+    get "/"
+
+    assert_includes response.body, '/dev/pi-browser-taskbar/assets/pi_browser_taskbar.css'
+    assert_includes response.body, 'data-mount-base="/dev/pi-browser-taskbar"'
+  end
+
   def test_engine_routes_assets_layout_and_no_store_snapshot
     get "/"
     assert_response :ok
@@ -121,6 +128,7 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "data-contract-version=\"1\""
     assert_match(/data-csrf-token="[^"]+"/, response.body)
     assert_includes response.body, 'data-remote-access="true"'
+    assert_includes response.body, '<script type="module" src="/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js"></script>'
 
     get "/dev/pi-browser-taskbar/state"
     assert_response :ok

@@ -9,13 +9,30 @@ bootstrap:
 
 ```ruby
 group :development do
-  gem "pi-browser-taskbar-rails"
+  gem "pi-browser-taskbar-rails", require: "pi/browser/taskbar/rails"
 end
 ```
 
 ```sh
 bin/rails generate pi_browser_taskbar:install
 ```
+
+The generator preflights every file before writing, discovers the single conventional
+`app/views/layouts/application.html.erb`, and inserts checksummed, marked configuration, route, and
+`<head>` helper seams. API-only applications, non-ERB or ambiguous layouts, unclear `<head>` markup,
+route conflicts, unsupported Ruby syntax, and edited generated sections are refused without partial
+writes. For a deliberate nonstandard integration, pass a project-relative ERB layout and normalized
+mount (a trailing slash is removed):
+
+```sh
+bin/rails generate pi_browser_taskbar:install \
+  --layout app/views/layouts/internal.html.erb \
+  --mount /internal/pi
+```
+
+Rerunning reports a current installation or updates only recognized checksummed content. Passing a
+second `--layout` adds the same helper to that layout without duplicating the route or initializer;
+changing an installed mount requires uninstalling first.
 
 The generated integration is inactive outside development and can boot when the development gem
 is absent. In development, Rails validates loopback host/client access and native session CSRF,
@@ -45,6 +62,7 @@ The generated development initializer can set the complete server-owned configur
 
 ```ruby
 Pi::Browser::Taskbar::Rails.configure do |config|
+  config.mount_path = "/dev/pi-browser-taskbar"
   config.enabled = true
   config.allowed_hosts = []
   config.executable = "pi"
@@ -78,6 +96,20 @@ adapter retains native session CSRF, adds no permissive CORS headers, filters lo
 Run `bin/verify` from the repository root. It tests the native engine/generator/broker, inspects the
 built gem, installs that artifact into a clean Rails host, and proves development flow plus
 package-absent production isolation.
+
+## Uninstall
+
+Use Rails' native inverse command:
+
+```sh
+bin/rails destroy pi_browser_taskbar:install
+```
+
+Uninstall preflights every recorded route and layout seam, then removes all recognized owned content
+or nothing. It is harmless when repeated. It reports the development dependency for manual removal
+but does not edit the Gemfile or delete broker runtime artifacts, Pi sessions, credentials, unrelated
+routes/assets, or unrelated Action View configuration. If a generated section was edited, follow the
+reported marker-specific manual guidance rather than deleting uncertain host code.
 
 See the repository [architecture](../../docs/architecture.md) and
 [canonical contract](../../contract/docs/index.md).

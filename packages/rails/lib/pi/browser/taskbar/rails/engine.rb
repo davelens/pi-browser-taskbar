@@ -30,6 +30,7 @@ module Pi
 
             app.config.action_view.annotate_rendered_view_with_filenames = true
             ActionView::Base.annotate_rendered_view_with_filenames = true
+            ActionView::Base.include(Pi::Browser::Taskbar::Rails::LayoutHelper) unless ActionView::Base < Pi::Browser::Taskbar::Rails::LayoutHelper
           end
 
           config.after_initialize do |_app|
