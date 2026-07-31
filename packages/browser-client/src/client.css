@@ -168,12 +168,6 @@ header {
   letter-spacing: 0.13em;
 }
 
-[data-identity] strong {
-  font-size: 0.94rem;
-  font-weight: 720;
-  letter-spacing: -0.015em;
-}
-
 [data-identity] small,
 [data-scope],
 [data-selection-help],

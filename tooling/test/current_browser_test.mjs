@@ -259,8 +259,8 @@ function harnessHtml(framework) {
   const auditTaskbar = async (win, client, expectedStatus) => {
     const shadow = client.element.shadowRoot;
     const panel = shadow.querySelector("[data-panel]");
-    const title = shadow.querySelector("#" + panel.getAttribute("aria-labelledby"));
-    check(title?.textContent.trim() === "Pi browser task", "named panel");
+    check(panel.getAttribute("aria-label") === "Pi browser task", "named panel");
+    check(!panel.textContent.includes("Pi browser task"), "panel omits visible product title");
     check(shadow.querySelector("[data-status]").textContent === expectedStatus, "visible lifecycle status " + expectedStatus);
     check(shadow.querySelectorAll("[aria-live]").length === 1, "single live region");
     check(shadow.querySelector("[data-live]").textContent.trim().length > 0, "meaningful live message");

@@ -1179,9 +1179,9 @@ function unencryptedRemoteAccess(bootstrap, location) {
 function markup() {
   return `
     <style>${taskbarStyles}</style>
-    <section id="pi-taskbar-panel" data-panel hidden aria-labelledby="pi-taskbar-title" aria-busy="false">
+    <section id="pi-taskbar-panel" data-panel hidden aria-label="Pi browser task" aria-busy="false">
       <header>
-        <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><span data-kicker aria-hidden="true">PI / PAGE TASK</span><strong id="pi-taskbar-title">Pi browser task</strong><small data-model>Local Pi session</small></span></span>
+        <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><span data-kicker aria-hidden="true">PI / PAGE TASK</span><small data-model>Local Pi session</small></span></span>
         <span data-status data-state="starting">Connecting</span>
         <button data-close type="button" aria-controls="pi-taskbar-panel" aria-expanded="true" aria-label="Collapse Pi browser taskbar">−</button>
       </header>

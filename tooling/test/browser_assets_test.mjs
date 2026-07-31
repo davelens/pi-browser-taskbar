@@ -809,7 +809,8 @@ for (const framework of Object.keys(assets)) {
     });
     const shadow = mounted.element.shadowRoot;
 
-    assert.match(source, /aria-labelledby="pi-taskbar-title"/u);
+    assert.match(source, /data-panel hidden aria-label="Pi browser task"/u);
+    assert.doesNotMatch(source, />Pi browser task</u);
     assert.match(source, /data-close[^>]+aria-label="Collapse Pi browser taskbar"/u);
     assert.match(source, /data-live[^>]+aria-live="polite"[^>]+aria-atomic="true"/u);
     assert.match(source, /<label for="pi-taskbar-prompt">Task instruction<\/label>/u);
