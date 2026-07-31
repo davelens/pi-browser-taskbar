@@ -5,8 +5,8 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 version=$(<"$root/VERSION")
 build="$root/build"
 
+rm -rf "$build"
 mkdir -p "$build"
-find "$build" -mindepth 1 -maxdepth 1 -type f -delete
 
 (
   cd "$root/packages/rails"
@@ -19,4 +19,8 @@ find "$build" -mindepth 1 -maxdepth 1 -type f -delete
   mix hex.build --output "$build/pi_browser_taskbar_phoenix-$version.tar"
 )
 
-printf 'built package artifacts in %s\n' "$build"
+mkdir "$build/pi_browser_taskbar_phoenix"
+tar -xOf "$build/pi_browser_taskbar_phoenix-$version.tar" contents.tar.gz \
+  | tar -xz -C "$build/pi_browser_taskbar_phoenix"
+
+printf 'built package artifacts and local Phoenix dependency in %s\n' "$build"

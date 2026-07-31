@@ -50,6 +50,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/35",
       "sections": ["browser-interaction", "browser-client-tests", "accessibility"],
       "acceptance_seam": "Both packaged Corner composers exercise every lifecycle state, native names and states, one live region, keyboard and focus paths, Shadow DOM isolation, narrow/200% reflow, and reduced motion through DOM and current-browser checks"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/36",
+      "sections": ["phoenix-adapter", "phoenix-integration-tests", "documentation-examples", "sequence-change-control"],
+      "acceptance_seam": "Built Phoenix artifact and public installer proven in Recollect before removal of application-local behavior, with development migration verification, non-development isolation, and ordered rollback documentation"
     }
   ],
   "sections": [

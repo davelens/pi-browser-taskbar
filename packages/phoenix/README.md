@@ -24,6 +24,19 @@ MIX_ENV=dev mix deps.get
 MIX_ENV=dev mix pi_browser_taskbar.install
 ```
 
+To migrate a sibling application before the first package release, build this repository with
+`bin/build` and point the same dependency declaration at the extracted artifact instead:
+
+```elixir
+{:pi_browser_taskbar_phoenix,
+ path: "../pi-browser-taskbar/build/pi_browser_taskbar_phoenix",
+ only: :dev,
+ runtime: false}
+```
+
+This local path is generated from the Hex archive, not the package source tree, so it exercises the
+same public package contents and installer as a registry dependency.
+
 The installer discovers the OTP application, web namespace, endpoint, router, application
 supervisor, and root HEEx layout before writing. It then idempotently adds:
 

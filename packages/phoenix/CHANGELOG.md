@@ -20,3 +20,5 @@
   updatable, dependency-free outside development, and reversibly uninstallable.
 - Complete the Shadow DOM Corner composer with stable lifecycle text, native accessible controls, one
   live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.
+- Replace Recollect's application-local taskbar through the built package and public installer, with
+  an ordered no-compatibility cutover and rollback guide.

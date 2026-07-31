@@ -27,7 +27,8 @@ supervised runtime.
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
 [architecture guide](docs/architecture.md) explains package ownership and dependency direction, and
 the [security guide](docs/security.md) explains the local boundary and deliberate trusted-network
-remote access.
+remote access. Recollect's one-time cutover and rollback order are recorded in the
+[Recollect migration guide](docs/recollect-migration.md).
 
 ## Verify a clean checkout
 
