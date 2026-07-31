@@ -345,7 +345,7 @@ h2 {
   display: inline-flex;
   min-width: 0;
   max-width: 100%;
-  align-items: stretch;
+  align-items: center;
   border: 1px solid var(--pi-mark-border);
   border-radius: 0.3rem;
   background: var(--pi-mark-bg);
