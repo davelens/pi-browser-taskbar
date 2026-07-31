@@ -811,7 +811,8 @@ for (const framework of Object.keys(assets)) {
 
     assert.match(source, /data-panel hidden aria-label="Pi browser task"/u);
     assert.doesNotMatch(source, />Pi browser task</u);
-    assert.match(source, /data-close[^>]+aria-label="Close Pi browser taskbar">×<\/button>/u);
+    assert.match(source, /data-close[^>]+aria-label="Close Pi browser taskbar"/u);
+    assert.match(source, /<svg data-close-icon aria-hidden="true"/u);
     assert.match(source, /data-live[^>]+aria-live="polite"[^>]+aria-atomic="true"/u);
     assert.match(source, /<label for="pi-taskbar-prompt">Task instruction<\/label>/u);
     assert.match(source, /data-output[^>]+aria-label="Latest Pi output"/u);

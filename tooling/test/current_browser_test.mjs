@@ -148,6 +148,17 @@ async function runKeyboardFlow(page, framework) {
   await toggle.focus();
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-prompt]", "keyboard open moves focus to instruction");
+
+  const closeIcon = close.locator("svg");
+  assert.equal(await closeIcon.count(), 1, "close control uses a font-independent icon");
+  const closeBox = await close.boundingBox();
+  const closeIconBox = await closeIcon.boundingBox();
+  const closeCenterOffset = {
+    x: Math.abs(closeIconBox.x + closeIconBox.width / 2 - (closeBox.x + closeBox.width / 2)),
+    y: Math.abs(closeIconBox.y + closeIconBox.height / 2 - (closeBox.y + closeBox.height / 2)),
+  };
+  assert.ok(closeCenterOffset.x <= 1 && closeCenterOffset.y <= 1, `close icon is centered: ${JSON.stringify(closeCenterOffset)}`);
+
   await close.focus();
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-toggle]", "keyboard close returns focus to launcher");

@@ -489,12 +489,23 @@ button:disabled {
 }
 
 [data-close] {
+  display: grid;
   width: 34px;
   padding: 0;
+  place-items: center;
   border-radius: 50%;
   background: transparent;
   color: var(--pi-muted);
-  font-size: 1rem;
+}
+
+[data-close-icon] {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-width: 1.5;
 }
 
 [data-run] {
