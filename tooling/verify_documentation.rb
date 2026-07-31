@@ -74,17 +74,15 @@ phoenix = compatibility.fetch("phoenix")
 gemspec = root.join("packages/rails/pi-browser-taskbar-rails.gemspec").read
 mix = root.join("packages/phoenix/mix.exs").read
 workflow = root.join(".github/workflows/verify.yml").read
-verify = root.join("bin/verify").read
 compat_doc = root.join("docs/compatibility.md").read
 error.call("Rails language floor drift") unless gemspec.include?(%(required_ruby_version = ">= #{rails.fetch("language_floor")}"))
 error.call("Phoenix language floor drift") unless mix.include?(%(elixir: ">= #{phoenix.fetch("language_floor")}.0"))
 error.call("Phoenix framework floor drift") unless mix.include?(%({:phoenix, ">= #{phoenix.fetch("framework_floor")}.0))
-error.call("Rails CI framework drift") unless verify.include?(%({PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-#{rails.fetch("ci_framework")}}))
-error.call("Rails CI language drift") unless workflow.include?(%(ruby-version: "#{rails.fetch("ci_language")}"))
 error.call("Phoenix CI language drift") unless workflow.include?(%(elixir-version: "#{phoenix.fetch("ci_language")}"))
 error.call("Phoenix CI OTP drift") unless workflow.include?(%(otp-version: "#{phoenix.fetch("ci_otp")}"))
 [version, "Rails #{rails.fetch("framework_floor")}", "Ruby #{rails.fetch("language_floor")}",
- "Rails #{rails.fetch("ci_framework")}", "Phoenix #{phoenix.fetch("framework_floor")}",
+ "Rails #{rails.fetch("latest_framework")}", "Ruby #{rails.fetch("latest_language")}",
+ "Phoenix #{phoenix.fetch("framework_floor")}",
  "Elixir #{phoenix.fetch("language_floor")}", "Elixir #{phoenix.fetch("ci_language")}",
  "OTP #{phoenix.fetch("ci_otp")}"].each do |claim|
   error.call("compatibility guide omits #{claim}") unless compat_doc.include?(claim)

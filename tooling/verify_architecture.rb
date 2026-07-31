@@ -147,8 +147,11 @@ class ArchitectureVerifier
     scan_for_terms(rails_runtime, /\bphoenix\b/i, "Rails adapter couples to Phoenix")
     scan_for_terms(phoenix_runtime, /\brails\b/i, "Phoenix adapter couples to Rails")
 
-    rails_gemspec = @root.join("packages/rails/pi-browser-taskbar-rails.gemspec").read
-    error("Rails adapter declares a runtime package dependency") if rails_gemspec.match?(/add_(runtime_)?dependency/)
+    rails_spec = Gem::Specification.load(@root.join("packages/rails/pi-browser-taskbar-rails.gemspec").to_s)
+    dependencies = rails_spec.runtime_dependencies
+    unless dependencies.length == 1 && dependencies.first.name == "rails"
+      error("Rails adapter declares a runtime dependency other than its host framework")
+    end
 
     phoenix_mix = @root.join("packages/phoenix/mix.exs").read
     if phoenix_mix.match?(/pi-browser-taskbar-rails|pi_browser_taskbar_rails|packages\/rails/i)

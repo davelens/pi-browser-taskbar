@@ -1,8 +1,9 @@
 # Pi Browser Taskbar Rails
 
-Development-only Rails adapter for conventional Rails 7.1+ ERB applications. The gem includes the
-Browser Client, so consuming applications need no Node or JavaScript package manager for the
-taskbar. Shared wire behavior is defined only by the packaged
+Development-only Rails adapter for conventional Rails 7.1 through 8.1 ERB applications on MRI/Linux.
+The gem includes the Browser Client, so consuming applications need no Node or JavaScript package
+manager for the taskbar. Exact release-blocking Ruby/Rails rows and Puma modes are maintained in the
+repository's compatibility matrix. Shared wire behavior is defined only by the packaged
 [Conformance Contract](contract/docs/index.md).
 
 ## Dependency

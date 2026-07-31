@@ -11,6 +11,7 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/davelens/pi-browser-taskbar"
   spec.licenses = ["MIT"]
   spec.required_ruby_version = ">= 2.7"
+  spec.add_runtime_dependency "rails", ">= 7.1", "< 8.2"
 
   spec.files = Dir.chdir(__dir__) do
     Dir["CHANGELOG.md", "LICENSE", "README.md", "contract/**/*", "docs/**/*", "lib/**/*.rb", "lib/**/*.css", "lib/**/*.js"]

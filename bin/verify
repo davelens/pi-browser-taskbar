@@ -6,6 +6,9 @@ cd "$root"
 
 printf '%s\n' '==> Validate shell entry points'
 bash -n bin/build bin/verify tooling/build_packages.sh tooling/test/phoenix_clean_app_conformance.sh tooling/test/rails_clean_app_conformance.sh
+ruby -c tooling/rails_compatibility_matrix.rb
+ruby -c tooling/verify_rails_evidence.rb
+ruby -c tooling/test/rails_puma_conformance.rb
 
 printf '%s\n' '==> Validate executable contracts'
 ruby tooling/contract_validator.rb
@@ -15,6 +18,7 @@ printf '%s\n' '==> Enforce ownership, version, and documentation boundaries'
 ruby tooling/verify_architecture.rb
 ruby tooling/stage_shared_docs.rb --check
 ruby tooling/verify_documentation.rb
+ruby tooling/verify_rails_compatibility.rb
 
 printf '%s\n' '==> Check generated Browser Client assets'
 node tooling/build_browser_assets.mjs --check
@@ -22,7 +26,7 @@ node --test tooling/test/browser_assets_test.mjs
 node tooling/test/current_browser_test.mjs
 
 printf '%s\n' '==> Install native adapter test dependencies'
-rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3}
+rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3.1}
 export PI_BROWSER_TASKBAR_TEST_RAILS_VERSION="$rails_version"
 if ! ruby -e 'gem "rails", ARGV.fetch(0); require "rails"' "$rails_version" 2>/dev/null; then
   gem install rails --version "$rails_version" --no-document

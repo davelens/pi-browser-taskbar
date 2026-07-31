@@ -26,7 +26,10 @@ class ArtifactVerifier
 
     package = Gem::Package.new(path)
     raise "Rails artifact version drift" unless package.spec.version.to_s == @version
-    raise "Rails artifact has runtime dependencies" unless package.spec.runtime_dependencies.empty?
+    dependencies = package.spec.runtime_dependencies
+    unless dependencies.length == 1 && dependencies.first.name == "rails" && dependencies.first.requirement.to_s == ">= 7.1, < 8.2"
+      raise "Rails artifact compatibility dependency drift"
+    end
 
     Dir.mktmpdir("pi-browser-taskbar-gem") do |directory|
       package.extract_files(directory)

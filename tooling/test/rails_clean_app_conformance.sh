@@ -3,15 +3,18 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 version=$(<"$root/VERSION")
-rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3}
+rails_version=${PI_BROWSER_TASKBAR_TEST_RAILS_VERSION:-8.1.3.1}
+puma_mode=${PI_BROWSER_TASKBAR_TEST_PUMA_MODE:-single}
 artifact="$root/build/pi-browser-taskbar-rails-$version.gem"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pi-browser-taskbar-rails.XXXXXX")
 runtime_root="$tmp/runtime"
 broker_root="$runtime_root/pi-browser-taskbar"
 gem_home="$tmp/gems"
 app="$tmp/demo"
+puma_pid="$tmp/puma.pid"
 original_gem_path=$(ruby -e 'puts Gem.path.join(":")')
 cleanup() {
+  [[ -f "$puma_pid" ]] && kill "$(<"$puma_pid")" 2>/dev/null || true
   if [[ -f "$broker_root"/*/endpoint.json ]]; then
     ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json || true
   fi
@@ -19,11 +22,29 @@ cleanup() {
 }
 trap cleanup EXIT
 
+[[ -f "$artifact" ]] || { echo "missing built Rails gem: $artifact" >&2; exit 1; }
 if ! gem list -i rails -v "$rails_version" >/dev/null; then
   gem install rails -v "$rails_version" --no-document
 fi
-gem install "$artifact" --install-dir "$gem_home" --local --no-document >/dev/null
-mkdir -p "$app/config/environments" "$app/config/initializers" "$app/app/controllers" "$app/app/views/layouts" "$app/app/views/home" "$app/bin" "$runtime_root" "$root/build/conformance"
+if ! gem list -i puma >/dev/null; then
+  gem install puma --no-document
+fi
+printf 'rails new: generating conventional Rails %s ERB application\n' "$rails_version"
+ruby -S rails "_${rails_version}_" new "$app" --skip-bundle --skip-active-record --skip-action-mailer \
+  --skip-active-storage --skip-action-cable --skip-asset-pipeline --skip-javascript --skip-hotwire --skip-jbuilder \
+  --skip-test --skip-system-test --skip-bootsnap
+
+cat >"$app/Gemfile" <<RUBY
+source "https://rubygems.org"
+gem "rails", "= $rails_version"
+gem "puma"
+group :development do
+  gem "pi-browser-taskbar-rails", "= $version", require: "pi/browser/taskbar/rails"
+end
+RUBY
+
+gem install "$artifact" --install-dir "$gem_home" --local --ignore-dependencies --no-document >/dev/null
+mkdir -p "$runtime_root" "$root/build/conformance" "$root/build/compatibility" "$app/app/views/scenarios"
 chmod 700 "$runtime_root"
 cp "$root/packages/rails/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
 chmod +x "$tmp/fake_pi_rpc"
@@ -35,65 +56,18 @@ mkdir "$tmp/cancellation-scenarios" "$tmp/reset-scenarios"
 cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
 cp "$root"/contract/fixtures/scenarios/session-reset-*.json "$tmp/reset-scenarios/"
 
-cat >"$app/config/application.rb" <<'RUBY'
-require "rails"
-require "action_controller/railtie"
-require "action_view/railtie"
-require "pi/browser/taskbar/rails" if Rails.env.development?
-
-module Demo
-  class Application < Rails::Application
-    config.load_defaults 7.1
-    config.eager_load = false
-    config.secret_key_base = "clean-rails-secret-key-base-" * 8
-    config.hosts.clear
-    config.session_store :cookie_store, key: "_clean_rails"
-    config.action_controller.allow_forgery_protection = true
-    config.action_dispatch.show_exceptions = :none
-  end
-end
-RUBY
-cat >"$app/config/environment.rb" <<'RUBY'
-require_relative "application"
-Rails.application.initialize!
-RUBY
-cat >"$app/config/routes.rb" <<'RUBY'
-Rails.application.routes.draw do
-  root "home#index"
-end
-RUBY
-cat >"$app/app/controllers/application_controller.rb" <<'RUBY'
-class ApplicationController < ActionController::Base
-end
-RUBY
-cat >"$app/app/controllers/home_controller.rb" <<'RUBY'
-class HomeController < ApplicationController
-  def index
-  end
-end
-RUBY
-cat >"$app/app/views/home/index.html.erb" <<'ERB'
-<main><h1>Cards</h1></main>
-ERB
-cat >"$app/app/views/layouts/application.html.erb" <<'ERB'
-<!doctype html>
-<html><head><title>Demo</title></head><body><%= yield %></body></html>
-ERB
-cat >"$app/bin/rails" <<'RUBY'
-#!/usr/bin/env ruby
-APP_PATH = File.expand_path("../config/application", __dir__)
-require "rails/commands"
-RUBY
-chmod +x "$app/bin/rails"
-
-# Exercise the checked-in example pages from a clean artifact-installed host.
-mkdir -p "$app/app/views/scenarios"
+# Exercise the checked-in example pages from the generated, artifact-installed host.
 cp "$root/examples/rails/config/routes.rb" "$app/config/routes.rb"
 cp "$root/examples/rails/app/controllers/scenarios_controller.rb" "$app/app/controllers/scenarios_controller.rb"
 cp "$root"/examples/rails/app/views/scenarios/*.erb "$app/app/views/scenarios/"
+cat >"$app/app/views/layouts/application.html.erb" <<'ERB'
+<!doctype html>
+<html><head><title>Demo</title><%= csrf_meta_tags %></head><body><%= yield %></body></html>
+ERB
 
 export GEM_HOME="$gem_home"
 export GEM_PATH="$gem_home:$original_gem_path"
+export SECRET_KEY_BASE="clean-rails-secret-key-base-clean-rails-secret-key-base-clean-rails-secret-key-base"
 export PI_BROWSER_TASKBAR_EXECUTABLE="$tmp/fake_pi_rpc"
 export XDG_RUNTIME_DIR="$runtime_root"
 export PI_BROWSER_TASKBAR_SCENARIO="$tmp/scenario.json"
@@ -103,6 +77,13 @@ export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
 export PI_BROWSER_TASKBAR_RESET_SCENARIOS="$tmp/reset-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/rails.json"
+export PI_BROWSER_TASKBAR_PUMA_MODE="$puma_mode"
+export PI_BROWSER_TASKBAR_PUMA_OBSERVATION="$tmp/puma-observation.json"
+
+(
+  cd "$app"
+  bundle install --local
+)
 
 (
   cd "$app"
@@ -414,7 +395,71 @@ RUBY
 
 (
   cd "$app"
-  RAILS_ENV=development ruby conformance.rb
+  RAILS_ENV=development bundle exec ruby conformance.rb
+)
+
+port=$(ruby -rsocket -e 'server = TCPServer.new("127.0.0.1", 0); puts server.addr[1]; server.close')
+workers=0
+preload=false
+case "$puma_mode" in
+  single) ;;
+  clustered) workers=2 ;;
+  preloaded) workers=2; preload=true ;;
+  phased) workers=2 ;;
+  *) echo "unsupported Puma mode: $puma_mode" >&2; exit 1 ;;
+esac
+cat >"$tmp/puma.rb" <<RUBY
+bind "tcp://127.0.0.1:$port"
+environment "development"
+pidfile "$puma_pid"
+state_path "$tmp/puma.state"
+activate_control_app "unix://$tmp/pumactl.sock", { auth_token: "matrix-token" }
+workers $workers
+preload_app! if $preload
+RUBY
+(
+  cd "$app"
+  bundle exec puma -C "$tmp/puma.rb" >"$tmp/puma.log" 2>&1 &
+)
+export PI_BROWSER_TASKBAR_PUMA_URL="http://127.0.0.1:$port"
+export PI_BROWSER_TASKBAR_PUMA_WORKERS="$workers"
+export PI_BROWSER_TASKBAR_PUMA_PRELOAD="$preload"
+(cd "$app" && bundle exec ruby "$root/tooling/test/rails_puma_conformance.rb")
+if [[ "$puma_mode" == phased ]]; then
+  first_session=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("session_id")' "$PI_BROWSER_TASKBAR_PUMA_OBSERVATION")
+  (cd "$app" && bundle exec pumactl -S "$tmp/puma.state" phased-restart)
+  (cd "$app" && bundle exec ruby "$root/tooling/test/rails_puma_conformance.rb")
+  second_session=$(ruby -rjson -e 'puts JSON.parse(File.read(ARGV.fetch(0))).fetch("session_id")' "$PI_BROWSER_TASKBAR_PUMA_OBSERVATION")
+  [[ "$first_session" == "$second_session" ]] || { echo "phased Puma replacement lost broker session" >&2; exit 1; }
+  ruby -rjson -e 'path = ARGV.fetch(0); value = JSON.parse(File.read(path)).merge("phased_restart" => true, "session_continuity" => true); File.write(path, JSON.pretty_generate(value))' "$PI_BROWSER_TASKBAR_PUMA_OBSERVATION"
+fi
+master_pid=$(<"$puma_pid")
+kill "$master_pid"
+for _ in $(seq 1 100); do
+  kill -0 "$master_pid" 2>/dev/null || break
+  sleep 0.02
+done
+rm -f "$puma_pid"
+
+# End the development broker before proving that installed, guarded seams are inert in production.
+ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json
+for _ in $(seq 1 100); do
+  [[ ! -e "$broker_root"/*/endpoint.json ]] && break
+  sleep 0.02
+done
+cat >"$app/production_check.rb" <<'RUBY'
+require_relative "config/environment"
+raise "development gem loaded in production" if defined?(Pi::Browser::Taskbar::Rails)
+routes = Rails.application.routes.routes.map { |route| route.path.spec.to_s }
+raise "production mounted taskbar routes" if routes.any? { |path| path.include?("pi-browser-taskbar") }
+rendered = ApplicationController.render(inline: "<main>Production</main>", layout: "application")
+raise "production emitted taskbar assets" if rendered.include?("pi-browser-taskbar")
+raise "production started broker" unless Dir[File.join(ENV.fetch("XDG_RUNTIME_DIR"), "pi-browser-taskbar", "*", "endpoint.json")].empty?
+puts "clean Rails production isolation passed"
+RUBY
+(
+  cd "$app"
+  RAILS_ENV=production bundle exec ruby production_check.rb
 )
 
 # Prove a recognized older generated initializer updates, then remove all owned seams through Rails' inverse.
@@ -426,37 +471,36 @@ File.write(path, PiBrowserTaskbar::Generators::InstallGenerator.refresh_initiali
 RUBY
 (
   cd "$app"
-  RAILS_ENV=development ruby bin/rails generate pi_browser_taskbar:install >/dev/null
+  RAILS_ENV=development bundle exec ruby bin/rails generate pi_browser_taskbar:install >/dev/null
   ! grep -q "older generated release" config/initializers/pi_browser_taskbar.rb
-  RAILS_ENV=development ruby bin/rails destroy pi_browser_taskbar:install
-  RAILS_ENV=development ruby bin/rails destroy pi_browser_taskbar:install >/dev/null
+  RAILS_ENV=development bundle exec ruby bin/rails destroy pi_browser_taskbar:install
+  RAILS_ENV=development bundle exec ruby bin/rails destroy pi_browser_taskbar:install >/dev/null
   test ! -e config/initializers/pi_browser_taskbar.rb
   ! grep -R "pi-browser-taskbar:start\|pi_browser_taskbar_tags" config/routes.rb app/views/layouts/application.html.erb
   grep -q 'root "scenarios#index"' config/routes.rb
 )
 echo "clean Rails update and uninstall conformance passed"
 
-# End the development broker before proving a package-absent production boot.
-ruby -rjson -e 'ARGV.each { |p| Process.kill("TERM", JSON.parse(File.read(p)).fetch("pid")) rescue nil }' "$broker_root"/*/endpoint.json
-for _ in $(seq 1 100); do
-  [[ ! -e "$broker_root"/*/endpoint.json ]] && break
-  sleep 0.02
-done
-mv "$gem_home/gems/pi-browser-taskbar-rails-$version" "$tmp/package-removed"
-
-cat >"$app/production_check.rb" <<'RUBY'
-require_relative "config/environment"
-raise "development gem loaded in production" if defined?(Pi::Browser::Taskbar::Rails)
-routes = Rails.application.routes.routes.map { |route| route.path.spec.to_s }
-raise "production mounted taskbar routes" if routes.any? { |path| path.include?("pi-browser-taskbar") }
-layout = File.read(Rails.root.join("app/views/layouts/application.html.erb"))
-rendered = ApplicationController.render(template: "home/index", layout: "application")
-raise "production emitted taskbar assets" if rendered.include?("pi-browser-taskbar")
-raise "production started broker" unless Dir[File.join(ENV.fetch("XDG_RUNTIME_DIR"), "pi-browser-taskbar", "*", "endpoint.json")].empty?
-puts "clean Rails production isolation passed"
-RUBY
-
+row_id=${PI_BROWSER_TASKBAR_MATRIX_ROW:-local-rails-${rails_version}-ruby-$(ruby -e 'print RUBY_VERSION')}
+evidence="$root/build/compatibility/$row_id.json"
 (
   cd "$app"
-  GEM_PATH="$original_gem_path" GEM_HOME="" RAILS_ENV=production ruby production_check.rb
+  PI_BROWSER_TASKBAR_ARTIFACT="$artifact" PI_BROWSER_TASKBAR_EVIDENCE="$evidence" bundle exec ruby -rjson -rdigest -rrails -rpi/browser/taskbar/rails -e '
+    observation = JSON.parse(File.read(ENV.fetch("PI_BROWSER_TASKBAR_PUMA_OBSERVATION")))
+    loaded = Gem.loaded_specs.fetch("pi-browser-taskbar-rails").full_gem_path
+    raise "adapter loaded from source workspace" unless loaded.start_with?(ENV.fetch("GEM_HOME"))
+    evidence = {
+      "schema" => 1,
+      "row" => ENV.fetch("PI_BROWSER_TASKBAR_MATRIX_ROW", "local"),
+      "platform" => {"engine" => RUBY_ENGINE, "os" => RbConfig::CONFIG.fetch("host_os")},
+      "versions" => {"ruby" => RUBY_VERSION, "rails" => Rails::VERSION::STRING,
+        "adapter" => Pi::Browser::Taskbar::Rails::VERSION},
+      "artifact" => {"sha256" => Digest::SHA256.file(ENV.fetch("PI_BROWSER_TASKBAR_ARTIFACT")).hexdigest,
+        "loaded_from_isolated_gem_home" => true},
+      "puma" => observation,
+      "checks" => %w[generated_app boot route asset mutation annotation uninstall production_disabled no_workspace_fallback]
+    }
+    File.write(ENV.fetch("PI_BROWSER_TASKBAR_EVIDENCE"), JSON.pretty_generate(evidence) + "\n")
+  '
 )
+echo "Rails compatibility evidence: $evidence"

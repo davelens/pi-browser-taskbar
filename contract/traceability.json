@@ -81,7 +81,7 @@
     {"id": "accessibility", "heading": "Accessibility", "owner": "browser-client", "acceptance_seam": "Taskbar-owned lifecycle semantics, names/states, one live region, keyboard/focus flows, narrow/200% reflow, and reduced motion in both packaged bundles; recorded assistive-technology pass remains release evidence", "status": "adapter-slices"},
     {"id": "rails-integration-tests", "heading": "Rails-native integration", "owner": "rails-adapter", "acceptance_seam": "Rails installer, engine, CSRF, attribution, and broker process tests", "status": "rails-slice"},
     {"id": "phoenix-integration-tests", "heading": "Phoenix-native integration", "owner": "phoenix-adapter", "acceptance_seam": "Phoenix installer, Plug, CSRF, attribution, and OTP isolation tests", "status": "phoenix-slice"},
-    {"id": "compatibility-matrix", "heading": "Compatibility matrix", "owner": "root-tooling", "acceptance_seam": "Published matrix synchronized to clean generated application CI rows", "status": "future"},
+    {"id": "compatibility-matrix", "heading": "Compatibility matrix", "owner": "root-tooling", "acceptance_seam": "Published matrix synchronized to clean generated application CI rows", "status": "rails-slice"},
     {"id": "release-acceptance", "heading": "Examples, artifacts, documentation, and release", "owner": "root-tooling", "acceptance_seam": "Packaged example, artifact content, documentation, and release rehearsal gates", "status": "future"},
     {"id": "out-of-scope", "heading": "Out of Scope", "owner": "conformance-contract", "acceptance_seam": "Contract and architecture review rejects accidental unsupported interfaces", "status": "foundation"}
   ]

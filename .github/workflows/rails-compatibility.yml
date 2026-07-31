@@ -1,0 +1,56 @@
+name: Rails compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      rows: ${{ steps.rows.outputs.rows }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: rows
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          profile=release
+          if [[ "$EVENT_NAME" == pull_request ]]; then profile=pull_request; fi
+          echo "rows=$(ruby tooling/rails_compatibility_matrix.rb "$profile")" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.rows) }}
+    name: ${{ matrix.id }} / Puma ${{ matrix.puma }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      - name: Build Rails artifact
+        run: |
+          mkdir -p build
+          cd packages/rails
+          gem build pi-browser-taskbar-rails.gemspec --output "../../build/pi-browser-taskbar-rails-$(<../../VERSION).gem"
+      - name: Verify clean generated application
+        env:
+          PI_BROWSER_TASKBAR_MATRIX_ROW: ${{ matrix.id }}
+          PI_BROWSER_TASKBAR_TEST_RAILS_VERSION: ${{ matrix.rails }}
+          PI_BROWSER_TASKBAR_TEST_PUMA_MODE: ${{ matrix.puma }}
+        run: tooling/test/rails_clean_app_conformance.sh
+      - name: Validate compatibility evidence
+        run: ruby tooling/verify_rails_evidence.rb "build/compatibility/${{ matrix.id }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rails-compatibility-${{ matrix.id }}
+          path: build/compatibility/${{ matrix.id }}.json
+          if-no-files-found: error
