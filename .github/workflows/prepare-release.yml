@@ -1,0 +1,100 @@
+name: Prepare coordinated release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact protected-main commit to prepare
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  checks: read
+
+concurrency:
+  group: coordinated-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_commit }}
+          fetch-depth: 0
+      - name: Require the exact protected main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo 'source_commit must be a full lowercase Git SHA' >&2; exit 1; }
+          git fetch --no-tags origin main
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]] || { echo 'checkout does not match source_commit' >&2; exit 1; }
+          [[ "$(git rev-parse origin/main)" == "$SOURCE_COMMIT" ]] || { echo 'source_commit is not the current origin/main commit' >&2; exit 1; }
+          [[ "$(gh api "repos/$REPOSITORY/branches/main" --jq .protected)" == true ]] || { echo 'main is not protected; release preparation is blocked' >&2; exit 1; }
+      - name: Require complete acceptance checks on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          gh api "repos/$REPOSITORY/commits/$SOURCE_COMMIT/check-runs?per_page=100" > "$RUNNER_TEMP/check-runs.json"
+          ruby tooling/prepare_release.rb verify-check-runs "$RUNNER_TEMP/check-runs.json" "$SOURCE_COMMIT"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install acceptance dependencies
+        run: |
+          mix local.hex --force
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
+      - name: Build once and run deterministic acceptance
+        run: bin/verify
+      - name: Require reproduced generated sources and clean staging
+        run: |
+          git diff --exit-code
+          test -z "$(git status --porcelain)" || { git status --short >&2; echo 'verification changed the source workspace' >&2; exit 1; }
+      - name: Require recorded human release evidence
+        run: ruby tooling/prepare_release.rb verify-manual-evidence
+      - name: Require coordinated versions to be absent from registries
+        run: |
+          version=$(<VERSION)
+          rails_status=$(curl --retry 3 --silent --show-error --output "$RUNNER_TEMP/rails-registry" --write-out '%{http_code}' \
+            "https://rubygems.org/api/v2/rubygems/pi-browser-taskbar-rails/versions/$version.json")
+          phoenix_status=$(curl --retry 3 --silent --show-error --output "$RUNNER_TEMP/phoenix-registry" --write-out '%{http_code}' \
+            "https://hex.pm/api/packages/pi_browser_taskbar_phoenix/releases/$version")
+          [[ "$rails_status" == 404 ]] || { echo "RubyGems version preflight expected 404, received $rails_status; no write attempted" >&2; exit 1; }
+          [[ "$phoenix_status" == 404 ]] || { echo "Hex version preflight expected 404, received $phoenix_status; no write attempted" >&2; exit 1; }
+      - name: Prepare checksums, provenance manifest, and release notes
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_SOURCE_REF: refs/heads/main
+          RELEASE_CHECK_RUNS: ${{ runner.temp }}/check-runs.json
+        run: ruby tooling/prepare_release.rb prepare build/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coordinated-release-${{ inputs.source_commit }}-${{ github.run_id }}
+          path: build/release/*
+          if-no-files-found: error
+      - name: Preserve an unpublished draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          version=$(<VERSION)
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "release v$version already exists; refusing to mix prepared runs" >&2
+            exit 1
+          fi
+          gh release create "v$version" build/release/* --draft --target "$SOURCE_COMMIT" \
+            --title "Pi Browser Taskbar $version" --notes-file build/release/RELEASE_NOTES.md

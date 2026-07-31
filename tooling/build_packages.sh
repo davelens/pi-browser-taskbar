@@ -4,6 +4,9 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 version=$(<"$root/VERSION")
 build="$root/build"
+export SOURCE_DATE_EPOCH=946684800
+export TZ=UTC
+export LC_ALL=C
 
 ruby "$root/tooling/stage_shared_docs.rb"
 rm -rf "$build"

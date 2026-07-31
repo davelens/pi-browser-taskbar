@@ -26,17 +26,11 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
 
   defp package do
     [
-      files: [
-        "lib",
-        "priv",
-        ".formatter.exs",
-        "mix.exs",
-        "README.md",
-        "CHANGELOG.md",
-        "LICENSE",
-        "contract",
-        "docs"
-      ],
+      files:
+        ([".formatter.exs", "mix.exs", "README.md", "CHANGELOG.md", "LICENSE"] ++
+           Path.wildcard("{lib,priv,contract,docs}/**/*"))
+        |> Enum.filter(&File.regular?/1)
+        |> Enum.sort(),
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/davelens/pi-browser-taskbar"}
     ]

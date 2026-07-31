@@ -33,6 +33,12 @@ contract rather than copying shared behavior. Run `bin/build` after changing sha
 verification requires every staged copy to be byte-identical and every repository/package link to
 resolve.
 
+## Release preparation
+
+Use the protected workflow documented in [coordinated release preparation](releasing.md). Do not
+rebuild a prepared candidate, substitute workspace dependencies, or infer human evidence from
+automation. Preparation preserves checksums and provenance without publishing to a registry.
+
 ## Examples
 
 Keep Rails and Phoenix scenarios named and selected equivalently. Examples may use only published

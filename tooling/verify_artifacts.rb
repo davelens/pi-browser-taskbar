@@ -30,6 +30,11 @@ class ArtifactVerifier
     unless dependencies.length == 1 && dependencies.first.name == "rails" && dependencies.first.requirement.to_s == ">= 7.1, < 8.2"
       raise "Rails artifact compatibility dependency drift"
     end
+    repository = "https://github.com/davelens/pi-browser-taskbar"
+    unless package.spec.metadata["source_code_uri"] == "#{repository}/tree/v#{@version}" &&
+        package.spec.metadata["changelog_uri"] == "#{repository}/blob/v#{@version}/packages/rails/CHANGELOG.md"
+      raise "Rails artifact versioned metadata links drift"
+    end
 
     Dir.mktmpdir("pi-browser-taskbar-gem") do |directory|
       package.extract_files(directory)
@@ -59,13 +64,24 @@ class ArtifactVerifier
     outer = tar_entries(File.open(path, "rb"))
     contents = outer.fetch("contents.tar.gz") { raise "Phoenix artifact has no contents.tar.gz" }
     metadata = outer.fetch("metadata.config") { raise "Phoenix artifact has no metadata.config" }
-    unless metadata.include?(%({<<"elixir">>,<<">= 1.11.0">>})) &&
+    unless metadata.include?(%({<<"name">>,<<"pi_browser_taskbar_phoenix">>})) &&
+        metadata.include?(%({<<"version">>,<<"#{@version}">>})) &&
+        metadata.include?(%({<<"elixir">>,<<">= 1.11.0">>})) &&
         metadata.include?(%({<<"requirement">>,<<">= 1.7.0 and < 2.0.0">>})) &&
         metadata.scan(%({<<"repository">>,<<"hexpm">>})).length == 2
-      raise "Phoenix artifact compatibility metadata drift"
+      raise "Phoenix artifact metadata drift"
     end
     files = tar_entries(StringIO.new(Zlib::GzipReader.new(StringIO.new(contents)).read))
     asset = "priv/static/pi_browser_taskbar.js"
+    required = %w[
+      lib/pi_browser_taskbar_phoenix.ex
+      lib/pi_browser_taskbar_phoenix/runtime.ex
+      lib/pi_browser_taskbar_phoenix/endpoint.ex
+      lib/pi_browser_taskbar_phoenix/installer.ex
+      lib/mix/tasks/pi_browser_taskbar.install.ex
+    ]
+    missing = required - files.keys
+    raise "Phoenix artifact omits runtime entries: #{missing.join(", ")}" unless missing.empty?
     verify_contents("Phoenix", files.keys, asset)
     verify_license("Phoenix", files.fetch("LICENSE"))
     verify_shared_docs("Phoenix") { |path| files.fetch(path) }
@@ -88,10 +104,21 @@ class ArtifactVerifier
       "docs/accessibility-acceptance.md", "docs/security.md", "docs/troubleshooting.md"]
     missing = required - files
     raise "#{label} artifact omits required content: #{missing.join(", ")}" unless missing.empty?
-    raise "#{label} artifact unexpectedly requires Node" if files.any? { |file| File.basename(file) == "package.json" }
+
+    top_level = label == "Rails" ? %w[README.md CHANGELOG.md LICENSE] : %w[.formatter.exs mix.exs README.md CHANGELOG.md LICENSE]
+    prefixes = label == "Rails" ? %w[lib contract docs] : %w[lib priv contract docs]
+    allowed = files.select do |file|
+      top_level.include?(file) || prefixes.any? { |prefix| file == prefix || file.start_with?("#{prefix}/") }
+    end
+    unexpected = files - allowed
+    raise "#{label} artifact contains files outside its allowlist: #{unexpected.join(", ")}" unless unexpected.empty?
+
+    secret_like = files.grep(%r{(?:\A|/)(?:\.env(?:\..*)?|\.npmrc|credentials(?:\.yml\.enc)?|hex\.config|master\.key|id_(?:rsa|dsa|ecdsa|ed25519)|[^/]+\.(?:pem|key|p12|pfx))\z}i)
+    raise "#{label} artifact contains secret-like files: #{secret_like.join(", ")}" unless secret_like.empty?
 
     forbidden = files.grep(%r{(^|/)(examples|tooling|browser-client|node_modules)(/|$)})
-    raise "#{label} artifact leaks monorepo files: #{forbidden.join(", ")}" unless forbidden.empty?
+    forbidden += label == "Rails" ? files.grep(/phoenix/i) : files.grep(/(?:^|[\/_-])rails(?:[\/_-]|$)/i)
+    raise "#{label} artifact leaks unrelated content: #{forbidden.uniq.join(", ")}" unless forbidden.empty?
   end
 
   def verify_shared_docs(label)

@@ -27,3 +27,6 @@
 - Run artifact-isolated Chromium, Firefox, and WebKit controller/LiveView lifecycle and keyboard flows
   with taskbar-owned automated accessibility evidence and a separate human assistive-technology
   release checklist.
+- Enforce lockstep versions, deterministic artifact bytes, strict package contents, clean
+  artifact-installed examples, manual-evidence prerequisites, checksums, and source/workflow
+  provenance before release preparation.

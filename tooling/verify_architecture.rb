@@ -70,13 +70,31 @@ class ArchitectureVerifier
 
     rails = @root.join("packages/rails/lib/pi/browser/taskbar/rails/version.rb").read[/VERSION = "([^"]+)"/, 1]
     phoenix = @root.join("packages/phoenix/mix.exs").read[/version: "([^"]+)"/, 1]
+    phoenix_runtime = @root.join("packages/phoenix/lib/pi_browser_taskbar_phoenix.ex").read[/@version "([^"]+)"/, 1]
     rails_changelog = @root.join("packages/rails/CHANGELOG.md").read
     phoenix_changelog = @root.join("packages/phoenix/CHANGELOG.md").read
 
     error("Rails package version #{rails.inspect} differs from #{version}") unless rails == version
     error("Phoenix package version #{phoenix.inspect} differs from #{version}") unless phoenix == version
+    error("Phoenix runtime version #{phoenix_runtime.inspect} differs from #{version}") unless phoenix_runtime == version
     error("Rails changelog has no #{version} entry") unless rails_changelog.include?("## #{version}")
     error("Phoenix changelog has no #{version} entry") unless phoenix_changelog.include?("## #{version}")
+
+    %w[rails phoenix].each do |adapter|
+      readme = @root.join("packages/#{adapter}/README.md").read
+      error("#{adapter} guide version differs from #{version}") unless readme.scan(version).length >= 2
+      asset = adapter == "rails" ? "packages/rails/lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js" : "packages/phoenix/priv/static/pi_browser_taskbar.js"
+      error("#{adapter} Browser Client bootstrap version differs from #{version}") unless @root.join(asset).read.include?(%(productVersion: "#{version}"))
+    end
+
+    contract = @root.join("contract/docs/index.md").read[/# Conformance Contract v(\d+)/, 1]&.to_i
+    error("canonical contract heading and declaration differ") unless contract && @root.join("contract/docs/index.md").read.include?("contract_version: #{contract}")
+    @root.glob("contract/schemas/*.json").each do |path|
+      schema = JSON.parse(path.read)
+      file_version = path.basename.to_s[/\.v(\d+)\.schema\.json\z/, 1]&.to_i
+      declared = schema.dig("properties", "contract_version", "const") || file_version
+      error("#{relative(path)} contract version #{declared.inspect} differs from #{contract}") unless declared == contract
+    end
 
     license = @root.join("LICENSE").read
     error("Rails packaged license differs from root LICENSE") unless @root.join("packages/rails/LICENSE").read == license
