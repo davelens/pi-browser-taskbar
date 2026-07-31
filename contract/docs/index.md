@@ -253,6 +253,36 @@ Current-browser acceptance exercises two tabs, ambiguous submission, shared busy
 progress, cancellation, reset and output, plus idle/active partial navigation, live patching, and full
 navigation remounts.
 
+## Corner composer and taskbar accessibility
+
+The Browser Client owns one lower-left launcher and compact composer entirely inside its Shadow DOM.
+It uses only native controls, inline taskbar markup, system fonts, and taskbar styles. The open order is
+Pi identity/model and status, task focus and optional removable marks, task instruction, lifecycle
+feedback, then separate session and task actions. Zero marks says **Whole page** and describes the
+bounded structural snapshot; one through eight marks remain advisory focus points with whole-page
+surroundings.
+
+The stable visible states are **Connecting**, **Ready**, **Working**, **Finished**, **Stopped**, and
+**Unavailable**. They are exposed as text and programmatic state, not color alone. One atomic polite
+live region announces changed activity and terminal results; visible errors use that same announcer so
+status, activity, and error elements do not produce duplicate live regions. Bounded output remains
+keyboard-scrollable and labelled, and a stopped task retains the warning that existing file changes
+were not rolled back.
+
+Opening moves focus to the labelled instruction field; collapse or `Escape` returns focus to the
+launcher. **Mark element** exposes pressed state and visible pointer/focus guidance: a keyboard user
+may focus a host-page element and press Enter or Space, while `Escape` cancels and returns focus to
+**Mark element**. Removing or clearing marks returns focus to a surviving remove control or **Mark
+element**. Native buttons cover submission, stopping, and the two-step reset confirmation. Active
+work disables editing, marking, clearing, and reset while leaving **Stop task** available.
+
+The composer fits the available narrow viewport, caps its block size so content remains scrollable at
+200% zoom, and removes animation and transition effects under `prefers-reduced-motion: reduce`.
+Automated DOM and current-browser checks exercise every material lifecycle state in both generated
+bundles, taskbar-owned names/states/live regions, keyboard focus paths, Shadow DOM style isolation,
+narrow reflow, and reduced motion. The WCAG 2.2 AA target and these checks apply only to the
+Shadow-DOM taskbar interface; they neither test nor claim accessibility for the host application.
+
 ## Session reset
 
 `POST /session/reset` is accepted only while the session is `ready`; a running, cancelling, or

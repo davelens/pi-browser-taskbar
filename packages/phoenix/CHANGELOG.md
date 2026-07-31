@@ -18,3 +18,5 @@
 - Secure exact remote-host access, native CSRF responses, safe diagnostics, and persistent trusted-network HTTP warnings.
 - Make host installation discoverable or explicitly selectable, marked, atomic, formatted, safely
   updatable, dependency-free outside development, and reversibly uninstallable.
+- Complete the Shadow DOM Corner composer with stable lifecycle text, native accessible controls, one
+  live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.

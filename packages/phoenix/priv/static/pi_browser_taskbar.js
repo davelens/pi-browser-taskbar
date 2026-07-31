@@ -32,11 +32,15 @@
         activity: shadow.querySelector("[data-activity]"),
         cancelWarning: shadow.querySelector("[data-cancel-warning]"),
         clear: shadow.querySelector("[data-clear]"),
+        close: shadow.querySelector("[data-close]"),
         error: shadow.querySelector("[data-error]"),
+        feedback: shadow.querySelector("[data-feedback]"),
         hoverOutline: shadow.querySelector("[data-hover-outline]"),
         insecureRemoteWarning: shadow.querySelector("[data-insecure-remote-warning]"),
+        live: shadow.querySelector("[data-live]"),
         mark: shadow.querySelector("[data-mark]"),
         marks: shadow.querySelector("[data-marks]"),
+        model: shadow.querySelector("[data-model]"),
         output: shadow.querySelector("[data-output]"),
         outputTruncated: shadow.querySelector("[data-output-truncated]"),
         overlays: shadow.querySelector("[data-overlays]"),
@@ -45,8 +49,11 @@
         reset: shadow.querySelector("[data-reset]"),
         run: shadow.querySelector("[data-run]"),
         scope: shadow.querySelector("[data-scope]"),
+        selectionHelp: shadow.querySelector("[data-selection-help]"),
         status: shadow.querySelector("[data-status]"),
         toggle: shadow.querySelector("[data-toggle]"),
+        toggleScope: shadow.querySelector("[data-toggle-scope]"),
+        toggleStatus: shadow.querySelector("[data-toggle-status]"),
       };
       let currentBootstrap = bootstrap;
       let fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
@@ -61,23 +68,36 @@
       let resetPending = false;
       let mutationObserver = null;
 
-      controls.toggle.addEventListener("click", () => {
-        controls.panel.hidden = !controls.panel.hidden;
-        controls.toggle.setAttribute("aria-expanded", String(!controls.panel.hidden));
-        if (!controls.panel.hidden) controls.prompt.focus?.();
-      });
+      controls.toggle.addEventListener("click", openPanel);
+      controls.close.addEventListener("click", closePanel);
       controls.mark.addEventListener("click", () => setSelecting(!selecting));
-      controls.clear.addEventListener("click", clearMarks);
+      controls.clear.addEventListener("click", () => clearMarks(true));
       controls.run.addEventListener("click", () => primaryAction().catch(() => {}));
       controls.reset.addEventListener("click", () => resetAction().catch(() => {}));
       controls.prompt.addEventListener("input", renderControls);
       document.addEventListener?.("pointermove", hoverSelection, true);
+      document.addEventListener?.("focusin", hoverSelection, true);
       document.addEventListener?.("click", selectElement, true);
       document.addEventListener?.("keydown", (event) => {
         if (selecting && event.key === "Escape") {
           event.preventDefault?.();
           setSelecting(false);
           controls.mark.focus?.();
+          return;
+        }
+        if (selecting && ["Enter", " "].includes(event.key) && selectionTarget(event.target, host, document)) {
+          selectElement(event);
+          return;
+        }
+        if (event.key === "Escape" && !controls.panel.hidden && taskbarEvent(event, host)) {
+          event.preventDefault?.();
+          if (confirmingReset) {
+            confirmingReset = false;
+            renderControls();
+            controls.reset.focus?.();
+          } else {
+            closePanel();
+          }
         }
       }, true);
       document.defaultView?.addEventListener?.("resize", positionMarkOutlines);
@@ -90,6 +110,22 @@
         if (document.visibilityState !== "hidden") refresh().catch(() => {});
       });
       observeHostPage();
+
+      function openPanel() {
+        controls.panel.hidden = false;
+        controls.toggle.hidden = true;
+        controls.toggle.setAttribute("aria-expanded", "true");
+        controls.prompt.focus?.();
+      }
+
+      function closePanel() {
+        setSelecting(false);
+        confirmingReset = false;
+        controls.panel.hidden = true;
+        controls.toggle.hidden = false;
+        controls.toggle.setAttribute("aria-expanded", "false");
+        controls.toggle.focus?.();
+      }
 
       async function submit(prompt) {
         const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
@@ -252,19 +288,32 @@
         const session = snapshot?.session || { status: "starting" };
         const task = snapshot?.task;
         const renderedSession = resetPending ? { ...session, status: "resetting" } : session;
-        setControlText(controls.status, visibleStatus(renderedSession, task));
-        controls.status.setAttribute("data-state", task?.status || renderedSession.status);
-        setControlText(controls.activity, renderedSession.status === "resetting"
+        const status = visibleStatus(renderedSession, task);
+        const activity = renderedSession.status === "resetting"
           ? "Starting a fresh session"
-          : task?.activity || connectingActivity(renderedSession));
+          : task?.activity || connectingActivity(renderedSession);
+        setControlText(controls.status, status);
+        controls.status.setAttribute("data-state", task?.status || renderedSession.status);
+        setControlText(controls.model, session.model ? `Model: ${session.model}` : "Local Pi session");
+        setControlText(controls.toggleStatus, status);
+        setControlText(controls.activity, activity);
         controls.activity.hidden = !controls.activity.textContent;
+        controls.panel.setAttribute("aria-busy", String(resetPending || active(snapshot)));
         controls.output.textContent = task?.output || "";
         controls.output.hidden = !controls.output.textContent;
         controls.outputTruncated.hidden = !task?.output_truncated;
         setControlText(controls.error, task?.error || session.error || "");
         controls.error.hidden = !controls.error.textContent;
         controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
+        controls.feedback.hidden = [
+          controls.activity,
+          controls.output,
+          controls.outputTruncated,
+          controls.error,
+          controls.cancelWarning,
+        ].every((control) => control.hidden);
         controls.insecureRemoteWarning.hidden = !unencryptedRemoteAccess(currentBootstrap, pageLocation);
+        announce(lifecycleAnnouncement(status, activity, renderedSession, task));
         renderMarks();
         renderControls();
       }
@@ -279,10 +328,16 @@
         controls.prompt.disabled = busy;
         controls.mark.disabled = busy || (!selecting && marks.length >= 8);
         controls.clear.disabled = busy;
-        controls.run.disabled = cancelling || resetting || (!running && !String(controls.prompt.value || "").trim());
+        controls.run.disabled = cancelling || resetting || (!running && (
+          snapshot?.session?.status !== "ready" || !String(controls.prompt.value || "").trim()
+        ));
         controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
         controls.reset.disabled = busy || snapshot?.session?.status !== "ready";
         controls.reset.textContent = confirmingReset ? "Start fresh?" : resetting ? "Starting fresh…" : "New session";
+        controls.reset.setAttribute("aria-label", confirmingReset
+          ? "Confirm starting a fresh Pi session"
+          : "Start a new Pi session");
+        controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.toggleStatus.textContent}. ${scopeTitle(marks.length)}.`);
       }
 
       function setSelecting(next) {
@@ -290,7 +345,9 @@
         controls.mark.setAttribute("aria-pressed", String(selecting));
         controls.mark.textContent = selecting ? "Selecting…" : "Mark element";
         host.toggleAttribute?.("data-selecting", selecting);
+        controls.selectionHelp.hidden = !selecting;
         if (!selecting) controls.hoverOutline.hidden = true;
+        else announce("Selection mode. Focus an element on the page and press Enter or Space to mark it. Press Escape to cancel.");
         renderControls();
       }
 
@@ -316,6 +373,7 @@
         if (!selector) {
           showError(new Error("This element could not be identified uniquely"));
           setSelecting(false);
+          controls.mark.focus?.();
           return;
         }
         if (!marks.some((mark) => mark.element === element || mark.selector === selector)) {
@@ -323,29 +381,37 @@
         }
         setSelecting(false);
         renderMarks();
+        announce(`${scopeTitle(marks.length)} selected as advisory focus.`);
+        controls.prompt.focus?.();
       }
 
-      function clearMarks() {
+      function clearMarks(returnFocus = false) {
         if (active(snapshot)) return;
         marks.splice(0);
         setSelecting(false);
         renderMarks();
+        announce("Marks cleared. Whole page selected.");
+        if (returnFocus) controls.mark.focus?.();
       }
 
       function removeMark(index) {
         if (active(snapshot)) return;
         marks.splice(index, 1);
         renderMarks();
+        announce(marks.length ? `${scopeTitle(marks.length)} remain.` : "Mark removed. Whole page selected.");
+        const nextRemove = controls.marks.children?.[Math.min(index, marks.length - 1)]?.children?.[1];
+        (nextRemove || controls.mark).focus?.();
       }
 
       function renderMarks() {
         controls.scope.textContent = marks.length === 0
-          ? "Whole page · bounded structural context"
-          : `${marks.length} marked element${marks.length === 1 ? "" : "s"} · advisory focus with whole-page surroundings`;
+          ? "Whole page · Pi receives a bounded structural snapshot"
+          : `${scopeTitle(marks.length)} · advisory focus with whole-page surroundings`;
+        controls.toggleScope.textContent = scopeTitle(marks.length);
         controls.clear.hidden = marks.length === 0;
         controls.marks.replaceChildren?.();
         marks.forEach((mark, index) => {
-          const chip = document.createElement("span");
+          const chip = document.createElement("li");
           chip.setAttribute("data-mark-chip", "");
           const label = document.createElement("span");
           label.textContent = `${index + 1}. ${mark.selector}`;
@@ -425,15 +491,23 @@
       }
 
       function showRecovery(error) {
-        setControlText(controls.error, error?.networkFailure
+        const message = error?.networkFailure
           ? "Connection lost. Retrying without clearing the last known state."
-          : `${error?.message || "Pi Browser Taskbar is unavailable"} Retrying…`);
+          : `${error?.message || "Pi Browser Taskbar is unavailable"} Retrying…`;
+        setControlText(controls.error, message);
         controls.error.hidden = false;
+        announce(message);
       }
 
       function showError(error) {
-        setControlText(controls.error, error?.message || "Pi Browser Taskbar is unavailable");
+        const message = error?.message || "Pi Browser Taskbar is unavailable";
+        setControlText(controls.error, message);
         controls.error.hidden = false;
+        announce(`Error. ${message}`);
+      }
+
+      function announce(message) {
+        setControlText(controls.live, message);
       }
 
       function setControlText(control, text) {
@@ -1017,6 +1091,24 @@
     outline.style.height = `${rectangle.height}px`;
   }
 
+  function taskbarEvent(event, host) {
+    return event.target === host || host.contains?.(event.target) || event.composedPath?.().includes(host);
+  }
+
+  function scopeTitle(count) {
+    return count === 0 ? "Whole page" : `${count} marked element${count === 1 ? "" : "s"}`;
+  }
+
+  function lifecycleAnnouncement(status, activity, session, task) {
+    if (task?.error || session?.error) return `${status}. ${task?.error || session.error}`;
+    if (task?.status === "completed") return activity && activity !== "Task completed"
+      ? `Task finished. ${activity}`
+      : "Task finished.";
+    if (task?.status === "cancelled") return "Task stopped. File changes already made were not rolled back.";
+    if (status === "Ready") return "Pi is ready.";
+    return activity ? `${status}. ${activity}` : status;
+  }
+
   function active(snapshot) {
     return ["busy", "resetting"].includes(snapshot?.session?.status) || ["running", "cancelling"].includes(snapshot?.task?.status);
   }
@@ -1064,31 +1156,49 @@
   function markup() {
     return `
       <style>${taskbarStyles}</style>
-      <section data-panel hidden aria-label="Pi browser task">
-        <header><strong>PI / PAGE TASK</strong><span data-status aria-live="polite">Connecting</span></header>
-        <p data-insecure-remote-warning hidden role="status">Remote HTTP access is unencrypted. Use only on a trusted network.</p>
-        <div data-focus-row>
-          <p data-scope>Whole page · bounded structural context</p>
-          <button data-mark type="button" aria-pressed="false">Mark element</button>
+      <section id="pi-taskbar-panel" data-panel hidden aria-labelledby="pi-taskbar-title" aria-busy="false">
+        <header>
+          <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><strong id="pi-taskbar-title">Pi browser task</strong><small data-model>Local Pi session</small></span></span>
+          <span data-status data-state="starting">Connecting</span>
+          <button data-close type="button" aria-controls="pi-taskbar-panel" aria-expanded="true" aria-label="Collapse Pi browser taskbar">−</button>
+        </header>
+        <p data-insecure-remote-warning hidden>Remote HTTP access is unencrypted. Use only on a trusted network.</p>
+        <section data-focus aria-labelledby="pi-taskbar-focus-title">
+          <h2 id="pi-taskbar-focus-title">Task focus</h2>
+          <div data-focus-row>
+            <p data-scope>Whole page · Pi receives a bounded structural snapshot</p>
+            <button data-mark type="button" aria-pressed="false" aria-describedby="pi-taskbar-selection-help">Mark element</button>
+          </div>
+          <p id="pi-taskbar-selection-help" data-selection-help hidden>Use the pointer, or focus an element on the page and press Enter or Space. Escape cancels.</p>
+          <ul data-marks aria-label="Marked focus points"></ul>
+          <button data-clear type="button" hidden>Clear all marks</button>
+        </section>
+        <div data-instruction>
+          <label for="pi-taskbar-prompt">Task instruction</label>
+          <textarea id="pi-taskbar-prompt" data-prompt maxlength="4000" rows="3" placeholder="Describe the change you want"></textarea>
         </div>
-        <div data-marks aria-label="Marked focus points"></div>
-        <button data-clear type="button" hidden>Clear marks</button>
-        <label>What should change?<textarea data-prompt maxlength="4000" rows="3"></textarea></label>
-        <p data-activity aria-live="polite"></p>
-        <pre data-output hidden></pre>
-        <p data-output-truncated hidden>Showing the newest 32 KiB; older output was removed.</p>
-        <p data-error hidden role="alert"></p>
-        <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
-        <button data-run type="button" disabled>Run with Pi</button>
-        <button data-reset type="button" disabled>New session</button>
+        <section data-feedback hidden aria-label="Task feedback">
+          <p data-activity></p>
+          <pre data-output hidden tabindex="0" aria-label="Latest Pi output"></pre>
+          <p data-output-truncated hidden>Showing the newest 32 KiB; older output was removed.</p>
+          <p data-error hidden></p>
+          <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
+        </section>
+        <footer>
+          <button data-reset type="button" disabled aria-label="Start a new Pi session">New session</button>
+          <button data-run type="button" disabled>Run with Pi</button>
+        </footer>
       </section>
+      <p class="sr-only" data-live aria-live="polite" aria-atomic="true">Connecting to the local Pi session</p>
       <div data-hover-outline hidden aria-hidden="true"></div>
       <div data-overlays aria-hidden="true"></div>
-      <button data-toggle type="button" aria-expanded="false" aria-label="Open Pi browser taskbar">π <span>Page task</span></button>
+      <button data-toggle type="button" aria-controls="pi-taskbar-panel" aria-expanded="false" aria-label="Open Pi browser taskbar. Connecting. Whole page.">
+        <span data-pi-glyph aria-hidden="true">π</span><span><strong>Page task · <span data-toggle-status>Connecting</span></strong><small data-toggle-scope>Whole page</small></span>
+      </button>
     `;
   }
 
-  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\n[data-insecure-remote-warning] {\n  padding: 8px 10px;\n  border: 1px solid #ffcc66;\n  border-radius: 8px;\n  color: #ffdd94;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run],\n[data-reset] {\n  width: 100%;\n}\n\n[data-run] {\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-reset] {\n  margin-top: 8px;\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
+  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-surface: #202329;\n  --pi-border: #4b515d;\n  --pi-muted: #c0c5ce;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  --pi-danger: #ff9b9b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, sans-serif;\n}\n\n*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\n.sr-only {\n  position: fixed;\n  width: 1px;\n  height: 1px;\n  overflow: hidden;\n  clip-path: inset(50%);\n  white-space: nowrap;\n}\n\n[data-panel] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  width: min(410px, calc(100vw - 32px));\n  max-height: calc(100vh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: auto;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto auto;\n  align-items: center;\n  gap: 10px;\n  padding: 12px 14px;\n  border-bottom: 1px solid var(--pi-border);\n}\n\n[data-identity],\n[data-toggle] > span:last-child {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  gap: 9px;\n}\n\n[data-identity] > span:last-child,\n[data-toggle] > span:last-child {\n  display: flex;\n  min-width: 0;\n  flex-direction: column;\n}\n\n[data-identity] strong,\n[data-toggle] strong {\n  font-size: 13px;\n}\n\n[data-identity] small,\n[data-toggle] small,\n[data-scope],\n[data-selection-help],\n[data-activity],\n[data-output-truncated],\n[data-cancel-warning] {\n  color: var(--pi-muted);\n}\n\n[data-identity] small,\n[data-toggle] small {\n  overflow: hidden;\n  font-size: 11px;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-pi-glyph] {\n  display: inline-grid;\n  width: 30px;\n  height: 30px;\n  flex: 0 0 auto;\n  place-items: center;\n  border-radius: 7px;\n  background: var(--pi-accent);\n  color: var(--pi-bg);\n  font-size: 20px;\n  font-weight: 800;\n  line-height: 1;\n}\n\n[data-status] {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  color: var(--pi-muted);\n  font-size: 12px;\n  font-weight: 700;\n  white-space: nowrap;\n}\n\n[data-status]::before {\n  width: 8px;\n  height: 8px;\n  flex: 0 0 auto;\n  border: 2px solid currentcolor;\n  border-radius: 50%;\n  content: \"\";\n}\n\n[data-status][data-state=\"ready\"],\n[data-status][data-state=\"completed\"] {\n  color: var(--pi-accent);\n}\n\n[data-status][data-state=\"running\"],\n[data-status][data-state=\"cancelling\"],\n[data-status][data-state=\"busy\"],\n[data-status][data-state=\"resetting\"] {\n  color: #ffdd94;\n}\n\n[data-status][data-state=\"failed\"],\n[data-status][data-state=\"unavailable\"] {\n  color: var(--pi-danger);\n}\n\n[data-focus],\n[data-instruction],\n[data-feedback] {\n  padding: 12px 14px;\n}\n\n[data-focus],\n[data-instruction] {\n  border-bottom: 1px solid var(--pi-border);\n}\n\nh2,\nlabel {\n  display: block;\n  margin: 0 0 7px;\n  color: var(--pi-muted);\n  font-size: 11px;\n  font-weight: 700;\n  letter-spacing: 0.06em;\n  text-transform: uppercase;\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 0;\n}\n\n[data-selection-help] {\n  margin: 8px 0 0;\n  font-size: 12px;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 34px;\n  flex: 0 0 auto;\n  padding: 0 10px;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  max-height: 80px;\n  flex-wrap: wrap;\n  gap: 6px;\n  overflow: auto;\n  margin: 8px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 34px;\n  min-height: 34px;\n  border: 0;\n}\n\n[data-clear] {\n  margin-top: 8px;\n}\n\ntextarea {\n  display: block;\n  width: 100%;\n  min-height: 84px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\ntextarea::placeholder {\n  color: var(--pi-muted);\n}\n\n[data-feedback] {\n  display: grid;\n  gap: 8px;\n}\n\n[data-feedback] > * {\n  margin: 0;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  border-radius: 8px;\n  background: #0d0f12;\n  font: 12px/1.45 ui-monospace, monospace;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n[data-error] {\n  color: var(--pi-danger);\n}\n\n[data-insecure-remote-warning] {\n  margin: 12px 14px 0;\n  padding: 8px 10px;\n  border: 1px solid #ffcc66;\n  border-radius: 8px;\n  color: #ffdd94;\n}\n\nfooter {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n  padding: 10px 14px 14px;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-surface);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n  font-weight: 650;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible,\npre:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-close] {\n  width: 40px;\n  padding: 0;\n  font-size: 20px;\n}\n\n[data-run] {\n  min-width: 124px;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-reset] {\n  border-color: transparent;\n  background: transparent;\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  min-width: 170px;\n  align-items: center;\n  gap: 9px;\n  padding: 7px 12px 7px 7px;\n  text-align: left;\n}\n\n@media (max-width: 420px) {\n  [data-panel] {\n    right: 8px;\n    bottom: 8px;\n    left: 8px;\n    width: auto;\n    max-height: calc(100vh - 16px);\n    max-height: calc(100dvh - 16px);\n  }\n\n  header {\n    grid-template-columns: minmax(0, 1fr) auto;\n  }\n\n  [data-status] {\n    grid-column: 1 / -1;\n    grid-row: 2;\n  }\n\n  [data-close] {\n    grid-column: 2;\n    grid-row: 1;\n  }\n\n  [data-focus-row] {\n    align-items: stretch;\n    flex-direction: column;\n  }\n\n  [data-mark] {\n    align-self: flex-start;\n  }\n\n  footer {\n    align-items: stretch;\n    flex-direction: column-reverse;\n  }\n\n  footer button {\n    width: 100%;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    animation: none !important;\n    transition: none !important;\n  }\n}";
   const contextProvider = ({
   framework: "phoenix",
   sourceHint(element, { projectApp } = {}) {

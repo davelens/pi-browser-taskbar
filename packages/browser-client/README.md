@@ -26,6 +26,14 @@ Mutations are sent once and any failed or ambiguous result is reconciled only th
 The single Shadow DOM host survives partial host navigation, remounts after full navigation, and
 removes marks whose elements or unique selectors no longer belong to the current DOM.
 
+The lower-left Corner composer uses native controls and one nonduplicative live region across
+Connecting, Ready, Working, Finished, Stopped, and Unavailable. Opening, collapse/Escape, selection
+mode, mark removal/clear, submission/stop, and reset confirmation have explicit focus paths; focused
+host elements can be marked with Enter or Space. The composer reflows within narrow and 200%-zoom
+equivalent viewports and disables motion under the reduced-motion preference. Automated semantics
+and current-browser checks apply only to the taskbar-owned Shadow DOM and make no accessibility claim
+about the host application.
+
 Capture retains only the contract allowlist, sanitizes URL references, truncates on Unicode
 code-point boundaries, and reports every applied bound. A programmatic mount may supply confident
 normalized route metadata as `route`; absent or incomplete metadata becomes `null`.

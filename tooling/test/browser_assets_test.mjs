@@ -10,6 +10,10 @@ const assets = {
   phoenix: "packages/phoenix/priv/static/pi_browser_taskbar.js",
   rails: "packages/rails/lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js",
 };
+const stylesheets = {
+  phoenix: "packages/phoenix/priv/static/pi_browser_taskbar.css",
+  rails: "packages/rails/lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.css",
+};
 
 for (const [framework, relativePath] of Object.entries(assets)) {
   test(`${framework} bootstrap is self-contained and mountable`, () => {
@@ -34,6 +38,13 @@ for (const [framework, relativePath] of Object.entries(assets)) {
 }
 
 for (const framework of Object.keys(assets)) {
+  test(`${framework} packaged stylesheet is limited to the taskbar host`, () => {
+    const stylesheet = fs.readFileSync(path.join(root, stylesheets[framework]), "utf8");
+
+    assert.match(stylesheet, /#pi-browser-taskbar-host\[data-pi-browser-taskbar-host\]\s*\{/u);
+    assert.doesNotMatch(stylesheet, /(^|\})\s*(button|header|section|textarea|\*)\b/mu);
+  });
+
   test(`${framework} Browser Client keeps remote HTTP access visibly warned`, () => {
     const source = fs.readFileSync(path.join(root, assets[framework]), "utf8");
 
@@ -337,7 +348,7 @@ for (const framework of Object.keys(assets)) {
     assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
     shadow.querySelector("[data-marks]").children[0].children[1].dispatchEvent({ type: "click" });
     assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
-    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · bounded structural context");
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · Pi receives a bounded structural snapshot");
 
     stable.forEach((element) => select(mark, document, element));
     assert.equal(shadow.querySelector("[data-marks]").children.length, 8);
@@ -349,7 +360,7 @@ for (const framework of Object.keys(assets)) {
     );
     shadow.querySelector("[data-clear]").dispatchEvent({ type: "click" });
     assert.equal(shadow.querySelector("[data-marks]").children.length, 0);
-    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · bounded structural context");
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "Whole page · Pi receives a bounded structural snapshot");
   });
 }
 
@@ -773,6 +784,81 @@ test("Browser Client shares focus detail fairly before allocating the whole-page
 function select(markButton, document, element) {
   markButton.dispatchEvent({ type: "click" });
   document.dispatch("click", element);
+}
+
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Corner composer exposes lifecycle, names, states, and one live region`, async () => {
+    const document = fakeDocument();
+    const states = [
+      [{ status: "starting", model: null, error: null }, null, "Connecting"],
+      [{ status: "ready", model: "test/fake", error: null }, null, "Ready"],
+      [{ status: "busy", model: "test/fake", error: null }, { id: "task", status: "running", activity: "Editing files", output: "" }, "Working"],
+      [{ status: "ready", model: "test/fake", error: null }, { id: "task", status: "completed", activity: "Task completed", output: "Done" }, "Finished"],
+      [{ status: "ready", model: "test/fake", error: null }, { id: "task", status: "failed", activity: "Task failed", output: "", error: "Check Pi and try again." }, "Finished"],
+      [{ status: "ready", model: "test/fake", error: null }, { id: "task", status: "cancelled", activity: "Task stopped", output: "" }, "Stopped"],
+      [{ status: "unavailable", model: null, error: "Pi is unavailable." }, null, "Unavailable"],
+    ];
+    const snapshots = states.map(([session, task]) => ({ contract_version: 1, session, task }));
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    const source = fs.readFileSync(path.join(root, assets[framework]), "utf8");
+    vm.runInNewContext(source, sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      document,
+      fetch: async () => ({ ok: true, status: 200, json: async () => snapshots.shift() }),
+    });
+    const shadow = mounted.element.shadowRoot;
+
+    assert.match(source, /aria-labelledby="pi-taskbar-title"/u);
+    assert.match(source, /data-close[^>]+aria-label="Collapse Pi browser taskbar"/u);
+    assert.match(source, /data-live[^>]+aria-live="polite"[^>]+aria-atomic="true"/u);
+    assert.match(source, /<label for="pi-taskbar-prompt">Task instruction<\/label>/u);
+    assert.match(source, /data-output[^>]+aria-label="Latest Pi output"/u);
+    assert.equal((source.match(/data-live[^>]+aria-live=/gu) || []).length, 1);
+
+    for (const [_session, _task, expectedStatus] of states) {
+      await mounted.refresh();
+      assert.equal(shadow.querySelector("[data-status]").textContent, expectedStatus);
+      assert.equal(shadow.querySelector("[data-status]").getAttribute("data-state"), _task?.status || _session.status);
+      assert.ok(shadow.querySelector("[data-live]").textContent);
+      assert.equal(shadow.querySelector("[data-panel]").getAttribute("aria-busy"), String(["Working"].includes(expectedStatus)));
+    }
+    assert.equal(shadow.querySelector("[data-run]").disabled, true);
+  });
+
+  test(`${framework} Corner composer returns focus for close, marking, mark removal, and clear`, () => {
+    const document = fakeDocument();
+    const focus = document.createElement("button");
+    focus.setAttribute("data-testid", "keyboard-focus");
+    document.body.appendChild(focus);
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, assets[framework]), "utf8"), sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({ autoRefresh: false, document });
+    const shadow = mounted.element.shadowRoot;
+    const toggle = shadow.querySelector("[data-toggle]");
+
+    toggle.dispatchEvent({ type: "click" });
+    assert.equal(shadow.querySelector("[data-panel]").hidden, false);
+    assert.equal(toggle.hidden, true);
+    assert.equal(shadow.querySelector("[data-prompt]").focused, true);
+    shadow.querySelector("[data-close]").dispatchEvent({ type: "click" });
+    assert.equal(shadow.querySelector("[data-panel]").hidden, true);
+    assert.equal(toggle.hidden, false);
+    assert.equal(toggle.focused, true);
+
+    toggle.dispatchEvent({ type: "click" });
+    const mark = shadow.querySelector("[data-mark]");
+    mark.dispatchEvent({ type: "click" });
+    document.dispatch("keydown", focus, { key: "Enter" });
+    assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
+    assert.equal(shadow.querySelector("[data-prompt]").focused, true);
+    shadow.querySelector("[data-marks]").children[0].children[1].dispatchEvent({ type: "click" });
+    assert.equal(mark.focused, true);
+
+    select(mark, document, focus);
+    shadow.querySelector("[data-clear]").dispatchEvent({ type: "click" });
+    assert.equal(mark.focused, true);
+  });
 }
 
 for (const framework of Object.keys(assets)) {
@@ -1275,10 +1361,11 @@ function fakeDocument() {
     constructor() {
       this.elements = new Map();
       for (const selector of [
-        "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
+        "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]", "[data-feedback]",
         "[data-run]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
-        "[data-cancel-warning]", "[data-insecure-remote-warning]", "[data-reset]",
+        "[data-cancel-warning]", "[data-close]", "[data-insecure-remote-warning]", "[data-live]",
+        "[data-model]", "[data-reset]", "[data-selection-help]", "[data-toggle-scope]", "[data-toggle-status]",
       ]) {
         this.elements.set(selector, new FakeElement());
       }

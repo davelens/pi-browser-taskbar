@@ -18,9 +18,11 @@ and Rails adapters now include equivalent bounded whole-page flows with up to ei
 focus points: deterministic sanitized Browser Client capture, fair focus truncation, independent
 native normalization, native HTTP security, canonical Pi ownership, and completed fake-Pi output.
 Focused tasks attach conservative framework-native source hints: template-level ERB ranges in Rails
-and line-level HEEx evidence in Phoenix. Running tasks can be stopped idempotently through one
-cancelling-to-cancelled lifecycle after Pi settles. Rails uses one external checkout-scoped broker;
-Phoenix uses one supervised runtime.
+and line-level HEEx evidence in Phoenix. The shared taskbar-owned Corner composer covers stable
+lifecycle text, keyboard and focus paths, one live region, narrow/200% reflow, and reduced motion in
+both packaged bundles. Running tasks can be stopped idempotently through one cancelling-to-cancelled
+lifecycle after Pi settles. Rails uses one external checkout-scoped broker; Phoenix uses one
+supervised runtime.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
 [architecture guide](docs/architecture.md) explains package ownership and dependency direction, and

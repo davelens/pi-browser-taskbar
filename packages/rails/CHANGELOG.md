@@ -16,3 +16,4 @@
 - Enforce startup-fixed server configuration and fail-closed native development activation.
 - Secure exact remote-host access, native CSRF responses, filtered diagnostics, and persistent trusted-network HTTP warnings.
 - Make Rails installation atomically preflighted, checksummed, explicitly selectable, idempotently updatable, and all-or-nothing reversible through Rails' native inverse generator.
+- Complete the Shadow DOM Corner composer with stable lifecycle text, native accessible controls, one live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.
