@@ -66,10 +66,19 @@ config :my_app, :pi_browser_taskbar,
   task_timeout: 1_800
 ```
 
-`task_timeout` is in seconds and must be from 60 through 86,400. Explicit application
-configuration wins over matching `PI_BROWSER_TASKBAR_*` environment variables. A missing Pi
-executable leaves the host running and reports an unavailable taskbar state. Exact remote hosts
-must be explicitly listed in `allowed_hosts`; loopback host/client access is the default.
+In development, `enabled` defaults to true; explicit false disables routes, assets, and Pi ownership
+after recompilation. These five fields are the complete server-owned semantic configuration surface.
+Explicit application configuration wins over matching `PI_BROWSER_TASKBAR_*` environment fallbacks,
+which win over defaults; `PI_BROWSER_TASKBAR_ALLOWED_HOSTS` is comma-separated. `task_timeout` is
+integer seconds from 60 through 86,400. Invalid active values fail startup with the setting name;
+inactive values are not validated when disabled.
+
+Outside `Mix.env() == :dev` the generated dependency-free branch stays absent regardless of
+configuration. The executable and fixed `--mode rpc` arguments are spawned directly in the canonical
+project root with the development server environment. Browser requests cannot override process,
+timeout, route, protocol, or security configuration. A missing executable reports sanitized
+unavailable state without preventing the host endpoint from booting. Exact remote hosts must be
+explicitly listed in `allowed_hosts`; loopback host/client access is the default.
 
 ## Build and verify
 

@@ -39,6 +39,8 @@ Rails serving processes are reload- and fork-safe clients of one gem-packaged ex
 by canonical checkout and OS user. The broker alone owns Pi and shared state; OS locking and a
 versioned Unix-socket identity handshake converge Puma workers, phased replacements, and concurrent
 servers without a process-local fallback. Phoenix retains its separate OTP-supervised ownership.
+Both adapters resolve the same five server-owned semantic settings at startup and compile or boot all
+routes, assets, and Pi ownership out unless native framework development mode is active.
 
 ## Version ownership
 

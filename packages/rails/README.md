@@ -38,8 +38,33 @@ settles; stopping cannot roll back file changes Pi already made. The confirmed *
 uses Pi's in-process session switch, clears retained feedback only after state confirmation, and
 preserves the local draft and focus marks; a rejected switch preserves the old session. Visible text
 and URL paths may reach the configured Pi/model provider, so do not use it with sensitive datasets.
-Configuration currently accepts `PI_BROWSER_TASKBAR_EXECUTABLE` and
-`PI_BROWSER_TASKBAR_TASK_TIMEOUT` at process startup.
+
+## Configuration
+
+The generated development initializer can set the complete server-owned configuration surface:
+
+```ruby
+Pi::Browser::Taskbar::Rails.configure do |config|
+  config.enabled = true
+  config.allowed_hosts = []
+  config.executable = "pi"
+  config.project_root = Rails.root.to_s
+  config.task_timeout = 1_800
+end
+```
+
+In development, `enabled` defaults to true; explicit false disables routes, assets, annotations, and
+Pi ownership after a restart. Rails-native values win over matching `PI_BROWSER_TASKBAR_*`
+environment fallbacks, which win over defaults. `PI_BROWSER_TASKBAR_ALLOWED_HOSTS` is comma-separated
+and `task_timeout` is integer seconds from 60 through 86,400. Invalid active values fail startup with
+the setting name; inactive values are not validated when disabled.
+
+Outside Rails development the adapter stays absent regardless of configuration. The executable and
+fixed `--mode rpc` arguments are spawned directly in the canonical project root with the development
+server environment. Browser requests cannot override process, timeout, route, protocol, or security
+configuration. A missing executable reports sanitized unavailable state without preventing Rails
+from booting. Exact remote hosts must be explicitly listed; loopback host/client access is the
+default.
 
 ## Build and verify
 

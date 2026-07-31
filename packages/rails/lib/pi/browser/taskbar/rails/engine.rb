@@ -15,16 +15,18 @@ module Pi
           config.paths["config/routes.rb"] = File.expand_path("routes.rb", __dir__)
 
           initializer "pi_browser_taskbar.enable_erb_annotations",
-            after: :load_environment_config,
-            before: :load_config_initializers do |app|
+            after: :load_config_initializers do |app|
             next unless ::Rails.env.development?
+
+            Pi::Browser::Taskbar::Rails.finalize_configuration!(default_project_root: app.root.to_s)
+            next unless Pi::Browser::Taskbar::Rails.active?
 
             app.config.action_view.annotate_rendered_view_with_filenames = true
             ActionView::Base.annotate_rendered_view_with_filenames = true
           end
 
           config.after_initialize do |_app|
-            next unless ::Rails.env.development?
+            next unless Pi::Browser::Taskbar::Rails.active?
             next if ActionView::Base.annotate_rendered_view_with_filenames
 
             raise "Pi Browser Taskbar requires config.action_view.annotate_rendered_view_with_filenames = true"
@@ -44,7 +46,7 @@ module Pi
 
           def require_taskbar_access
             response.set_header("Cache-Control", "no-store")
-            host = request.host.to_s.downcase.sub(/\.\z/, "")
+            host = request.host.to_s.downcase.sub(/\.+\z/, "")
             allowed_hosts = Pi::Browser::Taskbar::Rails.allowed_hosts
             loopback = IPAddr.new(request.remote_ip).loopback?
             local_host = host == "localhost" || host.end_with?(".localhost") || host == "127.0.0.1" || host == "::1"

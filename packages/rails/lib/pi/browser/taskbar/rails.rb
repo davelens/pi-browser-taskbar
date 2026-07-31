@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "erb"
+require "ipaddr"
 require "rails"
 require_relative "rails/version"
 require_relative "rails/task"
@@ -11,13 +12,95 @@ module Pi
     module Taskbar
       module Rails
         class Configuration
-          attr_accessor :allowed_hosts, :executable, :project_root, :task_timeout
+          attr_accessor :enabled, :allowed_hosts, :executable, :project_root, :task_timeout
 
-          def initialize
-            @allowed_hosts = []
-            @executable = ENV.fetch("PI_BROWSER_TASKBAR_EXECUTABLE", "pi")
-            @project_root = nil
-            @task_timeout = Integer(ENV.fetch("PI_BROWSER_TASKBAR_TASK_TIMEOUT", "1800"))
+          ENVIRONMENT = {
+            enabled: "PI_BROWSER_TASKBAR_ENABLED",
+            allowed_hosts: "PI_BROWSER_TASKBAR_ALLOWED_HOSTS",
+            executable: "PI_BROWSER_TASKBAR_EXECUTABLE",
+            project_root: "PI_BROWSER_TASKBAR_PROJECT_ROOT",
+            task_timeout: "PI_BROWSER_TASKBAR_TASK_TIMEOUT"
+          }.freeze
+
+          DEFAULTS = {
+            enabled: true,
+            allowed_hosts: [],
+            executable: "pi",
+            task_timeout: 1_800
+          }.freeze
+
+          def finalize!(default_project_root:)
+            @enabled = parse_boolean(setting(:enabled, DEFAULTS[:enabled]), :enabled)
+            return freeze unless @enabled
+
+            @allowed_hosts = parse_allowed_hosts(setting(:allowed_hosts, DEFAULTS[:allowed_hosts]))
+            @executable = non_empty_string(setting(:executable, DEFAULTS[:executable]), :executable)
+            @project_root = canonical_root(setting(:project_root, default_project_root))
+            @task_timeout = parse_timeout(setting(:task_timeout, DEFAULTS[:task_timeout]))
+            freeze
+          end
+
+          private
+
+          def setting(name, default)
+            return instance_variable_get("@#{name}") if instance_variable_defined?("@#{name}")
+            ENV.fetch(ENVIRONMENT.fetch(name), default)
+          end
+
+          def parse_boolean(value, _name)
+            return value if value == true || value == false
+            return true if ["true", "1"].include?(value)
+            return false if ["false", "0"].include?(value)
+            raise ArgumentError, "pi_browser_taskbar enabled must be true or false"
+          end
+
+          def parse_allowed_hosts(value)
+            hosts = value.is_a?(String) ? value.split(",").map(&:strip).reject(&:empty?) : value
+            unless hosts.is_a?(Array)
+              raise ArgumentError, "pi_browser_taskbar allowed_hosts must be a list or comma-separated string"
+            end
+
+            hosts.map do |host|
+              normalized = non_empty_string(host, :allowed_hosts).strip.downcase.sub(/\.+\z/, "")
+              unless valid_host?(normalized)
+                raise ArgumentError, "pi_browser_taskbar allowed_hosts entries must be bare exact DNS names or IP addresses"
+              end
+              normalized
+            end
+          end
+
+          def valid_host?(host)
+            return false if host.include?("%")
+            IPAddr.new(host)
+            true
+          rescue IPAddr::InvalidAddressError
+            host.bytesize <= 253 && host.match?(/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/)
+          end
+
+          def canonical_root(value)
+            root = non_empty_string(value, :project_root)
+            canonical = File.realpath(root)
+            return canonical if File.directory?(canonical)
+            raise ArgumentError, "pi_browser_taskbar project_root must be an existing directory"
+          rescue Errno::ENOENT, Errno::EACCES, Errno::ENOTDIR
+            raise ArgumentError, "pi_browser_taskbar project_root must be an existing directory"
+          end
+
+          def parse_timeout(value)
+            seconds = if value.is_a?(Integer)
+              value
+            elsif value.is_a?(String) && value.match?(/\A[+-]?\d+\z/)
+              value.to_i
+            else
+              raise ArgumentError, "pi_browser_taskbar task_timeout must be an integer number of seconds"
+            end
+            return seconds if seconds.between?(60, 86_400)
+            raise ArgumentError, "pi_browser_taskbar task_timeout must be between 60 and 86400 seconds"
+          end
+
+          def non_empty_string(value, setting)
+            return value if value.is_a?(String) && !value.empty?
+            raise ArgumentError, "pi_browser_taskbar #{setting} must be a non-empty string"
           end
         end
 
@@ -37,19 +120,27 @@ module Pi
             @configuration ||= Configuration.new
           end
 
+          def finalize_configuration!(default_project_root:)
+            configuration.finalize!(default_project_root: default_project_root) unless configuration.frozen?
+          end
+
+          def active?
+            ::Rails.env.development? && configuration.frozen? && configuration.enabled
+          end
+
           def allowed_hosts
-            configuration.allowed_hosts.map { |host| host.to_s.downcase.sub(/\.\z/, "") }
+            configuration.allowed_hosts
           end
 
           def broker_client
+            raise "Pi Browser Taskbar is inactive" unless active?
             if @client_mutex_pid != Process.pid
               @client_mutex = Mutex.new
               @client_mutex_pid = Process.pid
             end
             @client_mutex.synchronize do
-              root = configuration.project_root || ::Rails.root.to_s
               @broker_client ||= Broker::Client.new(
-                project_root: root,
+                project_root: configuration.project_root,
                 executable: configuration.executable,
                 task_timeout: configuration.task_timeout
               )
@@ -62,7 +153,7 @@ module Pi
           end
 
           def layout_bootstrap(view, mount: "/dev/pi-browser-taskbar")
-            return "" unless ::Rails.env.development?
+            return "" unless active?
             escape = ERB::Util.method(:html_escape)
             token = view.form_authenticity_token
             html = [

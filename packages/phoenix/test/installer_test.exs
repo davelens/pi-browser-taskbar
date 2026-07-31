@@ -87,12 +87,27 @@ defmodule PiBrowserTaskbarPhoenix.InstallerTest do
 
     try do
       Mix.env(:prod)
+
+      Application.put_env(:demo, :pi_browser_taskbar,
+        enabled: true,
+        project_root: "/missing",
+        allowed_hosts: ["*"]
+      )
+
       assert [{DemoWeb.PiBrowserTaskbar, _bytecode}] = Code.compile_file(integration_path)
 
       assert %{start: {DemoWeb.PiBrowserTaskbar, :ignore, []}} =
                apply(DemoWeb.PiBrowserTaskbar, :child_spec, [[]])
 
       assert apply(DemoWeb.PiBrowserTaskbar, :layout_bootstrap, []) == {:safe, ""}
+
+      assert {nil, _binding} =
+               Code.eval_quoted(
+                 quote do
+                   require DemoWeb.PiBrowserTaskbar
+                   DemoWeb.PiBrowserTaskbar.routes()
+                 end
+               )
 
       assert {:ok, supervisor} =
                Supervisor.start_link([DemoWeb.PiBrowserTaskbar], strategy: :one_for_one)
@@ -121,6 +136,49 @@ defmodule PiBrowserTaskbarPhoenix.InstallerTest do
 
       assert Process.alive?(taskbar_supervisor)
       Supervisor.stop(host_supervisor)
+    after
+      Application.delete_env(:demo, :pi_browser_taskbar)
+      unload_integration()
+      Mix.env(previous_env)
+    end
+  end
+
+  test "explicit false compiles out development routes, assets, and Pi ownership", %{root: root} do
+    Installer.run!(root: root)
+    integration_path = Path.join(root, "lib/demo_web/pi_browser_taskbar.ex")
+    previous_env = Mix.env()
+
+    try do
+      Mix.env(:dev)
+
+      Application.put_env(:demo, :pi_browser_taskbar,
+        enabled: false,
+        project_root: "/missing",
+        allowed_hosts: ["*"]
+      )
+
+      assert [{DemoWeb.PiBrowserTaskbar, _bytecode}] = Code.compile_file(integration_path)
+
+      assert %{start: {DemoWeb.PiBrowserTaskbar, :ignore, []}} =
+               apply(DemoWeb.PiBrowserTaskbar, :child_spec, [[]])
+
+      assert apply(DemoWeb.PiBrowserTaskbar, :layout_bootstrap, []) == {:safe, ""}
+
+      assert {nil, _binding} =
+               Code.eval_quoted(
+                 quote do
+                   require DemoWeb.PiBrowserTaskbar
+                   DemoWeb.PiBrowserTaskbar.routes()
+                 end
+               )
+
+      assert {:ok, supervisor} =
+               Supervisor.start_link([DemoWeb.PiBrowserTaskbar], strategy: :one_for_one)
+
+      assert [{DemoWeb.PiBrowserTaskbar, :undefined, :worker, [DemoWeb.PiBrowserTaskbar]}] =
+               Supervisor.which_children(supervisor)
+
+      Supervisor.stop(supervisor)
     after
       Application.delete_env(:demo, :pi_browser_taskbar)
       unload_integration()

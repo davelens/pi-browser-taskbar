@@ -17,6 +17,35 @@ Every contract artifact declares integer `contract_version: 1`. Product package 
 independently lockstepped by the root `VERSION` file. A contract version changes only when a client
 must branch on incompatible wire behavior.
 
+## Server-owned configuration and activation
+
+Native framework development mode is an immutable activation boundary. Outside Rails development or
+a Phoenix `Mix.env() == :dev` compilation, adapters mount no routes, emit no taskbar assets, and own
+no Pi process even when `enabled` is configured true. In development, `enabled` defaults to true; an
+explicit false compiles or boots routes, assets, and Pi ownership out together. Changes take effect
+only after the framework's required restart or recompile.
+
+The complete shared semantic configuration surface is `enabled`, `allowed_hosts`, `executable`,
+`project_root`, and `task_timeout`. Framework-native configuration has precedence over matching
+`PI_BROWSER_TASKBAR_ENABLED`, `PI_BROWSER_TASKBAR_ALLOWED_HOSTS`,
+`PI_BROWSER_TASKBAR_EXECUTABLE`, `PI_BROWSER_TASKBAR_PROJECT_ROOT`, and
+`PI_BROWSER_TASKBAR_TASK_TIMEOUT` environment fallbacks, which have precedence over defaults. The
+defaults are enabled in development, an empty remote-host allowlist, `pi` resolved from `PATH`, the
+canonical host project root, and 1,800 seconds. Timeout values are integer seconds from 60 through
+86,400. Environment host lists are comma-separated; native host lists are framework lists.
+
+When enabled, malformed booleans, host entries, executable values, project roots, and timeouts fail
+startup with the affected setting name. A disabled adapter need not validate its inactive settings.
+Configuration is resolved, canonicalized, and fixed at startup; it is not exposed as a browser API.
+Browser requests cannot select or override the executable, `--mode rpc` arguments, inherited server
+environment, working directory, timeout, protocol bounds, route behavior, or security behavior.
+
+Adapters resolve the configured project root to an existing canonical directory and spawn the
+configured executable directly, without a shell, as `executable --mode rpc` in that directory. Pi
+inherits the development server environment unchanged. A missing or non-executable command produces
+only the sanitized unavailable session state; the optional adapter failure does not prevent either
+host application from booting.
+
 ## Initial task request
 
 A task request has exactly two fields:

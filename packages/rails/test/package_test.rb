@@ -28,11 +28,59 @@ class PackageTest < Minitest::Test
       end
       DisabledTaskbarApplication.initialize!
       abort unless Pi::Browser::Taskbar::Rails::Engine.routes.routes.empty?
+      abort unless Pi::Browser::Taskbar::Rails.layout_bootstrap(Object.new) == ""
       abort if ActionView::Base.annotate_rendered_view_with_filenames
+      abort if Pi::Browser::Taskbar::Rails.instance_variable_get(:@broker_client)
     RUBY
-    _output, status = Open3.capture2e({"RAILS_ENV" => "production"}, RbConfig.ruby, "-I#{lib}", "-e", script)
+    _output, status = Open3.capture2e(
+      {"RAILS_ENV" => "production", "PI_BROWSER_TASKBAR_ENABLED" => "true"},
+      RbConfig.ruby, "-I#{lib}", "-e", script
+    )
 
     assert status.success?
+  end
+
+  def test_explicit_false_disables_development_routes_assets_and_pi_ownership
+    lib = File.expand_path("../lib", __dir__)
+    script = <<~'RUBY'
+      require "pi/browser/taskbar/rails"
+      ActionView::Base.annotate_rendered_view_with_filenames = false
+      class DisabledDevelopmentTaskbarApplication < Rails::Application
+        config.eager_load = false
+        config.secret_key_base = "disabled-development-taskbar-secret-key-base-" * 8
+      end
+      DisabledDevelopmentTaskbarApplication.initialize!
+      abort unless Pi::Browser::Taskbar::Rails.configuration.enabled == false
+      abort unless Pi::Browser::Taskbar::Rails::Engine.routes.routes.empty?
+      abort unless Pi::Browser::Taskbar::Rails.layout_bootstrap(Object.new) == ""
+      abort if ActionView::Base.annotate_rendered_view_with_filenames
+      abort if Pi::Browser::Taskbar::Rails.instance_variable_get(:@broker_client)
+    RUBY
+    output, status = Open3.capture2e(
+      {"RAILS_ENV" => "development", "PI_BROWSER_TASKBAR_ENABLED" => "false"},
+      RbConfig.ruby, "-I#{lib}", "-e", script
+    )
+
+    assert status.success?, output
+  end
+
+  def test_development_startup_rejects_malformed_enabled_configuration
+    lib = File.expand_path("../lib", __dir__)
+    script = <<~'RUBY'
+      require "pi/browser/taskbar/rails"
+      class MalformedTaskbarApplication < Rails::Application
+        config.eager_load = false
+        config.secret_key_base = "malformed-taskbar-secret-key-base-" * 8
+      end
+      MalformedTaskbarApplication.initialize!
+    RUBY
+    output, status = Open3.capture2e(
+      {"RAILS_ENV" => "development", "PI_BROWSER_TASKBAR_ENABLED" => "maybe"},
+      RbConfig.ruby, "-I#{lib}", "-e", script
+    )
+
+    refute status.success?
+    assert_includes output, "pi_browser_taskbar enabled"
   end
 
   def test_startup_fails_if_later_configuration_disables_required_annotations

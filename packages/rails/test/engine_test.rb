@@ -86,7 +86,6 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
   def setup
     @broker = FakeBroker.new
     Pi::Browser::Taskbar::Rails.instance_variable_set(:@broker_client, @broker)
-    Pi::Browser::Taskbar::Rails.configuration.allowed_hosts = []
     host! "localhost"
   end
 

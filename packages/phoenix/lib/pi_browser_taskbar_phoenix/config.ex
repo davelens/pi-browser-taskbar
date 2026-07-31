@@ -69,6 +69,8 @@ defmodule PiBrowserTaskbarPhoenix.Config do
       normalized =
         host
         |> non_empty_string!(:allowed_hosts)
+        |> String.trim()
+        |> non_empty_string!(:allowed_hosts)
         |> String.downcase()
         |> String.trim_trailing(".")
 
@@ -98,6 +100,10 @@ defmodule PiBrowserTaskbarPhoenix.Config do
   end
 
   defp valid_ip?(host) do
+    if String.contains?(host, "%"), do: false, else: parsed_ip?(host)
+  end
+
+  defp parsed_ip?(host) do
     case :inet.parse_address(String.to_charlist(host)) do
       {:ok, _address} -> true
       {:error, :einval} -> false
@@ -107,12 +113,38 @@ defmodule PiBrowserTaskbarPhoenix.Config do
   defp project_root!(root) do
     root = non_empty_string!(root, :project_root)
 
-    canonical = Path.expand(root)
+    canonical = root |> Path.expand() |> canonical_path!()
 
     if File.dir?(canonical) do
       canonical
     else
       raise ArgumentError, "pi_browser_taskbar project_root must be an existing directory"
+    end
+  end
+
+  defp canonical_path!(path), do: resolve_path(Path.split(path), 40)
+
+  defp resolve_path(_parts, 0),
+    do: raise(ArgumentError, "pi_browser_taskbar project_root contains too many symbolic links")
+
+  defp resolve_path([root | parts], remaining), do: resolve_parts(root, parts, remaining)
+
+  defp resolve_parts(path, [], _remaining), do: path
+
+  defp resolve_parts(path, [part | parts], remaining) do
+    candidate = Path.join(path, part)
+
+    case File.read_link(candidate) do
+      {:ok, target} ->
+        target =
+          if Path.type(target) == :absolute,
+            do: target,
+            else: Path.expand(target, Path.dirname(candidate))
+
+        resolve_path(Path.split(Path.join([target | parts])), remaining - 1)
+
+      {:error, _reason} ->
+        resolve_parts(candidate, parts, remaining)
     end
   end
 

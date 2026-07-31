@@ -25,6 +25,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/29",
       "sections": ["security-configuration", "rails-adapter", "rails-integration-tests"],
       "acceptance_seam": "Rails reload, fork, concurrent-process, phased-replacement, election/identity, broker/Pi crash, idle-grace, and process-tree integration tests"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/31",
+      "sections": ["security-configuration", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
+      "acceptance_seam": "Equivalent native configuration precedence, startup validation, fail-closed activation, canonical spawn, inherited-environment, and unavailable-executable tests"
     }
   ],
   "sections": [

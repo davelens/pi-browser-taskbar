@@ -347,6 +347,48 @@ class RailsBrokerTest < Minitest::Test
     end
   end
 
+  def test_external_broker_spawns_pi_directly_in_the_canonical_root_with_the_server_environment
+    source = <<~'RUBY'
+      #!/usr/bin/env ruby
+      require "json"
+      File.write(File.join(Dir.pwd, "spawn-evidence.json"), JSON.generate(
+        "cwd" => Dir.pwd,
+        "argv" => ARGV,
+        "environment" => ENV["PI_BROWSER_TASKBAR_EXECUTABLE"]
+      ))
+      $stdin.each_line do |line|
+        command = JSON.parse(line)
+        next unless command.fetch("type") == "get_state"
+        puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+          data: {sessionId: "spawn-session", model: "fake"})
+        $stdout.flush
+      end
+    RUBY
+
+    previous = ENV["PI_BROWSER_TASKBAR_EXECUTABLE"]
+    ENV["PI_BROWSER_TASKBAR_EXECUTABLE"] = "server-environment-value"
+
+    Dir.mktmpdir("broker-spawn") do |runtime_root|
+      Dir.mktmpdir("broker-project") do |project|
+        executable = File.join(runtime_root, "fake-pi")
+        File.write(executable, source)
+        File.chmod(0o700, executable)
+        client = Broker::Client.new(project_root: project, runtime_root: runtime_root, executable: executable)
+        wait_until { client.snapshot.dig("snapshot", "session", "status") == "ready" }
+
+        evidence = JSON.parse(File.read(File.join(project, "spawn-evidence.json")))
+        assert_equal File.realpath(project), evidence["cwd"]
+        assert_equal ["--mode", "rpc"], evidence["argv"]
+        assert_equal "server-environment-value", evidence["environment"]
+      ensure
+        client.close if client
+        stop_external_broker(client.identity) if client
+      end
+    end
+  ensure
+    previous ? ENV["PI_BROWSER_TASKBAR_EXECUTABLE"] = previous : ENV.delete("PI_BROWSER_TASKBAR_EXECUTABLE")
+  end
+
   def test_external_broker_crash_re_elects_once_and_reaps_pi_on_pipe_close
     Dir.mktmpdir("broker-crash") do |runtime_root|
       Dir.mktmpdir("broker-project") do |project|

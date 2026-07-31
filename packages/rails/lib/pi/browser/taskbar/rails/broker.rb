@@ -911,11 +911,11 @@ module Pi
 
             def launch
               env = {
-                "PI_BROWSER_TASKBAR_PROJECT_ROOT" => @identity.project_root,
-                "PI_BROWSER_TASKBAR_EXECUTABLE" => @executable,
-                "PI_BROWSER_TASKBAR_TASK_TIMEOUT" => @task_timeout.to_s
+                "PI_BROWSER_TASKBAR_BROKER_PROJECT_ROOT" => @identity.project_root,
+                "PI_BROWSER_TASKBAR_BROKER_EXECUTABLE" => @executable,
+                "PI_BROWSER_TASKBAR_BROKER_TASK_TIMEOUT" => @task_timeout.to_s,
+                "PI_BROWSER_TASKBAR_BROKER_RUNTIME_ROOT" => @runtime_root
               }
-              env["PI_BROWSER_TASKBAR_RUNTIME_ROOT"] = @runtime_root if @runtime_root
               launcher = File.expand_path("broker_launcher.rb", __dir__)
               pid = Process.spawn(env, RbConfig.ruby, launcher, out: File::NULL, err: File::NULL, close_others: true)
               Process.detach(pid)
