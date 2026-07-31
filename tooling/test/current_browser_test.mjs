@@ -259,7 +259,12 @@ function harnessHtml(framework) {
     check(!panel.textContent.includes("Pi browser task"), "panel omits visible product title");
     check(!shadow.querySelector("[data-reset]"), "panel omits session reset control");
     check(!shadow.querySelector("[data-scope]").textContent.includes("bounded structural snapshot"), "concise scope label");
-    check(shadow.querySelector("[data-status]").textContent === expectedStatus, "visible lifecycle status " + expectedStatus);
+    const status = shadow.querySelector("[data-status]");
+    const statusStyle = win.getComputedStyle(status);
+    check(status.parentElement.matches("footer"), "lifecycle status is in the footer");
+    check(statusStyle.display === "flex" && statusStyle.alignItems === "center", "lifecycle status text aligns with dot");
+    check(win.getComputedStyle(status, "::before").position === "static", "lifecycle dot participates in status alignment");
+    check(status.textContent === expectedStatus, "visible lifecycle status " + expectedStatus);
     check(shadow.querySelectorAll("[aria-live]").length === 1, "single live region");
     check(shadow.querySelector("[data-live]").textContent.trim().length > 0, "meaningful live message");
     check(new Set(Array.from(shadow.querySelectorAll("[id]")).map((element) => element.id)).size === shadow.querySelectorAll("[id]").length, "unique taskbar IDs");

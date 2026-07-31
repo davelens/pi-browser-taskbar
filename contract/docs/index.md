@@ -305,8 +305,8 @@ navigation remounts.
 
 The Browser Client owns one lower-left launcher and compact composer entirely inside its Shadow DOM.
 It uses only native controls, inline taskbar markup, system fonts, and taskbar styles. The open order is
-Pi identity/model and status, task focus and optional removable marks, task instruction, lifecycle
-feedback, then the task action. Zero marks says **Whole page**; one through eight marks remain
+Pi identity/model, task focus and optional removable marks, task instruction, lifecycle feedback, then
+footer status and the task action. Zero marks says **Whole page**; one through eight marks remain
 advisory focus points with whole-page surroundings.
 
 The stable visible states are **Connecting**, **Ready**, **Working**, **Finished**, **Stopped**, and

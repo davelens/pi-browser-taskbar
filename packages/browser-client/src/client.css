@@ -124,7 +124,7 @@
 
 header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border-bottom: 1px solid var(--pi-line);
@@ -199,22 +199,20 @@ header {
 }
 
 [data-status] {
-  position: relative;
-  padding-left: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--pi-muted);
   font-size: 0.64rem;
   font-weight: 700;
-  line-height: 1.7;
-  text-align: right;
+  line-height: 1;
   white-space: nowrap;
 }
 
 [data-status]::before {
-  position: absolute;
-  top: 0.42rem;
-  left: 0;
   width: 0.42rem;
   height: 0.42rem;
+  flex: 0 0 auto;
   border-radius: 50%;
   background: var(--pi-status-muted);
   content: "";
@@ -454,7 +452,7 @@ pre {
 footer {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 0.5rem;
   border-top: 1px solid var(--pi-line);
   background: var(--pi-footer);
@@ -604,21 +602,6 @@ button:disabled {
     width: auto;
     max-height: calc(100vh - 1.3rem);
     max-height: calc(100dvh - 1.3rem);
-  }
-
-  header {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  [data-status] {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: start;
-  }
-
-  [data-close] {
-    grid-column: 2;
-    grid-row: 1;
   }
 
   [data-focus-row] {
