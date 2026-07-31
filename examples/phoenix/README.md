@@ -13,8 +13,18 @@ MIX_ENV=dev mix pi_browser_taskbar.install
 ```
 
 The generated host module contributes one supervised child before the endpoint, one router mount
-through a package-owned Phoenix session/CSRF pipeline, and one root-layout bootstrap. In non-development
-builds its dependency-free stub contributes none of those concerns.
+through an application-prefixed package-owned Phoenix session/CSRF pipeline, one root-layout
+bootstrap, installation metadata, and the uninstall seam. The installer also enables development
+HEEx debug annotations. In non-development builds the dependency-free stub contributes no routes,
+assets, or runtime behavior.
+
+The packaged clean-host fixture proves idempotent update, conflict refusal, development mutation,
+production/test compilation without the package, and reversible uninstall through the same public
+Mix task. Remove an installation with:
+
+```sh
+MIX_ENV=dev mix pi_browser_taskbar.install --uninstall
+```
 
 A standalone packaged example application will replace the generated clean-host fixture when the
 cross-adapter example milestone adds Rails parity; no example-only runtime behavior belongs here.

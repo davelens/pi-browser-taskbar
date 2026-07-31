@@ -35,6 +35,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/32",
       "sections": ["security-configuration", "browser-interaction", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
       "acceptance_seam": "Exact normalized host/peer access, native session CSRF, safe responses and logging, absent CORS, persistent remote HTTP warnings, and trusted-network documentation"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/33",
+      "sections": ["phoenix-adapter", "phoenix-integration-tests", "documentation-examples", "release-acceptance"],
+      "acceptance_seam": "Atomic marked installer planning, conventional and explicit discovery, generated dependency-free metadata seam, collision and mutation refusal, idempotent update/uninstall, and built-Hex clean-host development/production/test evidence"
     }
   ],
   "sections": [

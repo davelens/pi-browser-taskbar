@@ -16,3 +16,5 @@
 - Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across controller and LiveView navigation/patches without stale marks.
 - Enforce startup-fixed server configuration and fail-closed native development activation.
 - Secure exact remote-host access, native CSRF responses, safe diagnostics, and persistent trusted-network HTTP warnings.
+- Make host installation discoverable or explicitly selectable, marked, atomic, formatted, safely
+  updatable, dependency-free outside development, and reversibly uninstallable.

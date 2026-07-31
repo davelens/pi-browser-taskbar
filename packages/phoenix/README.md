@@ -24,12 +24,34 @@ MIX_ENV=dev mix deps.get
 MIX_ENV=dev mix pi_browser_taskbar.install
 ```
 
-The installer plans all changes before writing and idempotently adds:
+The installer discovers the OTP application, web namespace, endpoint, router, application
+supervisor, and root HEEx layout before writing. It then idempotently adds:
 
-- one host-owned `MyAppWeb.PiBrowserTaskbar` integration module;
+- one host-owned `MyAppWeb.PiBrowserTaskbar` integration module containing installation metadata;
 - that integration as a supervised child immediately before `MyAppWeb.Endpoint`;
-- `/dev/pi-browser-taskbar` through a package-owned Phoenix session/CSRF pipeline;
-- one root-layout bootstrap outside LiveView-owned DOM.
+- `/dev/pi-browser-taskbar` through package-owned, application-prefixed Phoenix route helpers and a
+  session/CSRF pipeline;
+- one root-layout bootstrap outside LiveView-owned DOM;
+- development-only `Phoenix.LiveView` HEEx debug annotations for advisory source hints.
+
+Every owned host section is marked. All paths, source shapes, conflicts, and generated checksums are
+preflighted before staged writes, and changed Elixir files are formatted. Re-running the command is
+an idempotent update when generated content is intact. Edited generated sections, route/helper
+collisions, conflicting annotation settings, unsupported layouts, and ambiguous discovery stop
+without updating any host file.
+
+For an umbrella or nonstandard host, select its application root and provide the ambiguous seams:
+
+```sh
+MIX_ENV=dev mix pi_browser_taskbar.install \
+  --root . --app my_app --web MyAppWeb --endpoint MyAppWeb.Endpoint \
+  --application lib/my_app/application.ex --router lib/my_app_web/router.ex \
+  --layout lib/my_app_web/components/layouts/root.html.heex \
+  --mount /dev/pi-browser-taskbar
+```
+
+Options accept router modules or source paths; application and layout options are source paths.
+The installer refuses to guess when more than one candidate remains and reports the option needed.
 
 The router mount deliberately uses a package-owned pipeline with Phoenix's `:fetch_session` and
 `:protect_from_forgery` plugs. This preserves the native session-bound CSRF seam without inheriting
@@ -74,7 +96,8 @@ integer seconds from 60 through 86,400. Invalid active values fail startup with 
 inactive values are not validated when disabled.
 
 Outside `Mix.env() == :dev` the generated dependency-free branch stays absent regardless of
-configuration. The executable and fixed `--mode rpc` arguments are spawned directly in the canonical
+configuration. It retains only host installation metadata and stubs, and does not reference the
+package. The executable and fixed `--mode rpc` arguments are spawned directly in the canonical
 project root with the development server environment. Browser requests cannot override process,
 timeout, route, protocol, or security configuration. A missing executable reports sanitized
 unavailable state without preventing the host endpoint from booting.
@@ -85,6 +108,22 @@ do not add taskbar-specific forwarding-header handling. Plain HTTP remote access
 trusted network and keeps a persistent unencrypted-access warning in the taskbar. The adapter retains
 native session CSRF, adds no permissive CORS headers, and returns fixed safe browser errors without
 logging request bodies or Pi records. See the shared [security guide](../../docs/security.md).
+
+## Uninstall
+
+Keep the development dependency available while running the inverse installer:
+
+```sh
+MIX_ENV=dev mix pi_browser_taskbar.install --uninstall
+```
+
+For a nonstandard installation, `--web` can select its generated integration if more than one exists.
+Uninstall verifies the integration checksum and every marked host seam before changing anything,
+then removes only recognized generated content and formats affected Elixir files. Repeating it is
+harmless. If generated content was edited or metadata is missing, it stops with precise manual
+removal guidance rather than deleting ambiguous content. Pre-existing annotation configuration is
+never removed. Remove the development dependency from `mix.exs` manually after successful uninstall;
+the installer never guesses at dependency declarations.
 
 ## Build and verify
 
