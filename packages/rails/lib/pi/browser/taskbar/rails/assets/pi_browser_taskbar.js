@@ -406,7 +406,7 @@
       function renderMarks() {
         controls.scope.textContent = marks.length === 0
           ? "Whole page · Pi receives a bounded structural snapshot"
-          : `${scopeTitle(marks.length)} · advisory focus with whole-page surroundings`;
+          : scopeTitle(marks.length);
         controls.toggleScope.textContent = marks.length ? `· ${scopeTitle(marks.length)}` : "";
         controls.toggleScope.hidden = marks.length === 0;
         controls.clear.hidden = marks.length === 0;

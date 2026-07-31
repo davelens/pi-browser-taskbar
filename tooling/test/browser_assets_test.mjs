@@ -333,7 +333,7 @@ for (const framework of Object.keys(assets)) {
     select(mark, document, fallbackSecond);
     assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
     assert.equal(shadow.querySelector("[data-overlays]").children.length, 1);
-    assert.match(shadow.querySelector("[data-scope]").textContent, /^1 marked element/);
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "1 marked element");
     await mounted.submit("Improve this control.");
     assert.equal(requests[0].context.focus_points.length, 1);
     assert.match(requests[0].context.focus_points[0].selector, /^\[id="cards"\] > button:nth-of-type\(2\)$/u);
@@ -991,7 +991,7 @@ for (const framework of Object.keys(assets)) {
     await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(shadow.querySelector("[data-prompt]").value, "Keep this draft.");
-    assert.match(shadow.querySelector("[data-scope]").textContent, /^1 marked element/u);
+    assert.equal(shadow.querySelector("[data-scope]").textContent, "1 marked element");
     assert.equal(shadow.querySelector("[data-output]").hidden, true);
     assert.equal(reset.textContent, "New session");
     assert.equal(reset.disabled, false);
