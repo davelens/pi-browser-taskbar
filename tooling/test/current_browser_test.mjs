@@ -22,7 +22,8 @@ const evidence = [];
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, "http://localhost");
   const framework = url.searchParams.get("framework") === "rails" ? "rails" : "phoenix";
-  if (url.pathname === "/asset.js") return send(response, assets[framework], "text/javascript");
+  if (url.pathname === "/asset.js") return send(response, assets[framework].js, "text/javascript");
+  if (url.pathname === "/asset.css") return send(response, assets[framework].css, "text/css");
   if (url.pathname === "/axe.js") return send(response, axe, "text/javascript");
   if (url.pathname === "/frame") return send(response, frameHtml(framework), "text/html");
   if (url.pathname === "/") return send(response, harnessHtml(framework), "text/html");
@@ -144,6 +145,17 @@ async function runKeyboardFlow(page, framework) {
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-prompt]", "keyboard open moves focus to instruction");
 
+  const closeBox = await close.boundingBox();
+  const taskbarAbovePageOverlay = await page.evaluate(({ x, y }) => {
+    const blocker = document.createElement("div");
+    blocker.style.cssText = "position: fixed; inset: 0; z-index: 2147483646";
+    document.body.append(blocker);
+    const topElement = document.elementFromPoint(x, y);
+    blocker.remove();
+    return topElement?.matches("[data-pi-browser-taskbar-host]") || Boolean(topElement?.closest("[data-pi-browser-taskbar-host]"));
+  }, { x: closeBox.x + closeBox.width / 2, y: closeBox.y + closeBox.height / 2 });
+  assert.equal(taskbarAbovePageOverlay, true, "taskbar stays above high-z-index page overlays");
+
   await assertCenteredIcon(close, "close icon");
 
   await close.focus();
@@ -242,7 +254,7 @@ function readJson(request) {
 }
 
 function frameHtml(framework) {
-  return `<!doctype html><html><head><style>button { font-family: fantasy !important; } html[data-theme="light"] { color-scheme: light; } html[data-theme="dark"] { color-scheme: dark; }</style></head><body><main data-phx-main data-testid="scenario-whole-page"><section data-testid="scenario-focused-card"><button data-testid="focus-card">Focus card</button></section><nav data-testid="scenario-navigation"><a href="/${framework === "rails" ? "navigation" : "live"}" data-testid="navigation-target">Navigate</a></nav></main><div data-pi-browser-taskbar-bootstrap data-mount-base="/dev/pi-browser-taskbar" data-project-app="demo" data-csrf-token="token"></div><script src="/axe.js"></script><script src="/asset.js?framework=${framework}"></script></body></html>`;
+  return `<!doctype html><html><head><link rel="stylesheet" href="/asset.css?framework=${framework}"><style>button { font-family: fantasy !important; } html[data-theme="light"] { color-scheme: light; } html[data-theme="dark"] { color-scheme: dark; }</style></head><body><main data-phx-main data-testid="scenario-whole-page"><section data-testid="scenario-focused-card"><button data-testid="focus-card">Focus card</button></section><nav data-testid="scenario-navigation"><a href="/${framework === "rails" ? "navigation" : "live"}" data-testid="navigation-target">Navigate</a></nav></main><div data-pi-browser-taskbar-bootstrap data-mount-base="/dev/pi-browser-taskbar" data-project-app="demo" data-csrf-token="token"></div><script src="/axe.js"></script><script src="/asset.js?framework=${framework}"></script></body></html>`;
 }
 
 function harnessHtml(framework) {
@@ -260,6 +272,7 @@ function harnessHtml(framework) {
   const auditTaskbar = async (win, client, expectedStatus) => {
     const shadow = client.element.shadowRoot;
     const panel = shadow.querySelector("[data-panel]");
+    check(win.getComputedStyle(client.element).zIndex === "2147483647", "taskbar host uses the maximum browser z-index");
     check(panel.getAttribute("aria-label") === "Pi browser task", "named panel");
     check(!panel.textContent.includes("Pi browser task"), "panel omits visible product title");
     check(!shadow.querySelector("[data-reset]"), "panel omits session reset control");
@@ -491,12 +504,22 @@ function extractPackagedAssets(directory) {
   execFileSync("bash", ["-c", "set -o pipefail; tar -xOf \"$1\" contents.tar.gz | tar -xz -C \"$2\"", "extract-hex", hex, phoenixDirectory]);
 
   const paths = {
-    rails: path.join(railsDirectory, "lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js"),
-    phoenix: path.join(phoenixDirectory, "priv/static/pi_browser_taskbar.js"),
+    rails: {
+      js: path.join(railsDirectory, "lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js"),
+      css: path.join(railsDirectory, "lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.css"),
+    },
+    phoenix: {
+      js: path.join(phoenixDirectory, "priv/static/pi_browser_taskbar.js"),
+      css: path.join(phoenixDirectory, "priv/static/pi_browser_taskbar.css"),
+    },
   };
-  for (const [framework, asset] of Object.entries(paths)) {
-    assert.ok(fs.existsSync(asset), `${framework} artifact omitted its Browser Client`);
-    assert.ok(asset.startsWith(directory), `${framework} Browser Client was not isolated from the workspace`);
+  for (const [framework, frameworkPaths] of Object.entries(paths)) {
+    for (const asset of Object.values(frameworkPaths)) {
+      assert.ok(fs.existsSync(asset), `${framework} artifact omitted a Browser Client asset`);
+      assert.ok(asset.startsWith(directory), `${framework} Browser Client asset was not isolated from the workspace`);
+    }
   }
-  return Object.fromEntries(Object.entries(paths).map(([framework, asset]) => [framework, fs.readFileSync(asset, "utf8")]));
+  return Object.fromEntries(Object.entries(paths).map(([framework, frameworkPaths]) => [framework,
+    Object.fromEntries(Object.entries(frameworkPaths).map(([type, asset]) => [type, fs.readFileSync(asset, "utf8")])),
+  ]));
 }
