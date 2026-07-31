@@ -1,0 +1,88 @@
+{
+  "parent_issue": "https://github.com/davelens/pi-browser-taskbar/issues/17",
+  "implemented_issues": [
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/25",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Shared cancellation HTTP scenarios and abort transcript exercised by Browser Client, native adapters, and packaged cross-adapter conformance"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/26",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Shared reset HTTP scenarios and new-session transcripts exercised by Browser Client, native adapters, recovery tests, and packaged cross-adapter conformance"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/27",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "browser-interaction", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Shared progress/failure transcripts, bounded-output rendering, native runtime tests, and packaged cross-adapter semantic comparison"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/28",
+      "sections": ["shared-task-api", "pi-rpc-lifecycle", "security-configuration", "rails-adapter", "phoenix-adapter"],
+      "acceptance_seam": "Equivalent native fake-Pi timeout, abort-deadline, startup, crash, bounded process-tree cleanup, replacement, and exhaustion scenarios"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/29",
+      "sections": ["security-configuration", "rails-adapter", "rails-integration-tests"],
+      "acceptance_seam": "Rails reload, fork, concurrent-process, phased-replacement, election/identity, broker/Pi crash, idle-grace, and process-tree integration tests"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/31",
+      "sections": ["security-configuration", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
+      "acceptance_seam": "Equivalent native configuration precedence, startup validation, fail-closed activation, canonical spawn, inherited-environment, and unavailable-executable tests"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/32",
+      "sections": ["security-configuration", "browser-interaction", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
+      "acceptance_seam": "Exact normalized host/peer access, native session CSRF, safe responses and logging, absent CORS, persistent remote HTTP warnings, and trusted-network documentation"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/33",
+      "sections": ["phoenix-adapter", "phoenix-integration-tests", "documentation-examples", "release-acceptance"],
+      "acceptance_seam": "Atomic marked installer planning, conventional and explicit discovery, generated dependency-free metadata seam, collision and mutation refusal, idempotent update/uninstall, and built-Hex clean-host development/production/test evidence"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/34",
+      "sections": ["rails-adapter", "rails-integration-tests", "documentation-examples", "release-acceptance"],
+      "acceptance_seam": "Atomic checksummed Rails generator planning, conventional and explicit ERB layout and mount selection, syntax/collision/mutation refusal, native development-only seams, idempotent update/inverse, and built-gem clean-host development/production evidence"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/35",
+      "sections": ["browser-interaction", "browser-client-tests", "accessibility"],
+      "acceptance_seam": "Both packaged Corner composers exercise every lifecycle state, native names and states, one live region, keyboard and focus paths, Shadow DOM isolation, narrow/200% reflow, and reduced motion through DOM and current-browser checks"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/36",
+      "sections": ["phoenix-adapter", "phoenix-integration-tests", "documentation-examples", "sequence-change-control"],
+      "acceptance_seam": "Built Phoenix artifact and public installer proven in Recollect before removal of application-local behavior, with development migration verification, non-development isolation, and ordered rollback documentation"
+    }
+  ],
+  "sections": [
+    {"id": "problem-statement", "heading": "Problem Statement", "owner": "root-tooling", "acceptance_seam": "Clean-checkout root verification and packaged-adapter acceptance", "status": "foundation"},
+    {"id": "solution", "heading": "Solution", "owner": "root-tooling", "acceptance_seam": "Coordinated Rails and Phoenix package artifact inspection", "status": "foundation"},
+    {"id": "user-stories", "heading": "User Stories", "owner": "conformance-contract", "acceptance_seam": "Versioned contract scenarios mapped to adapter and browser acceptance", "status": "future"},
+    {"id": "product-distribution", "heading": "Product and distribution", "owner": "root-tooling", "acceptance_seam": "Self-contained gem and Hex package built at one root version", "status": "foundation"},
+    {"id": "ownership-boundaries", "heading": "Ownership boundaries", "owner": "root-tooling", "acceptance_seam": "Machine-readable dependency graph and negative coupling checks", "status": "foundation"},
+    {"id": "shared-task-api", "heading": "Shared task API", "owner": "conformance-contract", "acceptance_seam": "Identical black-box HTTP scenarios against both packaged adapters", "status": "adapter-slices"},
+    {"id": "pi-rpc-lifecycle", "heading": "Pi RPC lifecycle", "owner": "conformance-contract", "acceptance_seam": "Transcript replay through the deterministic fake Pi peer", "status": "foundation"},
+    {"id": "normalized-context", "heading": "Normalized browser task context", "owner": "conformance-contract", "acceptance_seam": "Valid and invalid context fixtures parsed independently by both adapters", "status": "adapter-slices"},
+    {"id": "source-hints", "heading": "Source-hint contract", "owner": "conformance-contract", "acceptance_seam": "Cross-adapter source classification fixtures plus native attribution tests", "status": "adapter-slices"},
+    {"id": "bounds-normalization", "heading": "Bounds, truncation, and normalization", "owner": "conformance-contract", "acceptance_seam": "Golden bounded-context fixtures compared across native validators", "status": "adapter-slices"},
+    {"id": "browser-interaction", "heading": "Browser Client interaction", "owner": "browser-client", "acceptance_seam": "Browser-owned DOM and current-browser cross-tab/navigation tests plus packaged example flows", "status": "adapter-slices"},
+    {"id": "security-configuration", "heading": "Security and configuration", "owner": "conformance-contract", "acceptance_seam": "Framework-native access, CSRF, activation, and startup validation tests", "status": "adapter-slices"},
+    {"id": "rails-adapter", "heading": "Rails Adapter", "owner": "rails-adapter", "acceptance_seam": "Built-gem clean-application integration and broker topology tests", "status": "rails-slice"},
+    {"id": "phoenix-adapter", "heading": "Phoenix Adapter", "owner": "phoenix-adapter", "acceptance_seam": "Built-Hex clean-application integration and supervision tests", "status": "phoenix-slice"},
+    {"id": "documentation-examples", "heading": "Documentation and examples", "owner": "root-tooling", "acceptance_seam": "Documentation checks and examples installed only from built artifacts", "status": "future"},
+    {"id": "versioning-release", "heading": "Versioning and coordinated release", "owner": "root-tooling", "acceptance_seam": "Version drift, immutable artifact, checksum, and registry reconciliation gates", "status": "foundation"},
+    {"id": "sequence-change-control", "heading": "Implementation sequence and change control", "owner": "root-tooling", "acceptance_seam": "Traceability and clean vertical-slice gates before dependent work", "status": "foundation"},
+    {"id": "test-philosophy", "heading": "Test philosophy and primary seam", "owner": "conformance-contract", "acceptance_seam": "Behavior exercised at packaged adapter interfaces", "status": "foundation"},
+    {"id": "shared-conformance", "heading": "Shared Conformance Contract", "owner": "conformance-contract", "acceptance_seam": "Schema, fixture, scenario, transcript, and golden validation", "status": "foundation"},
+    {"id": "browser-client-tests", "heading": "Browser Client", "owner": "browser-client", "acceptance_seam": "Fast DOM and current-browser lifecycle, keyboard, focus, cross-tab, navigation, reflow, reduced-motion, and isolation tests plus future cross-browser packaged example flows", "status": "adapter-slices"},
+    {"id": "accessibility", "heading": "Accessibility", "owner": "browser-client", "acceptance_seam": "Taskbar-owned lifecycle semantics, names/states, one live region, keyboard/focus flows, narrow/200% reflow, and reduced motion in both packaged bundles; recorded assistive-technology pass remains release evidence", "status": "adapter-slices"},
+    {"id": "rails-integration-tests", "heading": "Rails-native integration", "owner": "rails-adapter", "acceptance_seam": "Rails installer, engine, CSRF, attribution, and broker process tests", "status": "rails-slice"},
+    {"id": "phoenix-integration-tests", "heading": "Phoenix-native integration", "owner": "phoenix-adapter", "acceptance_seam": "Phoenix installer, Plug, CSRF, attribution, and OTP isolation tests", "status": "phoenix-slice"},
+    {"id": "compatibility-matrix", "heading": "Compatibility matrix", "owner": "root-tooling", "acceptance_seam": "Published matrix synchronized to clean generated application CI rows", "status": "future"},
+    {"id": "release-acceptance", "heading": "Examples, artifacts, documentation, and release", "owner": "root-tooling", "acceptance_seam": "Packaged example, artifact content, documentation, and release rehearsal gates", "status": "future"},
+    {"id": "out-of-scope", "heading": "Out of Scope", "owner": "conformance-contract", "acceptance_seam": "Contract and architecture review rejects accidental unsupported interfaces", "status": "foundation"}
+  ]
+}

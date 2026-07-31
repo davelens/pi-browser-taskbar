@@ -11,8 +11,10 @@ printf '%s\n' '==> Validate executable contracts'
 ruby tooling/contract_validator.rb
 ruby -Itooling/test tooling/test/fake_pi_rpc_test.rb
 
-printf '%s\n' '==> Enforce ownership and version boundaries'
+printf '%s\n' '==> Enforce ownership, version, and documentation boundaries'
 ruby tooling/verify_architecture.rb
+ruby tooling/stage_shared_docs.rb --check
+ruby tooling/verify_documentation.rb
 
 printf '%s\n' '==> Check generated Browser Client assets'
 node tooling/build_browser_assets.mjs --check

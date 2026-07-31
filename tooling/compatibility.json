@@ -1,0 +1,15 @@
+{
+  "product_version": "0.1.0",
+  "rails": {
+    "framework_floor": "7.1",
+    "language_floor": "2.7",
+    "ci_framework": "8.1.3",
+    "ci_language": "3.3"
+  },
+  "phoenix": {
+    "framework_floor": "1.7",
+    "language_floor": "1.11",
+    "ci_language": "1.17",
+    "ci_otp": "27"
+  }
+}

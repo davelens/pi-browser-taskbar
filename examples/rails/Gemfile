@@ -1,0 +1,10 @@
+source "https://rubygems.org"
+
+gem "rails", "~> 8.1"
+gem "puma"
+gem "importmap-rails"
+gem "turbo-rails"
+
+group :development do
+  gem "pi-browser-taskbar-rails", path: "../../packages/rails", require: "pi/browser/taskbar/rails"
+end

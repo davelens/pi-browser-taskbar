@@ -33,7 +33,9 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
         "mix.exs",
         "README.md",
         "CHANGELOG.md",
-        "LICENSE"
+        "LICENSE",
+        "contract",
+        "docs"
       ],
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/davelens/pi-browser-taskbar"}

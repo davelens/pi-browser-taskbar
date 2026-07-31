@@ -1,58 +1,72 @@
 # Pi Browser Taskbar
 
-A development-only, local bridge between Pi and Rails or Phoenix applications.
+Pi Browser Taskbar is a development-only bridge from a rendered Rails or Phoenix page to one local,
+project-scoped Pi coding session. Choose the
+[`pi-browser-taskbar-rails`](packages/rails/README.md) gem for Rails ERB/Turbo applications or the
+[`pi_browser_taskbar_phoenix`](packages/phoenix/README.md) Hex package for Phoenix
+controller-HEEx/LiveView applications. Both distributions contain their private Browser Client and
+need no Node or JavaScript package manager for taskbar use.
 
-This repository is a monorepo for two independent packages:
+Do not install the taskbar in production or use it with sensitive datasets. It sends deliberately
+submitted visible page text and URL paths to the developer's configured Pi/model provider.
 
-- [`pi-browser-taskbar-rails`](packages/rails/README.md)
-- [`pi_browser_taskbar_phoenix`](packages/phoenix/README.md)
+## Documentation
 
-Both packages bundle the private, dependency-free Browser Client. Applications consuming either
-package do not need Node or a JavaScript package manager.
+- [Architecture and ownership](docs/architecture.md) explains the independent adapters, private
+  Browser Client, canonical contract, examples, and root-tooling boundaries.
+- [Security and remote development](docs/security.md) explains the threat model and safe local
+  default without redefining the normative wire rules.
+- [Troubleshooting](docs/troubleshooting.md) provides symptom-first diagnosis for both adapters.
+- [Compatibility](docs/compatibility.md) records claims checked against package metadata and CI
+  configuration.
+- [Contributing](docs/contributing.md) defines source ownership, generated outputs, and verification.
+- [Recollect migration](docs/recollect-migration.md) records the one-time install, proof, removal, and
+  rollback order.
+- [Conformance Contract v1](contract/docs/index.md) is the single normative source for shared API,
+  lifecycle, context, prompt, security, stable errors, and conformance semantics.
 
-## Repository foundation
+The conventional [Rails ERB/Turbo example](examples/rails/README.md) and
+[Phoenix controller-HEEx/LiveView example](examples/phoenix/README.md) demonstrate equivalent named
+scenarios through public package installation seams.
 
-The executable foundation contains versioned contract schemas and fixtures, native package
-artifacts, deterministic browser asset generation, and automated ownership checks. The Phoenix
-and Rails adapters now include equivalent bounded whole-page flows with up to eight advisory marked
-focus points: deterministic sanitized Browser Client capture, fair focus truncation, independent
-native normalization, native HTTP security, canonical Pi ownership, and completed fake-Pi output.
-Focused tasks attach conservative framework-native source hints: template-level ERB ranges in Rails
-and line-level HEEx evidence in Phoenix. The shared taskbar-owned Corner composer covers stable
-lifecycle text, keyboard and focus paths, one live region, narrow/200% reflow, and reduced motion in
-both packaged bundles. Running tasks can be stopped idempotently through one cancelling-to-cancelled
-lifecycle after Pi settles. Rails uses one external checkout-scoped broker; Phoenix uses one
-supervised runtime.
+## Architecture at a glance
 
-The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
-[architecture guide](docs/architecture.md) explains package ownership and dependency direction, and
-the [security guide](docs/security.md) explains the local boundary and deliberate trusted-network
-remote access. Recollect's one-time cutover and rollback order are recorded in the
-[Recollect migration guide](docs/recollect-migration.md).
+```text
+private Browser Client + adapter provider -> packaged Rails or Phoenix asset
+canonical Contract -----------------------> test-time conformance only
+built adapter ----------------------------> matching example application
+```
+
+The adapters share no runtime code and never depend on one another. Rails uses an external
+checkout-scoped broker; Phoenix uses an OTP-supervised runtime. Exact behavior belongs to the
+[canonical contract](contract/docs/index.md), not this overview.
 
 ## Verify a clean checkout
 
-Install Ruby, Node, Elixir/Mix, and Hex, then run the single root verification entry point:
+Install Ruby, Node, Elixir/Mix, and Hex, then run:
 
 ```sh
 bin/verify
 ```
 
-It validates contract fixtures (including an intentionally invalid fixture), rejects ownership or
-version drift, checks generated assets, runs native package tests, builds both package artifacts,
-inspects their contents, installs both built artifacts into clean conventional hosts for
-development-flow and production-isolation conformance, and compares adapter semantics while
-ignoring only opaque IDs and timestamps. Artifacts are written to `build/`.
+The command checks contract artifacts, documentation and links, generated shared documents and
+Browser Client assets, native suites, package contents, clean artifact-installed host flows,
+fail-closed non-development boot, and cross-adapter semantics. Built artifacts are written to
+`build/` and examples are deliberately excluded from them.
 
-To regenerate committed package assets after changing Browser Client or provider source, run:
+To regenerate committed Browser Client assets and staged offline package documents, run:
 
 ```sh
 bin/build
 ```
 
-See [contributing](docs/contributing.md) and the
-[requirement traceability index](contract/traceability.md) for the acceptance seams established by
-this foundation.
+## Contribution boundaries
+
+Change normative shared behavior only in `contract/` beside its schemas and fixtures. Change generic
+browser interaction only in `packages/browser-client/`, and framework behavior only in the matching
+adapter. Keep examples on public package seams and root tooling free of runtime behavior. See
+[contributing](docs/contributing.md) and the
+[requirement traceability index](contract/traceability.md).
 
 ## License
 

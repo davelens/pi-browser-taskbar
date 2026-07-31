@@ -28,8 +28,8 @@ Browser Client source ----> root asset builder <---- adapter ContextProvider
                          adapter-owned generated asset
 
 Conformance Contract ----> adapter tests (eventual)
-Rails Adapter -----------> Rails example (eventual)
-Phoenix Adapter ---------> Phoenix example (eventual)
+Rails Adapter -----------> Rails ERB/Turbo example
+Phoenix Adapter ---------> Phoenix controller-HEEx/LiveView example
 ```
 
 There is no shared Ruby or Elixir runtime. The adapters never load one another. Generated browser
@@ -39,8 +39,9 @@ Rails serving processes are reload- and fork-safe clients of one gem-packaged ex
 by canonical checkout and OS user. The broker alone owns Pi and shared state; OS locking and a
 versioned Unix-socket identity handshake converge Puma workers, phased replacements, and concurrent
 servers without a process-local fallback. Phoenix retains its separate OTP-supervised ownership.
-Both adapters resolve the same five server-owned semantic settings at startup and compile or boot all
-routes, assets, and Pi ownership out unless native framework development mode is active.
+Both adapters resolve shared server-owned settings at startup and compile or boot all routes, assets,
+and Pi ownership out unless native framework development mode is active. The exact fields and
+semantics remain in the canonical contract.
 
 ## Version ownership
 

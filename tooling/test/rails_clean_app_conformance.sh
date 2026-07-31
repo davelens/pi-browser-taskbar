@@ -86,6 +86,12 @@ require "rails/commands"
 RUBY
 chmod +x "$app/bin/rails"
 
+# Exercise the checked-in example pages from a clean artifact-installed host.
+mkdir -p "$app/app/views/scenarios"
+cp "$root/examples/rails/config/routes.rb" "$app/config/routes.rb"
+cp "$root/examples/rails/app/controllers/scenarios_controller.rb" "$app/app/controllers/scenarios_controller.rb"
+cp "$root"/examples/rails/app/views/scenarios/*.erb "$app/app/views/scenarios/"
+
 export GEM_HOME="$gem_home"
 export GEM_PATH="$gem_home:$original_gem_path"
 export PI_BROWSER_TASKBAR_EXECUTABLE="$tmp/fake_pi_rpc"
@@ -122,8 +128,14 @@ module CleanRailsConformance
     assert ActionView::Base.annotate_rendered_view_with_filenames == true, "effective annotation config was not enabled"
     session.get "/"
     assert session.response.status == 200, "host did not boot"
-    assert session.response.body.include?("BEGIN app/views/home/index.html.erb"), "ERB template was not annotated"
+    assert session.response.body.include?("BEGIN app/views/scenarios/index.html.erb"), "ERB template was not annotated"
+    assert session.response.body.include?("BEGIN app/views/scenarios/_card.html.erb"), "nested ERB partial was not annotated"
     assert session.response.body.include?("BEGIN app/views/layouts/application.html.erb"), "ERB layout was not annotated"
+    assert session.response.body.include?('data-testid="scenario-whole-page"'), "example whole-page selector missing"
+    assert session.response.body.include?('data-testid="focus-card"'), "example focus selector missing"
+    session.get "/navigation"
+    assert session.response.status == 200 && session.response.body.include?('data-testid="navigation-target"'), "example navigation failed"
+    session.get "/"
     token = session.response.body[/data-csrf-token="([^"]+)"/, 1]
     assert token && session.response.body.include?("pi_browser_taskbar.js"), "layout bootstrap missing"
     session.get "/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js", headers: {"HTTP_REFERER" => "http://localhost/"}
@@ -420,7 +432,7 @@ RUBY
   RAILS_ENV=development ruby bin/rails destroy pi_browser_taskbar:install >/dev/null
   test ! -e config/initializers/pi_browser_taskbar.rb
   ! grep -R "pi-browser-taskbar:start\|pi_browser_taskbar_tags" config/routes.rb app/views/layouts/application.html.erb
-  grep -q 'root "home#index"' config/routes.rb
+  grep -q 'root "scenarios#index"' config/routes.rb
 )
 echo "clean Rails update and uninstall conformance passed"
 

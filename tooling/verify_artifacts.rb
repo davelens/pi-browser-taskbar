@@ -44,6 +44,7 @@ class ArtifactVerifier
       raise "Rails artifact omits runtime entries: #{missing.join(", ")}" unless missing.empty?
       verify_contents("Rails", files, asset)
       verify_license("Rails", File.read(File.join(directory, "LICENSE")))
+      verify_shared_docs("Rails") { |path| File.binread(File.join(directory, path)) }
       verify_bootstrap("Rails", File.read(File.join(directory, asset)), "rails")
     end
   end
@@ -58,6 +59,7 @@ class ArtifactVerifier
     asset = "priv/static/pi_browser_taskbar.js"
     verify_contents("Phoenix", files.keys, asset)
     verify_license("Phoenix", files.fetch("LICENSE"))
+    verify_shared_docs("Phoenix") { |path| files.fetch(path) }
     verify_bootstrap("Phoenix", files.fetch(asset), "phoenix")
 
     mix = files.fetch("mix.exs")
@@ -72,12 +74,21 @@ class ArtifactVerifier
   end
 
   def verify_contents(label, files, asset)
-    raise "#{label} artifact omits #{asset}" unless files.include?(asset)
-    raise "#{label} artifact omits LICENSE" unless files.include?("LICENSE")
+    required = [asset, asset.sub(/\.js\z/, ".css"), "README.md", "CHANGELOG.md", "LICENSE",
+      "contract/docs/index.md", "contract/traceability.md", "contract/traceability.json",
+      "docs/security.md", "docs/troubleshooting.md"]
+    missing = required - files
+    raise "#{label} artifact omits required content: #{missing.join(", ")}" unless missing.empty?
     raise "#{label} artifact unexpectedly requires Node" if files.any? { |file| File.basename(file) == "package.json" }
 
     forbidden = files.grep(%r{(^|/)(examples|tooling|browser-client|node_modules)(/|$)})
     raise "#{label} artifact leaks monorepo files: #{forbidden.join(", ")}" unless forbidden.empty?
+  end
+
+  def verify_shared_docs(label)
+    %w[contract/docs/index.md contract/traceability.md contract/traceability.json docs/security.md docs/troubleshooting.md].each do |path|
+      raise "#{label} staged #{path} differs from canonical source" unless yield(path) == File.binread(File.join(@root, path))
+    end
   end
 
   def verify_license(label, contents)

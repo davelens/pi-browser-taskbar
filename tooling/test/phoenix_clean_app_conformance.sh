@@ -369,6 +369,11 @@ defmodule CleanAppConformance do
 
     {:safe, layout} = DemoWeb.PiBrowserTaskbar.layout_bootstrap()
     assert!(IO.iodata_to_binary(layout) =~ "data-pi-browser-taskbar-bootstrap", "layout bootstrap missing")
+    controller_example = TaskbarExampleWeb.PageHTML.index(%{}) |> Phoenix.HTML.Safe.to_iodata() |> IO.iodata_to_binary()
+    live_example = TaskbarExampleWeb.ScenarioLive.render(%{count: 0}) |> Phoenix.HTML.Safe.to_iodata() |> IO.iodata_to_binary()
+    assert!(controller_example =~ ~s(data-testid="scenario-whole-page"), "example whole-page selector missing")
+    assert!(controller_example =~ ~s(data-testid="focus-card"), "example focus selector missing")
+    assert!(live_example =~ ~s(data-testid="navigation-target"), "example LiveView navigation selector missing")
     assert!(is_pid(Process.whereis(DemoWeb.Endpoint)), "host endpoint did not boot")
     IO.puts("clean Phoenix development conformance passed")
   end
@@ -443,7 +448,10 @@ export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
   cd "$app"
   MIX_ENV=dev mix deps.get --quiet
   MIX_ENV=dev mix pi_browser_taskbar.install
+  cp "$root/examples/phoenix/lib/taskbar_example_web.ex" lib/
+  cp -R "$root/examples/phoenix/lib/taskbar_example_web" lib/
   MIX_ENV=dev mix run conformance.exs
+  rm -rf lib/taskbar_example_web.ex lib/taskbar_example_web
   MIX_ENV=dev mix pi_browser_taskbar.install
 
   cp lib/demo_web/router.ex "$tmp/router.before-mutation"

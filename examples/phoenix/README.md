@@ -1,30 +1,46 @@
-# Phoenix example
+# Phoenix controller-HEEx/LiveView example
 
-The first Phoenix reference flow is exercised from a clean conventional host fixture by the
-package installer and shared black-box conformance tests. It uses only these public package seams:
+A small conventional Phoenix application using controller-rendered HEEx, a nested function
+component, LiveView navigation and patches, and only the public Hex dependency plus Mix installer
+seam. It defines the same named scenarios and stable selectors as the Rails example.
 
-```elixir
-# development-only dependency
-{:pi_browser_taskbar_phoenix, "~> 0.1.0", only: :dev, runtime: false}
-```
+## Run
+
+From this directory:
 
 ```sh
+MIX_ENV=dev mix deps.get
 MIX_ENV=dev mix pi_browser_taskbar.install
+SECRET_KEY_BASE="$(mix phx.gen.secret)" MIX_ENV=dev mix phx.server
 ```
 
-The generated host module contributes one supervised child before the endpoint, one router mount
-through an application-prefixed package-owned Phoenix session/CSRF pipeline, one root-layout
-bootstrap, installation metadata, and the uninstall seam. The installer also enables development
-HEEx debug annotations. In non-development builds the dependency-free stub contributes no routes,
-assets, or runtime behavior.
+Open `http://localhost:4000`. The checked-in dependency uses the local workspace through Mix's public
+package seam. Release acceptance replaces it with an extracted
+`build/pi_browser_taskbar_phoenix-0.1.0.tar` in a clean copy; no source-workspace path is permitted.
 
-The packaged clean-host fixture proves idempotent update, conflict refusal, development mutation,
-production/test compilation without the package, and reversible uninstall through the same public
-Mix task. Remove an installation with:
+## Equivalent named scenarios
+
+| Scenario | Action | Stable selector |
+| --- | --- | --- |
+| `whole-page` | Submit from the controller page with no marks. | `[data-testid="scenario-whole-page"]` |
+| `focused-card` | Mark the nested component, then submit. | `[data-testid="focus-card"]` |
+| `cancellation` | Start a task, choose **Stop task**, and wait for **Stopped**. | `[data-testid="scenario-whole-page"]` |
+| `reset` | Confirm **New session** after terminal output. | `[data-testid="scenario-whole-page"]` |
+| `navigation` | Follow the LiveView link and patch during idle and active states. | `[data-testid="navigation-target"]` |
+| `fail-closed` | Compile with `MIX_ENV=prod`; no taskbar route, asset, or process exists. | `[data-testid="scenario-whole-page"]` |
+
+The prompts are entered manually in the package UI; the example stores no prompts, credentials,
+remote allowlist, fake Pi peer, or taskbar runtime hook.
+
+## Verify and uninstall
+
+The root `bin/verify` installs the built archive into a clean conventional host, exercises whole-page,
+focus, cancellation, reset, navigation reconciliation, and non-development isolation, and confirms
+that the loaded package is outside the source workspace. Remove this example's generated seams while
+the development dependency is still available:
 
 ```sh
 MIX_ENV=dev mix pi_browser_taskbar.install --uninstall
 ```
 
-A standalone packaged example application will replace the generated clean-host fixture when the
-cross-adapter example milestone adds Rails parity; no example-only runtime behavior belongs here.
+Then remove the development dependency manually.

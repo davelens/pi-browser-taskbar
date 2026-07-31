@@ -5,6 +5,7 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 version=$(<"$root/VERSION")
 build="$root/build"
 
+ruby "$root/tooling/stage_shared_docs.rb"
 rm -rf "$build"
 mkdir -p "$build"
 

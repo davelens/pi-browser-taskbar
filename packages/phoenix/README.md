@@ -1,98 +1,44 @@
 # Pi Browser Taskbar Phoenix
 
-Development-only Phoenix adapter with a prebuilt, dependency-free Browser Client. A consuming
-application does not need Node or a JavaScript package manager.
+Development-only Phoenix adapter for conventional Phoenix 1.7+ controller-HEEx and LiveView
+applications. The Hex package includes the Browser Client, so consuming applications need no Node or
+JavaScript package manager for the taskbar. Shared wire behavior is defined only by the packaged
+[Conformance Contract](contract/docs/index.md).
 
-## Install in a conventional Phoenix application
+## Dependency
 
-Add the package only to development. `runtime: false` prevents Mix from auto-starting the package;
-the generated host integration owns its one supervised runtime explicitly.
+Add the matching product version only in development. `runtime: false` leaves startup to the
+generated host integration:
 
 ```elixir
-# mix.exs
-defp deps do
-  [
-    {:pi_browser_taskbar_phoenix, "~> 0.1.0", only: :dev, runtime: false}
-  ]
-end
+{:pi_browser_taskbar_phoenix, "~> 0.1.0", only: :dev, runtime: false}
 ```
 
-Then run:
+## Installer
 
 ```sh
 MIX_ENV=dev mix deps.get
 MIX_ENV=dev mix pi_browser_taskbar.install
 ```
 
-To migrate a sibling application before the first package release, build this repository with
-`bin/build` and point the same dependency declaration at the extracted artifact instead:
+For an umbrella or nonstandard host, pass the application root and any ambiguous application, web,
+endpoint, router, layout, or mount options. Run `mix help pi_browser_taskbar.install` for the exact
+flags. The installer plans every edit before writing and refuses ambiguous discovery, collisions,
+annotation conflicts, unsupported layouts, and edited generated sections.
 
-```elixir
-{:pi_browser_taskbar_phoenix,
- path: "../pi-browser-taskbar/build/pi_browser_taskbar_phoenix",
- only: :dev,
- runtime: false}
-```
+## Generated integration
 
-This local path is generated from the Hex archive, not the package source tree, so it exercises the
-same public package contents and installer as a registry dependency.
-
-The installer discovers the OTP application, web namespace, endpoint, router, application
-supervisor, and root HEEx layout before writing. It then idempotently adds:
-
-- one host-owned `MyAppWeb.PiBrowserTaskbar` integration module containing installation metadata;
-- that integration as a supervised child immediately before `MyAppWeb.Endpoint`;
-- `/dev/pi-browser-taskbar` through package-owned, application-prefixed Phoenix route helpers and a
-  session/CSRF pipeline;
-- one root-layout bootstrap outside LiveView-owned DOM;
-- development-only `Phoenix.LiveView` HEEx debug annotations for advisory source hints.
-
-Every owned host section is marked. All paths, source shapes, conflicts, and generated checksums are
-preflighted before staged writes, and changed Elixir files are formatted. Re-running the command is
-an idempotent update when generated content is intact. Edited generated sections, route/helper
-collisions, conflicting annotation settings, unsupported layouts, and ambiguous discovery stop
-without updating any host file.
-
-For an umbrella or nonstandard host, select its application root and provide the ambiguous seams:
-
-```sh
-MIX_ENV=dev mix pi_browser_taskbar.install \
-  --root . --app my_app --web MyAppWeb --endpoint MyAppWeb.Endpoint \
-  --application lib/my_app/application.ex --router lib/my_app_web/router.ex \
-  --layout lib/my_app_web/components/layouts/root.html.heex \
-  --mount /dev/pi-browser-taskbar
-```
-
-Options accept router modules or source paths; application and layout options are source paths.
-The installer refuses to guess when more than one candidate remains and reports the option needed.
-
-The router mount deliberately uses a package-owned pipeline with Phoenix's `:fetch_session` and
-`:protect_from_forgery` plugs. This preserves the native session-bound CSRF seam without inheriting
-a conventional HTML-only `:accepts` plug for the JSON API. The package also checks the
-framework-normalized host and peer address on every route.
-
-The generated module has a dependency-free non-development branch. Therefore test and production
-can compile and boot without this development-only dependency; those builds expand no routes,
-emit no assets, and start no taskbar process.
-
-## Use
-
-Restart the development server, open any page, and use the lower-left **Page task** composer. A
-prompt with no marks submits a bounded sanitized whole-page structural snapshot. Visible text and
-URL paths may reach the configured Pi/model provider, so do not use it with sensitive datasets. The
-package admits one task at a time to one persistent `pi --mode rpc` process and retains the latest
-terminal output. While a task is running, **Stop task** sends Pi's abort command and remains
-cancelling until Pi settles. Stopping cannot roll back file changes Pi already made. The confirmed
-**New session** action uses Pi's in-process session switch, clears retained feedback only after state
-confirmation, and preserves the local draft and focus marks; a rejected switch preserves the old
-session.
+The installer creates one host-owned `MyAppWeb.PiBrowserTaskbar` module and marked sections for its
+supervised child, router expansion, root-layout bootstrap, and HEEx debug annotations. Its
+non-development branch has no package reference, routes, assets, or runtime process. The development
+branch starts the package supervisor immediately before the endpoint and uses a package-owned native
+session/CSRF pipeline.
 
 ## Configuration
 
-Configuration is keyed by the host OTP application:
+Use application-native syntax in `config/dev.exs`:
 
 ```elixir
-# config/dev.exs
 config :my_app, :pi_browser_taskbar,
   enabled: true,
   allowed_hosts: [],
@@ -101,47 +47,55 @@ config :my_app, :pi_browser_taskbar,
   task_timeout: 1_800
 ```
 
-In development, `enabled` defaults to true; explicit false disables routes, assets, and Pi ownership
-after recompilation. These five fields are the complete server-owned semantic configuration surface.
-Explicit application configuration wins over matching `PI_BROWSER_TASKBAR_*` environment fallbacks,
-which win over defaults; `PI_BROWSER_TASKBAR_ALLOWED_HOSTS` is comma-separated. `task_timeout` is
-integer seconds from 60 through 86,400. Invalid active values fail startup with the setting name;
-inactive values are not validated when disabled.
+The matching `PI_BROWSER_TASKBAR_*` environment fallbacks and the normative field semantics are in
+[Server-owned configuration and activation](contract/docs/index.md#server-owned-configuration-and-activation).
+Recompile the development application after a configuration change.
 
-Outside `Mix.env() == :dev` the generated dependency-free branch stays absent regardless of
-configuration. It retains only host installation metadata and stubs, and does not reference the
-package. The executable and fixed `--mode rpc` arguments are spawned directly in the canonical
-project root with the development server environment. Browser requests cannot override process,
-timeout, route, protocol, or security configuration. A missing executable reports sanitized
-unavailable state without preventing the host endpoint from booting.
+## Verification
 
-Remote access requires a non-empty list of bare exact DNS names or IP literals. Every request uses
-Plug's normalized `conn.host` and `conn.remote_ip`; configure trusted proxies in the host endpoint and
-do not add taskbar-specific forwarding-header handling. Plain HTTP remote access is only for a
-trusted network and keeps a persistent unencrypted-access warning in the taskbar. The adapter retains
-native session CSRF, adds no permissive CORS headers, and returns fixed safe browser errors without
-logging request bodies or Pi records. See the shared [security guide](../../docs/security.md).
+Start Phoenix in development, open a host page, and confirm the lower-left **Page task** launcher is
+present. Run a whole-page task, mark an element for a focused task, stop a running task, start a new
+session, and follow controller and LiveView navigation. Repository contributors run `bin/verify` at
+the monorepo root; `examples/phoenix/` names the same scenarios and stable selectors.
+
+## Diagnosis
+
+If the launcher is absent, confirm `MIX_ENV=dev`, the generated markers remain intact, and the
+integration is supervised before the endpoint. If it is unavailable, run `pi --mode rpc` from the
+configured project root and inspect only the adapter's safe diagnostics. For host, CSRF, source-hint,
+busy, and cancellation symptoms, use the packaged [troubleshooting guide](docs/troubleshooting.md).
+
+## Updates
+
+Update the development dependency within the matching product version, fetch dependencies, and rerun
+the installer. It reports a current installation or updates only recognized marked content.
+
+## Security
+
+Phoenix supplies native session CSRF, normalized host/peer information, request-body log isolation,
+and compile-time development activation. The shared threat model and remote-access rules are in the
+packaged [security guide](docs/security.md); normative invariants remain in the
+[Conformance Contract](contract/docs/index.md#remote-development-access-and-diagnostics).
 
 ## Uninstall
 
-Keep the development dependency available while running the inverse installer:
+Keep the development dependency available while running:
 
 ```sh
 MIX_ENV=dev mix pi_browser_taskbar.install --uninstall
 ```
 
-For a nonstandard installation, `--web` can select its generated integration if more than one exists.
-Uninstall verifies the integration checksum and every marked host seam before changing anything,
-then removes only recognized generated content and formats affected Elixir files. Repeating it is
-harmless. If generated content was edited or metadata is missing, it stops with precise manual
-removal guidance rather than deleting ambiguous content. Pre-existing annotation configuration is
-never removed. Remove the development dependency from `mix.exs` manually after successful uninstall;
-the installer never guesses at dependency declarations.
+Uninstall preflights all owned sections and removes only recognized generated content. Remove the
+dependency from `mix.exs` manually afterward. Pre-existing annotation configuration, credentials,
+sessions, and unrelated host code are not removed.
 
-## Build and verify
+## Changelog and example
 
-Run `bin/verify` from the repository root. It validates contracts and generated assets, runs native
-and Browser Client tests, builds the Hex package, and inspects its contents.
+See the [Phoenix changelog](CHANGELOG.md) and repository path `examples/phoenix/` for the executable
+controller-HEEx/LiveView example.
 
-See the repository [architecture](../../docs/architecture.md) and
-[canonical contract](../../contract/docs/index.md).
+## Matching-version contract
+
+This adapter version is `0.1.0`. Use the same product version shown by the Rails adapter and the root
+`VERSION`; the packaged [Conformance Contract](contract/docs/index.md) is the offline normative
+reference for both adapters.

@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 2.7"
 
   spec.files = Dir.chdir(__dir__) do
-    Dir["CHANGELOG.md", "LICENSE", "README.md", "lib/**/*.rb", "lib/**/*.css", "lib/**/*.js"]
+    Dir["CHANGELOG.md", "LICENSE", "README.md", "contract/**/*", "docs/**/*", "lib/**/*.rb", "lib/**/*.css", "lib/**/*.js"]
   end
   spec.require_paths = ["lib"]
 

@@ -1,0 +1,13 @@
+<main data-testid="scenario-whole-page">
+  <h1>Taskbar scenarios</h1>
+  <p>Submit with no marks for the <strong>whole-page</strong> scenario.</p>
+
+  <section data-testid="scenario-focused-card">
+    <h2>Focused card</h2>
+    <%= render partial: "card", collection: @cards, as: :card %>
+  </section>
+
+  <nav data-testid="scenario-navigation" aria-label="Example navigation">
+    <%= link_to "Turbo navigation", navigation_path, data: { turbo: true, testid: "navigation-target" } %>
+  </nav>
+</main>
