@@ -49,7 +49,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       status: shadow.querySelector("[data-status]"),
       toggle: shadow.querySelector("[data-toggle]"),
       toggleScope: shadow.querySelector("[data-toggle-scope]"),
-      toggleStatus: shadow.querySelector("[data-toggle-status]"),
     };
     let currentBootstrap = bootstrap;
     let fetchRequest = bootstrap.fetch || globalThis.fetch?.bind(globalThis);
@@ -291,7 +290,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       setControlText(controls.status, status);
       controls.status.setAttribute("data-state", task?.status || renderedSession.status);
       setControlText(controls.model, session.model ? `Model: ${session.model}` : "Local Pi session");
-      setControlText(controls.toggleStatus, status);
       setControlText(controls.activity, activity);
       controls.activity.hidden = !controls.activity.textContent;
       controls.panel.setAttribute("aria-busy", String(resetPending || active(snapshot)));
@@ -333,7 +331,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       controls.reset.setAttribute("aria-label", confirmingReset
         ? "Confirm starting a fresh Pi session"
         : "Start a new Pi session");
-      controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.toggleStatus.textContent}. ${scopeTitle(marks.length)}.`);
+      controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.status.textContent}. ${scopeTitle(marks.length)}.`);
     }
 
     function setSelecting(next) {
@@ -403,7 +401,8 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       controls.scope.textContent = marks.length === 0
         ? "Whole page · Pi receives a bounded structural snapshot"
         : `${scopeTitle(marks.length)} · advisory focus with whole-page surroundings`;
-      controls.toggleScope.textContent = scopeTitle(marks.length);
+      controls.toggleScope.textContent = marks.length ? `· ${scopeTitle(marks.length)}` : "";
+      controls.toggleScope.hidden = marks.length === 0;
       controls.clear.hidden = marks.length === 0;
       controls.marks.replaceChildren?.();
       marks.forEach((mark, index) => {
@@ -1154,7 +1153,7 @@ function markup() {
     <style>${taskbarStyles}</style>
     <section id="pi-taskbar-panel" data-panel hidden aria-labelledby="pi-taskbar-title" aria-busy="false">
       <header>
-        <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><strong id="pi-taskbar-title">Pi browser task</strong><small data-model>Local Pi session</small></span></span>
+        <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><span data-kicker aria-hidden="true">PI / PAGE TASK</span><strong id="pi-taskbar-title">Pi browser task</strong><small data-model>Local Pi session</small></span></span>
         <span data-status data-state="starting">Connecting</span>
         <button data-close type="button" aria-controls="pi-taskbar-panel" aria-expanded="true" aria-label="Collapse Pi browser taskbar">−</button>
       </header>
@@ -1189,7 +1188,7 @@ function markup() {
     <div data-hover-outline hidden aria-hidden="true"></div>
     <div data-overlays aria-hidden="true"></div>
     <button data-toggle type="button" aria-controls="pi-taskbar-panel" aria-expanded="false" aria-label="Open Pi browser taskbar. Connecting. Whole page.">
-      <span data-pi-glyph aria-hidden="true">π</span><span><strong>Page task · <span data-toggle-status>Connecting</span></strong><small data-toggle-scope>Whole page</small></span>
+      <span data-pi-glyph aria-hidden="true">π</span><span><strong>Page task <span data-toggle-scope hidden></span></strong></span>
     </button>
   `;
 }

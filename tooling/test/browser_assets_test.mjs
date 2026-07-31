@@ -814,6 +814,8 @@ for (const framework of Object.keys(assets)) {
     assert.match(source, /data-live[^>]+aria-live="polite"[^>]+aria-atomic="true"/u);
     assert.match(source, /<label for="pi-taskbar-prompt">Task instruction<\/label>/u);
     assert.match(source, /data-output[^>]+aria-label="Latest Pi output"/u);
+    assert.match(source, /<strong>Page task <span data-toggle-scope hidden><\/span><\/strong>/u);
+    assert.doesNotMatch(source, /data-toggle-status/u);
     assert.equal((source.match(/data-live[^>]+aria-live=/gu) || []).length, 1);
 
     for (const [_session, _task, expectedStatus] of states) {
@@ -836,7 +838,10 @@ for (const framework of Object.keys(assets)) {
     const mounted = sandbox.PiBrowserTaskbar.mount({ autoRefresh: false, document });
     const shadow = mounted.element.shadowRoot;
     const toggle = shadow.querySelector("[data-toggle]");
+    const toggleScope = shadow.querySelector("[data-toggle-scope]");
 
+    assert.equal(toggleScope.hidden, true);
+    assert.equal(toggleScope.textContent, "");
     toggle.dispatchEvent({ type: "click" });
     assert.equal(shadow.querySelector("[data-panel]").hidden, false);
     assert.equal(toggle.hidden, true);
@@ -851,8 +856,11 @@ for (const framework of Object.keys(assets)) {
     mark.dispatchEvent({ type: "click" });
     document.dispatch("keydown", focus, { key: "Enter" });
     assert.equal(shadow.querySelector("[data-marks]").children.length, 1);
+    assert.equal(toggleScope.hidden, false);
+    assert.equal(toggleScope.textContent, "· 1 marked element");
     assert.equal(shadow.querySelector("[data-prompt]").focused, true);
     shadow.querySelector("[data-marks]").children[0].children[1].dispatchEvent({ type: "click" });
+    assert.equal(toggleScope.hidden, true);
     assert.equal(mark.focused, true);
 
     select(mark, document, focus);
@@ -1365,7 +1373,7 @@ function fakeDocument() {
         "[data-run]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
         "[data-cancel-warning]", "[data-close]", "[data-insecure-remote-warning]", "[data-live]",
-        "[data-model]", "[data-reset]", "[data-selection-help]", "[data-toggle-scope]", "[data-toggle-status]",
+        "[data-model]", "[data-reset]", "[data-selection-help]", "[data-toggle-scope]",
       ]) {
         this.elements.set(selector, new FakeElement());
       }

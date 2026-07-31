@@ -316,6 +316,7 @@ function harnessHtml(framework) {
       await winA.fetch("/control?state=" + state);
       await clientA.refresh();
       await auditTaskbar(winA, clientA, status);
+      check(shadowA.querySelector("[data-toggle]").getAttribute("aria-label").includes(status), "launcher accessible lifecycle");
     }
 
     shadowA.querySelector("[data-mark]").click();
@@ -333,10 +334,18 @@ function harnessHtml(framework) {
     const narrowClient = narrow.contentWindow.PiBrowserTaskbar.mount({ autoRefresh: false });
     await narrowClient.refresh();
     const narrowShadow = narrowClient.element.shadowRoot;
-    narrowShadow.querySelector("[data-toggle]").click();
+    const narrowToggle = narrowShadow.querySelector("[data-toggle]");
+    narrowToggle.click();
     const narrowRect = narrowShadow.querySelector("[data-panel]").getBoundingClientRect();
     check(narrowRect.left >= 0 && narrowRect.right <= narrow.contentDocument.documentElement.clientWidth, "narrow reflow");
+    narrowShadow.querySelector("[data-mark]").click();
+    narrow.contentDocument.querySelector("[data-testid=focus-card]").click();
+    narrowShadow.querySelector("[data-close]").click();
+    check(narrowToggle.textContent.includes("1 marked element"), "marked launcher summary");
     narrow.contentDocument.documentElement.style.zoom = "2";
+    const zoomedToggleRect = narrowToggle.getBoundingClientRect();
+    check(zoomedToggleRect.left >= 0 && zoomedToggleRect.right <= narrow.contentDocument.documentElement.clientWidth, "200% zoom launcher reflow");
+    narrowToggle.click();
     const zoomedRect = narrowShadow.querySelector("[data-panel]").getBoundingClientRect();
     check(zoomedRect.left >= 0 && zoomedRect.right <= narrow.contentDocument.documentElement.clientWidth, "200% zoom reflow");
     check(narrowShadow.querySelector("[data-panel]").scrollWidth <= narrowShadow.querySelector("[data-panel]").clientWidth, "200% zoom has no horizontal panel overflow");
