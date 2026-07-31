@@ -15,7 +15,7 @@
 - Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across full and Turbo navigation without stale marks.
 - Enforce startup-fixed server configuration and fail-closed native development activation.
 - Secure exact remote-host access, native CSRF responses, filtered diagnostics, and persistent trusted-network HTTP warnings.
-- Make Rails installation atomically preflighted, checksummed, explicitly selectable, idempotently updatable, and all-or-nothing reversible through Rails' native inverse generator.
+- Make Rails installation atomically preflighted, checksummed, explicitly selectable, mounted before host fallbacks, idempotently updatable, and all-or-nothing reversible through Rails' native inverse generator.
 - Complete the Shadow DOM Corner composer with stable lifecycle text, native accessible controls, one live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.
 - Verify every stable Rails minor from 7.1 through 8.1 at its minimum Ruby, plus newest Rails on newest MRI, in generated artifact-installed applications and supported Puma modes.
 - Run artifact-isolated Chromium, Firefox, and WebKit Turbo/lifecycle/keyboard flows with taskbar-owned automated accessibility evidence and a separate human assistive-technology release checklist.

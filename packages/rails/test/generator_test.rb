@@ -118,6 +118,59 @@ class RailsGeneratorTest < Minitest::Test
     end
   end
 
+  def test_mount_precedes_global_fallback_and_repositions_an_existing_block
+    in_app do |root|
+      routes = File.join(root, "config/routes.rb")
+      File.write(routes, <<~RUBY)
+        Rails.application.routes.draw do
+          root "home#index"
+          match "*path" => "catch_all#resolve", via: :all
+        end
+      RUBY
+
+      assert_equal :installed, Generator.run!(root)
+      source = File.read(routes)
+      assert_operator source.index("Pi::Browser::Taskbar::Rails::Engine"), :<, source.index('match "*path"')
+
+      block = source[/  # pi-browser-taskbar:start routes\n.*?  # pi-browser-taskbar:end routes\n/m]
+      File.write(routes, source.sub(block, "").sub("\nend\n", "\n#{block}end\n"))
+
+      assert_equal :installed, Generator.run!(root)
+      source = File.read(routes)
+      assert_operator source.index("Pi::Browser::Taskbar::Rails::Engine"), :<, source.index('match "*path"')
+    end
+  end
+
+  def test_mount_precedes_an_inline_global_fallback
+    in_app do |root|
+      routes = File.join(root, "config/routes.rb")
+      File.write(routes, <<~RUBY)
+        Rails.application.routes.draw do match "*path" => "catch_all#resolve", via: :all
+        end
+      RUBY
+
+      assert_equal :installed, Generator.run!(root)
+      source = File.read(routes)
+      assert_operator source.index("Pi::Browser::Taskbar::Rails::Engine"), :<, source.index('match "*path"')
+    end
+  end
+
+  def test_commented_draw_signature_is_not_a_routes_block
+    in_app do |root|
+      routes = File.join(root, "config/routes.rb")
+      File.write(routes, <<~RUBY)
+        # Rails.application.routes.draw do
+        if true
+        end
+      RUBY
+      before = tree(root)
+
+      error = assert_raises(ArgumentError) { Generator.run!(root) }
+      assert_match(/routes\.draw block/, error.message)
+      assert_equal before, tree(root)
+    end
+  end
+
   def test_route_conflict_and_unsupported_ruby_syntax_refuse_every_write
     [
       'Rails.application.routes.draw do\n  get "/dev/pi-browser-taskbar", to: "home#index"\nend\n',

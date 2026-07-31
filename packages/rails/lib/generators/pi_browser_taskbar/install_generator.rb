@@ -17,6 +17,7 @@ module PiBrowserTaskbar
       DEFAULT_MOUNT = "/dev/pi-browser-taskbar"
       INITIALIZER_PATH = "config/initializers/pi_browser_taskbar.rb"
       ROUTES_PATH = "config/routes.rb"
+      ROUTES_DRAW = /^[ \t]*Rails\.application\.routes\.draw\s+do\b/
       LEGACY_ROUTE = "  mount Pi::Browser::Taskbar::Rails::Engine => \"/dev/pi-browser-taskbar\" if Rails.env.development? && defined?(Pi::Browser::Taskbar::Rails::Engine) && Pi::Browser::Taskbar::Rails.active?"
       LEGACY_LAYOUT = "  <%= Pi::Browser::Taskbar::Rails.layout_bootstrap(self) if Rails.env.development? && defined?(Pi::Browser::Taskbar::Rails) && Pi::Browser::Taskbar::Rails.active? %>"
       LEGACY_INITIALIZER = <<~RUBY.freeze
@@ -79,6 +80,7 @@ module PiBrowserTaskbar
           route_source = read!(route_path, "routes")
           validate_ruby!(route_source, route_path, "routes")
           route_output = install_routes!(route_source, desired_mount)
+          validate_ruby!(route_output, route_path, "generated routes")
 
           layout_outputs = layouts.to_h do |path|
             source = read!(path, "ERB application layout")
@@ -193,14 +195,15 @@ module PiBrowserTaskbar
             raise ArgumentError, "route conflict at #{mount}; pass a different --mount or remove the conflicting host route"
           end
 
-          if parsed
-            source.sub(parsed.fetch(:full), route_block(mount))
-          elsif source.include?(LEGACY_ROUTE)
-            source.sub(LEGACY_ROUTE, route_block(mount).chomp)
+          draw = unowned_source.match(ROUTES_DRAW)
+          insertion = draw.end(0)
+          if unowned_source[insertion] == "\n"
+            insertion += 1
+            block = route_block(mount)
           else
-            match = source.match(/\nend\s*\z/)
-            source[0...match.begin(0)] + "\n#{route_block(mount)}" + source[(match.begin(0) + 1)..-1]
+            block = "\n#{route_block(mount)}"
           end
+          unowned_source.dup.insert(insertion, block)
         end
 
         def route_block(mount)
@@ -209,7 +212,7 @@ module PiBrowserTaskbar
         end
 
         def validate_route_shape!(source)
-          draws = source.scan(/\bRails\.application\.routes\.draw\s+do\b/).length
+          draws = source.scan(ROUTES_DRAW).length
           unless draws == 1 && source.match?(/\nend\s*\z/)
             raise ArgumentError, "could not find one supported Rails.application.routes.draw block; patch config/routes.rb manually"
           end
