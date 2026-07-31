@@ -62,6 +62,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     let confirmingReset = false;
     let resetPending = false;
     let mutationObserver = null;
+    let themeObserver = null;
 
     controls.toggle.addEventListener("click", openPanel);
     controls.close.addEventListener("click", closePanel);
@@ -105,6 +106,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       if (document.visibilityState !== "hidden") refresh().catch(() => {});
     });
     observeHostPage();
+    observeHostTheme();
 
     function openPanel() {
       controls.panel.hidden = false;
@@ -478,6 +480,32 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         childList: true,
         subtree: true,
       });
+    }
+
+    function observeHostTheme() {
+      syncHostTheme();
+      themeObserver?.disconnect?.();
+      const Observer = document.defaultView?.MutationObserver || globalThis.MutationObserver;
+      if (!Observer || !document.documentElement) return;
+      themeObserver = new Observer(syncHostTheme);
+      themeObserver.observe(document.documentElement, { attributes: true });
+      const preference = document.defaultView?.matchMedia?.("(prefers-color-scheme: light)");
+      if (preference?.addEventListener) preference.addEventListener("change", syncHostTheme);
+      else preference?.addListener?.(syncHostTheme);
+    }
+
+    function syncHostTheme() {
+      const root = document.documentElement;
+      const declared = ["data-theme", "data-bs-theme", "data-color-scheme"]
+        .map((name) => root?.getAttribute?.(name)?.toLowerCase())
+        .find((value) => ["light", "dark"].includes(value));
+      const scheme = root && document.defaultView?.getComputedStyle?.(root)?.colorScheme || "";
+      const schemes = String(scheme).split(/\s+/u);
+      const prefersLight = document.defaultView?.matchMedia?.("(prefers-color-scheme: light)")?.matches;
+      const light = declared
+        ? declared === "light"
+        : schemes.includes("light") && (!schemes.includes("dark") || prefersLight);
+      host.toggleAttribute?.("data-light-theme", light);
     }
 
     function schedulePoll(delay) {

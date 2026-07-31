@@ -87,6 +87,7 @@ try {
         const result = await page.locator("#result").textContent();
         assert.equal(result, "CURRENT_BROWSER_PASS", result);
         await runKeyboardFlow(page, framework);
+        await runThemePreferenceFlow(context, framework);
         evidence.push({
           framework,
           engine: name,
@@ -95,7 +96,7 @@ try {
           checks: [
             "whole-page", "focused", "mark-remove-clear", "progress-output", "stop", "reset-confirmation",
             "unavailable-network-recovery", "cross-tab", framework === "rails" ? "turbo-navigation" : "liveview-navigation-patch",
-            "lifecycle-states", "keyboard-focus", "taskbar-owned-axe", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
+            "lifecycle-states", "keyboard-focus", "taskbar-owned-axe", "host-theme-sync", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
           ],
         });
         console.log(`${framework} packaged browser/accessibility passed (${name} ${browser.version()})`);
@@ -235,7 +236,7 @@ function readJson(request) {
 }
 
 function frameHtml(framework) {
-  return `<!doctype html><html><head><style>button { font-family: fantasy !important; }</style></head><body><main data-phx-main data-testid="scenario-whole-page"><section data-testid="scenario-focused-card"><button data-testid="focus-card">Focus card</button></section><nav data-testid="scenario-navigation"><a href="/${framework === "rails" ? "navigation" : "live"}" data-testid="navigation-target">Navigate</a></nav></main><div data-pi-browser-taskbar-bootstrap data-mount-base="/dev/pi-browser-taskbar" data-project-app="demo" data-csrf-token="token"></div><script src="/axe.js"></script><script src="/asset.js?framework=${framework}"></script></body></html>`;
+  return `<!doctype html><html><head><style>button { font-family: fantasy !important; } html[data-theme="light"] { color-scheme: light; } html[data-theme="dark"] { color-scheme: dark; }</style></head><body><main data-phx-main data-testid="scenario-whole-page"><section data-testid="scenario-focused-card"><button data-testid="focus-card">Focus card</button></section><nav data-testid="scenario-navigation"><a href="/${framework === "rails" ? "navigation" : "live"}" data-testid="navigation-target">Navigate</a></nav></main><div data-pi-browser-taskbar-bootstrap data-mount-base="/dev/pi-browser-taskbar" data-project-app="demo" data-csrf-token="token"></div><script src="/axe.js"></script><script src="/asset.js?framework=${framework}"></script></body></html>`;
 }
 
 function harnessHtml(framework) {
@@ -280,8 +281,22 @@ function harnessHtml(framework) {
     check(winA.document.querySelectorAll("[data-pi-browser-taskbar-host]").length === 1, "duplicate initial host");
 
     const shadowA = clientA.element.shadowRoot;
-    await auditTaskbar(winA, clientA, "Ready");
     const toggle = shadowA.querySelector("[data-toggle]");
+    check(!clientA.element.hasAttribute("data-light-theme"), "dark theme default");
+    check(winA.getComputedStyle(shadowA.querySelector("[data-panel]")).backgroundColor === "rgb(18, 24, 32)", "dark theme surface");
+    winA.document.documentElement.setAttribute("data-theme", "light");
+    await wait(() => clientA.element.hasAttribute("data-light-theme"), "host light theme sync");
+    check(winA.getComputedStyle(shadowA.querySelector("[data-panel]")).backgroundColor === "rgb(246, 248, 251)", "light theme surface");
+    toggle.click();
+    await auditTaskbar(winA, clientA, "Ready");
+    shadowA.querySelector("[data-close]").click();
+    winA.document.documentElement.removeAttribute("data-theme");
+    winA.document.documentElement.style.colorScheme = "light dark";
+    await wait(() => clientA.element.hasAttribute("data-light-theme"), "host color-scheme preference sync");
+    winA.document.documentElement.style.colorScheme = "";
+    winA.document.documentElement.setAttribute("data-theme", "dark");
+    await wait(() => !clientA.element.hasAttribute("data-light-theme"), "host dark theme sync");
+    await auditTaskbar(winA, clientA, "Ready");
     toggle.click();
     check(!shadowA.querySelector("[data-panel]").hidden && toggle.hidden, "open composer");
     check(shadowA.activeElement === shadowA.querySelector("[data-prompt]"), "open focus movement");
@@ -291,6 +306,7 @@ function harnessHtml(framework) {
     focusedHostElement.focus();
     focusedHostElement.dispatchEvent(new winA.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     check(shadowA.querySelectorAll("[data-mark-chip]").length === 1, "keyboard mark missing");
+    await auditTaskbar(winA, clientA, "Ready");
     check(shadowA.activeElement === shadowA.querySelector("[data-prompt]"), "mark focus movement");
     shadowA.querySelector("[data-mark-chip] button").click();
     check(shadowA.activeElement === markButton, "mark removal focus return");
@@ -301,6 +317,8 @@ function harnessHtml(framework) {
     shadowA.querySelector("[data-prompt]").dispatchEvent(new winA.KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
     check(shadowA.querySelector("[data-panel]").hidden && !toggle.hidden, "Escape closes composer");
     check(shadowA.activeElement === toggle, "close focus return");
+    const toggleFocusShadow = winA.getComputedStyle(toggle).boxShadow;
+    check(toggleFocusShadow.includes("0px 0px 0px 2px") && toggleFocusShadow.includes("0px 0px 0px 4px"), "launcher dual-contrast focus ring");
     toggle.click();
 
     await clientA.submit("Focused packaged example task");
@@ -426,6 +444,23 @@ function harnessHtml(framework) {
     document.querySelector("#result").textContent = "CURRENT_BROWSER_PASS";
   })().catch((error) => { document.querySelector("#result").textContent = "CURRENT_BROWSER_FAIL: " + error.stack; });
   </script></body></html>`;
+}
+
+async function runThemePreferenceFlow(context, framework) {
+  const page = await context.newPage();
+  try {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto(`http://127.0.0.1:${server.address().port}/frame?theme&framework=${framework}`);
+    await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]"));
+    await page.evaluate(() => { document.documentElement.style.colorScheme = "light dark"; });
+    await page.waitForFunction(() => !document.querySelector("[data-pi-browser-taskbar-host]").hasAttribute("data-light-theme"));
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]").hasAttribute("data-light-theme"));
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.waitForFunction(() => !document.querySelector("[data-pi-browser-taskbar-host]").hasAttribute("data-light-theme"));
+  } finally {
+    await page.close();
+  }
 }
 
 function sha256(file) {
