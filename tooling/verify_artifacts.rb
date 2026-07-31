@@ -58,6 +58,12 @@ class ArtifactVerifier
 
     outer = tar_entries(File.open(path, "rb"))
     contents = outer.fetch("contents.tar.gz") { raise "Phoenix artifact has no contents.tar.gz" }
+    metadata = outer.fetch("metadata.config") { raise "Phoenix artifact has no metadata.config" }
+    unless metadata.include?(%({<<"elixir">>,<<">= 1.11.0">>})) &&
+        metadata.include?(%({<<"requirement">>,<<">= 1.7.0 and < 2.0.0">>})) &&
+        metadata.scan(%({<<"repository">>,<<"hexpm">>})).length == 2
+      raise "Phoenix artifact compatibility metadata drift"
+    end
     files = tar_entries(StringIO.new(Zlib::GzipReader.new(StringIO.new(contents)).read))
     asset = "priv/static/pi_browser_taskbar.js"
     verify_contents("Phoenix", files.keys, asset)

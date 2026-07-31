@@ -7,12 +7,119 @@ artifact="$root/build/pi_browser_taskbar_phoenix-$version.tar"
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/pi-browser-taskbar-phoenix.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 
-package="$tmp/package"
 app="$tmp/demo"
-mkdir -p "$package" "$app/config" "$app/lib/demo" "$app/lib/demo_web/components/layouts"
+phoenix_version=${PI_BROWSER_TASKBAR_TEST_PHOENIX_VERSION:-1.8.9}
+elixir_version=${PI_BROWSER_TASKBAR_TEST_ELIXIR_VERSION:-$(elixir -e 'IO.write(System.version())')}
+otp_version=${PI_BROWSER_TASKBAR_TEST_OTP_VERSION:-$(elixir -e 'root = :code.root_dir() |> to_string(); major = System.otp_release(); path = Path.join([root, "releases", major, "OTP_VERSION"]); IO.write(if File.exists?(path), do: String.trim(File.read!(path)), else: major)')}
+live_view_version=${PI_BROWSER_TASKBAR_TEST_LIVE_VIEW_VERSION:-1.2.8}
+repo="$tmp/hex-repo"
+repo_name=pbtlocal
+http_pid=""
+cleanup() {
+  [[ -n "$http_pid" ]] && kill "$http_pid" 2>/dev/null || true
+  rm -rf "$tmp"
+}
+trap cleanup EXIT
 
-tar -xf "$artifact" -C "$tmp" contents.tar.gz
-tar -xzf "$tmp/contents.tar.gz" -C "$package"
+[[ -f "$artifact" ]] || { echo "missing built Phoenix package: $artifact" >&2; exit 1; }
+[[ "$(elixir -e 'IO.write(System.version())')" == "$elixir_version" ]] || { echo "Elixir runtime differs from matrix row" >&2; exit 1; }
+[[ "$(elixir -e 'IO.write(System.otp_release())')" == "${otp_version%%.*}" ]] || { echo "OTP runtime differs from matrix row" >&2; exit 1; }
+
+# Publish the already-built tarball to an isolated signed Hex repository. The generated app therefore
+# resolves the adapter through Hex.SCM instead of a path or source-workspace fallback.
+export MIX_HOME="$tmp/mix-home"
+export HEX_HOME="$tmp/hex-home"
+mix local.hex --force >/dev/null
+mix local.rebar --force >/dev/null
+mkdir -p "$repo/tarballs" "$root/build/conformance" "$root/build/compatibility"
+cp "$artifact" "$repo/tarballs/"
+openssl genrsa -out "$tmp/hex-private.pem" 2048 >/dev/null 2>&1
+mix hex.registry build "$repo" --name="$repo_name" --private-key="$tmp/hex-private.pem" >/dev/null
+port=$(ruby -rsocket -e 'server = TCPServer.new("127.0.0.1", 0); puts server.addr[1]; server.close')
+(
+  cd "$repo"
+  python3 -m http.server "$port" >"$tmp/hex-http.log" 2>&1 &
+  echo $! >"$tmp/hex-http.pid"
+)
+http_pid=$(<"$tmp/hex-http.pid")
+for _ in $(seq 1 50); do curl -fsS "http://127.0.0.1:$port/public_key" >/dev/null 2>&1 && break; sleep 0.02; done
+mix hex.repo add "$repo_name" "http://127.0.0.1:$port" --public-key="$repo/public_key" >/dev/null
+
+if [[ "$elixir_version" == 1.11.* || "$elixir_version" == 1.15.* ]]; then
+  mix hex.package fetch phx_new "$phoenix_version" --unpack --output "$tmp/phx_new" >/dev/null
+  sed -Ei 's/@elixir_requirement "[^"]+"/@elixir_requirement ">= 1.11.0"/' "$tmp/phx_new/mix.exs"
+  sed -Ei 's/Version\.match\?\(System\.version\(\), "[^"]+"\)/Version.match?(System.version(), ">= 1.11.0")/' "$tmp/phx_new/lib/mix/tasks/phx.new.ex"
+  (cd "$tmp/phx_new" && mix archive.build --output "$tmp/phx_new.ez" >/dev/null)
+  mix archive.install "$tmp/phx_new.ez" --force >/dev/null
+else
+  mix archive.install hex phx_new "$phoenix_version" --force >/dev/null
+fi
+printf 'mix phx.new: generating conventional Phoenix %s application\n' "$phoenix_version"
+mix phx.new "$app" --no-install --no-ecto --no-mailer --no-dashboard --no-assets --no-gettext --adapter cowboy
+
+MATRIX_VERSION="$version" MATRIX_PHOENIX="$phoenix_version" MATRIX_ELIXIR="$elixir_version" \
+MATRIX_LIVE_VIEW="$live_view_version" ruby - "$app/mix.exs" <<'RUBY'
+path = ARGV.fetch(0)
+source = File.read(path)
+source.sub!(/^\s*elixir: .+,$/, %(      elixir: ">= #{ENV.fetch("MATRIX_ELIXIR")}",)) or abort "generated app Elixir constraint not found"
+source.sub!(/^\s*\{:phoenix, .+,$/, %(      {:phoenix, "== #{ENV.fetch("MATRIX_PHOENIX")}"},)) or abort "generated Phoenix dependency not found"
+source.sub!(/^\s*\{:phoenix_live_view, .+,$/, %(      {:phoenix_live_view, "== #{ENV.fetch("MATRIX_LIVE_VIEW")}"},)) or abort "generated LiveView dependency not found"
+source.sub!(/(  defp deps do\n    \[\n)/, %(\\1      {:pi_browser_taskbar_phoenix, "== #{ENV.fetch("MATRIX_VERSION")}", only: :dev, runtime: false, repo: "pbtlocal"},\n)) or abort "generated dependency list not found"
+if ENV.fetch("MATRIX_ELIXIR").start_with?("1.11.")
+  source.sub!(/^\s*\{:phoenix_html, .+,$/, %(      {:phoenix_html, "== 3.3.4"},)) or abort "generated Phoenix HTML dependency not found"
+  source.sub!(/^\s*\{:telemetry_poller, .+,$/, %(      {:telemetry_poller, "== 1.1.0"},)) or abort "generated telemetry poller dependency not found"
+  source.sub!(/^\s*\{:floki, .+,$/, %(      {:floki, "== 0.34.3", only: :test},)) or abort "generated Floki dependency not found"
+  source.sub!(/^\s*\{:plug_cowboy, .+$/, %(      {:plug_cowboy, "== 2.8.0"})) or abort "generated Cowboy adapter dependency not found"
+  source.sub!(/(\{:phoenix, "==[^\n]+\n)/, "\\1      {:plug, \"== 1.18.1\", override: true},\n      {:plug_crypto, \"== 2.1.1\", override: true},\n")
+end
+File.write(path, source)
+RUBY
+
+cat >>"$app/config/dev.exs" <<'EOF'
+
+config :demo, :pi_browser_taskbar,
+  executable: System.fetch_env!("PI_BROWSER_TASKBAR_FAKE"),
+  project_root: Path.expand("..", __DIR__),
+  task_timeout: 60
+EOF
+
+if [[ "$elixir_version" == 1.11.* ]]; then
+  cat >"$app/lib/demo_web/components/core_components.ex" <<'EOF'
+defmodule DemoWeb.CoreComponents do
+  use Phoenix.Component
+end
+EOF
+  cat >"$app/lib/demo_web/components/layouts.ex" <<'EOF'
+defmodule DemoWeb.Layouts do
+  use Phoenix.Component
+  def root(assigns), do: ~H"""
+  <!doctype html><html><body><%= @inner_content %></body></html>
+  """
+  def app(assigns), do: ~H"""
+  <main><%= @inner_content %></main>
+  """
+end
+EOF
+  cat >"$app/lib/demo_web/controllers/page_html.ex" <<'EOF'
+defmodule DemoWeb.PageHTML do
+  use Phoenix.Component
+  def home(assigns), do: ~H"""
+  <main>Home</main>
+  """
+end
+EOF
+  printf '<main>Home</main>\n' >"$app/lib/demo_web/controllers/page_html/home.html.heex"
+  cat >"$app/lib/demo_web/components/layouts/root.html.heex" <<'EOF'
+<!doctype html>
+<html>
+  <body>
+    <%= @inner_content %>
+  </body>
+</html>
+EOF
+  printf '<main><%%= @inner_content %%></main>\n' >"$app/lib/demo_web/components/layouts/app.html.heex"
+fi
+
 cp "$root/packages/phoenix/test/support/fake_pi_rpc" "$tmp/fake_pi_rpc"
 chmod +x "$tmp/fake_pi_rpc"
 cp "$root/contract/fixtures/scenarios/phoenix-whole-page.json" "$tmp/scenario.json"
@@ -22,108 +129,6 @@ cp "$root/contract/fixtures/tasks/focused-task.json" "$tmp/focused-task.json"
 mkdir "$tmp/cancellation-scenarios" "$tmp/reset-scenarios"
 cp "$root"/contract/fixtures/scenarios/cancellation-*.json "$tmp/cancellation-scenarios/"
 cp "$root"/contract/fixtures/scenarios/session-reset-*.json "$tmp/reset-scenarios/"
-
-cat >"$app/mix.exs" <<EOF
-defmodule Demo.MixProject do
-  use Mix.Project
-
-  def project do
-    [
-      app: :demo,
-      version: "0.1.0",
-      elixir: ">= 1.11.0",
-      deps: deps()
-    ]
-  end
-
-  def application do
-    [extra_applications: [:crypto, :logger], mod: {Demo.Application, []}]
-  end
-
-  defp deps do
-    [
-      {:jason, ">= 1.4.0 and < 2.0.0"},
-      {:phoenix, ">= 1.7.0 and < 2.0.0"},
-      {:phoenix_live_view, ">= 0.20.0 and < 2.0.0"},
-      {:pi_browser_taskbar_phoenix, path: "../package", only: :dev, runtime: false}
-    ]
-  end
-end
-EOF
-
-cat >"$app/config/config.exs" <<'EOF'
-import Config
-import_config "#{config_env()}.exs"
-EOF
-
-cat >"$app/config/dev.exs" <<'EOF'
-import Config
-
-config :demo, :pi_browser_taskbar,
-  executable: System.fetch_env!("PI_BROWSER_TASKBAR_FAKE"),
-  project_root: Path.expand("..", __DIR__),
-  task_timeout: 60
-EOF
-
-printf 'import Config\n' >"$app/config/prod.exs"
-printf 'import Config\n' >"$app/config/test.exs"
-
-cat >"$app/lib/demo/application.ex" <<'EOF'
-defmodule Demo.Application do
-  use Application
-
-  def start(_type, _args) do
-    children = [
-      DemoWeb.Endpoint
-    ]
-
-    Supervisor.start_link(children, strategy: :one_for_one, name: Demo.Supervisor)
-  end
-end
-EOF
-
-cat >"$app/lib/demo_web.ex" <<'EOF'
-defmodule DemoWeb do
-  def router do
-    quote do
-      use Phoenix.Router
-      import Phoenix.Controller
-    end
-  end
-
-  defmacro __using__(which) when is_atom(which), do: apply(__MODULE__, which, [])
-end
-EOF
-
-cat >"$app/lib/demo_web/endpoint.ex" <<'EOF'
-defmodule DemoWeb.Endpoint do
-  use GenServer
-
-  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-  def init(:ok), do: {:ok, :ok}
-end
-EOF
-
-cat >"$app/lib/demo_web/router.ex" <<'EOF'
-defmodule DemoWeb.Router do
-  use DemoWeb, :router
-
-  pipeline :browser do
-    plug :accepts, ["html"]
-    plug :fetch_session
-    plug :protect_from_forgery
-  end
-end
-EOF
-
-cat >"$app/lib/demo_web/components/layouts/root.html.heex" <<'EOF'
-<!doctype html>
-<html>
-  <body>
-    {@inner_content}
-  </body>
-</html>
-EOF
 
 cat >"$app/conformance.exs" <<'EOF'
 defmodule CleanAppConformance do
@@ -147,6 +152,8 @@ defmodule CleanAppConformance do
     asset = request(:get, "/dev/pi-browser-taskbar/assets/pi_browser_taskbar.css")
     assert!(asset.status == 200, "packaged Browser Client asset did not return 200")
     assert!(asset.resp_body =~ "Generated by tooling/build_browser_assets.mjs", "packaged Browser Client asset differed")
+    annotation_provider = :pi_browser_taskbar_phoenix |> :code.priv_dir() |> Path.join("static/pi_browser_taskbar.js") |> File.read!()
+    assert!(annotation_provider =~ "data-phx-loc", "LiveView annotation provider missing")
 
     created = request(:post, "/dev/pi-browser-taskbar" <> scenario["request"]["path"], task)
     created_json = response_json(created)
@@ -371,10 +378,26 @@ defmodule CleanAppConformance do
     assert!(IO.iodata_to_binary(layout) =~ "data-pi-browser-taskbar-bootstrap", "layout bootstrap missing")
     controller_example = TaskbarExampleWeb.PageHTML.index(%{}) |> Phoenix.HTML.Safe.to_iodata() |> IO.iodata_to_binary()
     live_example = TaskbarExampleWeb.ScenarioLive.render(%{count: 0}) |> Phoenix.HTML.Safe.to_iodata() |> IO.iodata_to_binary()
-    assert!(controller_example =~ ~s(data-testid="scenario-whole-page"), "example whole-page selector missing")
+    assert!(controller_example =~ ~s(data-testid="scenario-whole-page"), "controller HEEx example missing")
     assert!(controller_example =~ ~s(data-testid="focus-card"), "example focus selector missing")
-    assert!(live_example =~ ~s(data-testid="navigation-target"), "example LiveView navigation selector missing")
+    assert!(live_example =~ ~s(data-testid="navigation-target"), "LiveView example missing")
+    assert!(Application.get_env(:phoenix_live_view, :debug_heex_annotations) == true, "HEEx debug annotations not enabled")
+    assert!(is_pid(Process.whereis(PiBrowserTaskbarPhoenix.Names.supervisor(:demo))), "package supervisor did not boot")
     assert!(is_pid(Process.whereis(DemoWeb.Endpoint)), "host endpoint did not boot")
+
+    dependency_path = Path.expand("deps/pi_browser_taskbar_phoenix")
+    otp_path = Path.join([to_string(:code.root_dir()), "releases", System.otp_release(), "OTP_VERSION"])
+    observation = %{
+      "platform" => %{"runtime" => "BEAM", "os" => to_string(:os.type() |> elem(1))},
+      "versions" => %{
+        "elixir" => System.version(),
+        "otp" => if(File.exists?(otp_path), do: String.trim(File.read!(otp_path)), else: System.otp_release()),
+        "phoenix" => Application.spec(:phoenix, :vsn) |> to_string(),
+        "live_view" => Application.spec(:phoenix_live_view, :vsn) |> to_string()
+      },
+      "artifact" => %{"hex_scm" => true, "dependency_path" => dependency_path}
+    }
+    File.write!(System.fetch_env!("PI_BROWSER_TASKBAR_MATRIX_OBSERVATION"), Jason.encode!(observation, pretty: true))
     IO.puts("clean Phoenix development conformance passed")
   end
 
@@ -396,6 +419,7 @@ defmodule CleanAppConformance do
     |> fetch_session()
     |> put_session("_csrf_token", state)
     |> put_req_header("accept", "application/json")
+    |> put_req_header("referer", "http://localhost/")
     |> maybe_json(body)
     |> put_req_header("x-csrf-token", token)
     |> DemoWeb.Router.call(DemoWeb.Router.init([]))
@@ -426,8 +450,8 @@ if Enum.any?(Phoenix.Router.routes(DemoWeb.Router), &String.starts_with?(&1.path
   raise "production mounted taskbar routes"
 end
 
-if Enum.any?(Supervisor.which_children(Demo.Supervisor), fn {_id, pid, _type, _modules} ->
-     is_pid(pid) and pid != Process.whereis(DemoWeb.Endpoint)
+if Enum.any?(Supervisor.which_children(Demo.Supervisor), fn {id, pid, _type, modules} ->
+     is_pid(pid) and String.contains?(inspect({id, modules}), "PiBrowserTaskbar")
    end) do
   raise "production started a taskbar process"
 end
@@ -443,6 +467,8 @@ export PI_BROWSER_TASKBAR_FOCUSED_TASK="$tmp/focused-task.json"
 export PI_BROWSER_TASKBAR_CANCELLATION_SCENARIOS="$tmp/cancellation-scenarios"
 export PI_BROWSER_TASKBAR_RESET_SCENARIOS="$tmp/reset-scenarios"
 export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
+export PI_BROWSER_TASKBAR_MATRIX_OBSERVATION="$tmp/matrix-observation.json"
+export SECRET_KEY_BASE="clean-phoenix-secret-key-base-clean-phoenix-secret-key-base-clean-phoenix-secret-key-base"
 
 (
   cd "$app"
@@ -450,6 +476,48 @@ export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
   MIX_ENV=dev mix pi_browser_taskbar.install
   cp "$root/examples/phoenix/lib/taskbar_example_web.ex" lib/
   cp -R "$root/examples/phoenix/lib/taskbar_example_web" lib/
+  if [[ "$elixir_version" == 1.11.* ]]; then
+    sed -i 's/use Phoenix.LiveView, layout: {TaskbarExampleWeb.Layouts, :app}/use Phoenix.LiveView/' lib/taskbar_example_web.ex
+    sed -i '/^  attr :title/d; s/{@title}/<%= @title %>/; s/{@count}/<%= @count %>/; s/{@inner_content}/<%= @inner_content %>/' \
+      lib/taskbar_example_web/components/scenario_card.ex \
+      lib/taskbar_example_web/live/scenario_live.ex \
+      lib/taskbar_example_web/components/layouts/*.heex
+    cat >lib/taskbar_example_web/components/layouts.ex <<'EOF'
+defmodule TaskbarExampleWeb.Layouts do
+  use TaskbarExampleWeb, :html
+  def root(assigns), do: ~H"""
+  <!doctype html><html><body><%= @inner_content %></body></html>
+  """
+  def app(assigns), do: ~H"""
+  <main><%= @inner_content %></main>
+  """
+end
+EOF
+    cat >lib/taskbar_example_web/live/scenario_live.ex <<'EOF'
+defmodule TaskbarExampleWeb.ScenarioLive do
+  use Phoenix.LiveView
+  def mount(_params, _session, socket), do: {:ok, assign(socket, count: 0)}
+  def render(assigns) do
+    ~H"""
+    <main data-testid="scenario-navigation"><p data-testid="navigation-target">Patch count: <%= @count %></p></main>
+    """
+  end
+end
+EOF
+    cat >lib/taskbar_example_web/controllers/page_html.ex <<'EOF'
+defmodule TaskbarExampleWeb.PageHTML do
+  use TaskbarExampleWeb, :html
+  def index(assigns) do
+    ~H"""
+    <main data-testid="scenario-whole-page">
+      <section data-testid="scenario-focused-card"><.scenario_card title="First card" /></section>
+      <nav data-testid="scenario-navigation"><a href="/live" data-testid="navigation-target">LiveView navigation</a></nav>
+    </main>
+    """
+  end
+end
+EOF
+  fi
   MIX_ENV=dev mix run conformance.exs
   rm -rf lib/taskbar_example_web.ex lib/taskbar_example_web
   MIX_ENV=dev mix pi_browser_taskbar.install
@@ -467,6 +535,9 @@ export PI_BROWSER_TASKBAR_SEMANTICS="$root/build/conformance/phoenix.json"
   mv "$tmp/router.before-mutation" lib/demo_web/router.ex
 )
 
+package="$app/deps/pi_browser_taskbar_phoenix"
+test -f "$package/hex_metadata.config"
+grep -q 'pi_browser_taskbar_phoenix.*:hex.*pbtlocal' "$app/mix.lock"
 mv "$package" "$tmp/package-removed"
 
 (
@@ -497,3 +568,20 @@ mv "$package" "$tmp/package-removed"
     IO.puts("clean Phoenix uninstall and test isolation passed")
   '
 )
+
+row_id=${PI_BROWSER_TASKBAR_MATRIX_ROW:-local-phoenix-${phoenix_version}-elixir-${elixir_version}-otp-${otp_version}}
+evidence="$root/build/compatibility/$row_id.json"
+PI_BROWSER_TASKBAR_ROW="$row_id" PI_BROWSER_TASKBAR_ARTIFACT="$artifact" \
+PI_BROWSER_TASKBAR_OBSERVATION="$PI_BROWSER_TASKBAR_MATRIX_OBSERVATION" PI_BROWSER_TASKBAR_EVIDENCE="$evidence" ruby <<'RUBY'
+require "digest"
+require "json"
+observation = JSON.parse(File.read(ENV.fetch("PI_BROWSER_TASKBAR_OBSERVATION")))
+evidence = observation.merge(
+  "schema" => 1,
+  "row" => ENV.fetch("PI_BROWSER_TASKBAR_ROW"),
+  "artifact" => observation.fetch("artifact").merge("sha256" => Digest::SHA256.file(ENV.fetch("PI_BROWSER_TASKBAR_ARTIFACT")).hexdigest),
+  "checks" => %w[generated_app hex_install boot route asset mutation controller_heex live_view_annotation supervision uninstall development_only no_workspace_fallback]
+)
+File.write(ENV.fetch("PI_BROWSER_TASKBAR_EVIDENCE"), JSON.pretty_generate(evidence) + "\n")
+RUBY
+echo "Phoenix compatibility evidence: $evidence"

@@ -1,10 +1,10 @@
 # Compatibility
 
-`tooling/compatibility.json` is the executable source for compatibility rows. The Rails support table
-below contains only rows run by `.github/workflows/rails-compatibility.yml`; each successful row
-uploads JSON evidence containing the exact runtime versions, built-gem SHA-256, isolated installation
-check, Puma mode, and passed public seams. Versions were checked against stable upstream releases on
-2026-07-31; prereleases are excluded.
+`tooling/compatibility.json` is the executable source for compatibility rows. The tables below contain
+only rows run by the corresponding compatibility workflows. Each successful row uploads JSON evidence
+with exact runtime versions, the built artifact's SHA-256, isolated package installation, and passed
+public seams. Versions were checked against stable upstream releases on 2026-07-31; prereleases are
+excluded.
 
 ## Rails release boundary matrix
 
@@ -27,18 +27,34 @@ Pushes to `main` and manual workflow dispatches run the complete release matrix.
 is the acceptance and release-blocking Rails claim; a row that has not produced successful evidence
 is not supported merely because it appears in prose.
 
+## Phoenix release boundary matrix
+
+| Phoenix | Elixir | Erlang/OTP | LiveView evidence | Evidence scope |
+| --- | --- | --- | --- | --- |
+| 1.7.24 | 1.11.4 | 23.3.4.20 | 0.17.14 | Generated controller-HEEx/LiveView app, Hex install, boot, route, asset, mutation, annotation provider, supervision, uninstall, development-only behavior |
+| 1.8.9 | 1.15.8 | 26.2.5.21 | 1.2.8 | Same public seams at Phoenix 1.8's upstream Elixir floor |
+| 1.8.9 | 1.20.2 | 29.0.4 | 1.2.8 | Same public seams on newest stable Elixir and compatible newest Erlang/OTP |
+
+Phoenix 1.7 remains the first-release floor regardless of upstream maintenance status. Each Phoenix
+minor uses its newest stable patch at its upstream-declared minimum Elixir with a recorded compatible
+OTP patch; newest Phoenix is also run on newest stable Elixir and OTP. Every row generates a fresh
+conventional application, installs `pi_browser_taskbar_phoenix-0.1.0.tar` through an isolated signed
+Hex repository, and rejects path or source-workspace fallback before recording evidence. Controller
+HEEx and LiveView render checks accompany the packaged Phoenix source-annotation provider; LiveView
+0.17.14 is the compatible evidence boundary on the fixed Elixir 1.11 floor.
+
+Pull requests run the floor and newest rows (`Phoenix 1.7.24 / Elixir 1.11.4 / OTP 23.3.4.20` and
+`Phoenix 1.8.9 / Elixir 1.20.2 / OTP 29.0.4`). Pushes to `main` and manual dispatches run all three
+rows. The complete workflow is the acceptance and release-blocking Phoenix claim.
+
 ## Adapter floors
 
 | Adapter | Product version | Framework floor | Language floor | Release-blocking platform |
 | --- | --- | --- | --- | --- |
 | Rails ERB/Turbo | 0.1.0 | Rails 7.1 | MRI Ruby 2.7 | MRI on Linux |
-| Phoenix controller-HEEx/LiveView | 0.1.0 | Phoenix 1.7 | Elixir 1.11 | Standard Erlang/Elixir runtime on Linux |
+| Phoenix controller-HEEx/LiveView | 0.1.0 | Phoenix 1.7 | Elixir 1.11 | standard Erlang/Elixir runtime on Linux |
 
-Issue #39 owns the complete Phoenix boundary matrix. Until that matrix runs, the Phoenix entries are
-metadata floors rather than a row-by-row support table; ordinary monorepo CI currently uses
-Elixir 1.17 / OTP 27. Other Ruby engines, nonstandard BEAM
-runtimes, operating systems, Rails template engines, and older framework versions are not claimed.
-The package is development-only on every row.
-
-A support expansion or removal must change the matrix configuration, package metadata, executable
-checks, and this validated table together; prose alone cannot expand compatibility.
+Other Ruby engines, nonstandard BEAM runtimes, operating systems, Rails template engines, and older
+framework versions are not claimed. The package is development-only on every row. A support expansion
+or removal must change the matrix configuration, package metadata, executable checks, and this
+validated table together; prose alone cannot expand compatibility.

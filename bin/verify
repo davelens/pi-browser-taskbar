@@ -7,7 +7,9 @@ cd "$root"
 printf '%s\n' '==> Validate shell entry points'
 bash -n bin/build bin/verify tooling/build_packages.sh tooling/test/phoenix_clean_app_conformance.sh tooling/test/rails_clean_app_conformance.sh
 ruby -c tooling/rails_compatibility_matrix.rb
+ruby -c tooling/phoenix_compatibility_matrix.rb
 ruby -c tooling/verify_rails_evidence.rb
+ruby -c tooling/verify_phoenix_evidence.rb
 ruby -c tooling/test/rails_puma_conformance.rb
 
 printf '%s\n' '==> Validate executable contracts'
@@ -19,6 +21,7 @@ ruby tooling/verify_architecture.rb
 ruby tooling/stage_shared_docs.rb --check
 ruby tooling/verify_documentation.rb
 ruby tooling/verify_rails_compatibility.rb
+ruby tooling/verify_phoenix_compatibility.rb
 
 printf '%s\n' '==> Check generated Browser Client assets'
 node tooling/build_browser_assets.mjs --check

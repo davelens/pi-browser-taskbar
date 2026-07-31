@@ -1,0 +1,62 @@
+name: Phoenix compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      rows: ${{ steps.rows.outputs.rows }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: rows
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          profile=release
+          if [[ "$EVENT_NAME" == pull_request ]]; then profile=pull_request; fi
+          echo "rows=$(ruby tooling/phoenix_compatibility_matrix.rb "$profile")" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.rows) }}
+    name: ${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - name: Install Hex
+        run: mix local.hex --force
+      - name: Build Phoenix artifact
+        run: |
+          mkdir -p build
+          cd packages/phoenix
+          mix hex.build --output "../../build/pi_browser_taskbar_phoenix-$(<../../VERSION).tar"
+      - name: Verify clean generated application
+        env:
+          PI_BROWSER_TASKBAR_MATRIX_ROW: ${{ matrix.id }}
+          PI_BROWSER_TASKBAR_TEST_PHOENIX_VERSION: ${{ matrix.phoenix }}
+          PI_BROWSER_TASKBAR_TEST_ELIXIR_VERSION: ${{ matrix.elixir }}
+          PI_BROWSER_TASKBAR_TEST_OTP_VERSION: ${{ matrix.otp }}
+          PI_BROWSER_TASKBAR_TEST_LIVE_VIEW_VERSION: ${{ matrix.live_view }}
+        run: tooling/test/phoenix_clean_app_conformance.sh
+      - name: Validate compatibility evidence
+        run: ruby tooling/verify_phoenix_evidence.rb "build/compatibility/${{ matrix.id }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phoenix-compatibility-${{ matrix.id }}
+          path: build/compatibility/${{ matrix.id }}.json
+          if-no-files-found: error

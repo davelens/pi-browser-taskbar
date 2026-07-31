@@ -22,3 +22,5 @@
   live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.
 - Replace Recollect's application-local taskbar through the built package and public installer, with
   an ordered no-compatibility cutover and rollback guide.
+- Verify Phoenix 1.7 and 1.8 at their Elixir/OTP boundaries, plus newest Phoenix on newest stable
+  Elixir/OTP, in clean generated applications installed from the built Hex artifact.

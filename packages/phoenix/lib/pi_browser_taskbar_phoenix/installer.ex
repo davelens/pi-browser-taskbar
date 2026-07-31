@@ -438,7 +438,7 @@ defmodule PiBrowserTaskbarPhoenix.Installer do
   end
 
   defp layout_block(t) do
-    "    <%!-- pi-browser-taskbar:start layout --%>\n    {#{t.web}.PiBrowserTaskbar.layout_bootstrap()}\n    <%!-- pi-browser-taskbar:end layout --%>\n"
+    "    <%!-- pi-browser-taskbar:start layout --%>\n    <%= #{t.web}.PiBrowserTaskbar.layout_bootstrap() %>\n    <%!-- pi-browser-taskbar:end layout --%>\n"
   end
 
   defp install_annotations(source, %{annotations_owned: false}), do: source
