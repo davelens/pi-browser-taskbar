@@ -362,7 +362,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         label.textContent = `${index + 1}. ${mark.selector}`;
         const remove = document.createElement("button");
         remove.type = "button";
-        remove.textContent = "×";
+        remove.innerHTML = '<svg data-remove-icon aria-hidden="true" viewBox="0 0 16 16"><path d="M3 3l10 10M13 3L3 13" /></svg>';
         remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
         remove.disabled = active(snapshot);
         remove.addEventListener("click", () => removeMark(index));

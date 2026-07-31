@@ -144,15 +144,7 @@ async function runKeyboardFlow(page, framework) {
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-prompt]", "keyboard open moves focus to instruction");
 
-  const closeIcon = close.locator("svg");
-  assert.equal(await closeIcon.count(), 1, "close control uses a font-independent icon");
-  const closeBox = await close.boundingBox();
-  const closeIconBox = await closeIcon.boundingBox();
-  const closeCenterOffset = {
-    x: Math.abs(closeIconBox.x + closeIconBox.width / 2 - (closeBox.x + closeBox.width / 2)),
-    y: Math.abs(closeIconBox.y + closeIconBox.height / 2 - (closeBox.y + closeBox.height / 2)),
-  };
-  assert.ok(closeCenterOffset.x <= 1 && closeCenterOffset.y <= 1, `close icon is centered: ${JSON.stringify(closeCenterOffset)}`);
+  await assertCenteredIcon(close, "close icon");
 
   await close.focus();
   await page.keyboard.press("Enter");
@@ -165,6 +157,7 @@ async function runKeyboardFlow(page, framework) {
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-prompt]", "keyboard mark returns focus to instruction");
   const remove = taskbar.locator("[data-mark-chip] button");
+  await assertCenteredIcon(remove, "marked-element remove icon");
   await remove.focus();
   await page.keyboard.press("Enter");
   await assertShadowFocus(page, "[data-mark]", "keyboard mark removal returns focus");
@@ -188,6 +181,18 @@ async function runKeyboardFlow(page, framework) {
     await fetch("/control?state=cancelled");
     await globalThis.PiBrowserTaskbar.mount({ autoRefresh: false }).refresh();
   });
+}
+
+async function assertCenteredIcon(control, message) {
+  const icon = control.locator("svg");
+  assert.equal(await icon.count(), 1, `${message} uses a font-independent glyph`);
+  const controlBox = await control.boundingBox();
+  const iconBox = await icon.boundingBox();
+  const offset = {
+    x: Math.abs(iconBox.x + iconBox.width / 2 - (controlBox.x + controlBox.width / 2)),
+    y: Math.abs(iconBox.y + iconBox.height / 2 - (controlBox.y + controlBox.height / 2)),
+  };
+  assert.ok(offset.x <= 1 && offset.y <= 1, `${message} is centered: ${JSON.stringify(offset)}`);
 }
 
 async function assertShadowFocus(page, selector, message) {

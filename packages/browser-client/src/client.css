@@ -360,17 +360,17 @@ h2 {
 }
 
 [data-mark-chip] button {
+  display: grid;
   min-width: 34px;
   min-height: 34px;
   align-self: stretch;
+  place-items: center;
   border: 0;
   border-left: 1px solid var(--pi-mark-separator);
   border-radius: 0;
   background: transparent;
   padding: 0 0.4rem;
   color: inherit;
-  font-size: 1rem;
-  line-height: 1;
 }
 
 [data-mark-chip] button:hover {
@@ -495,7 +495,8 @@ button:disabled {
   color: var(--pi-muted);
 }
 
-[data-close-icon] {
+[data-close-icon],
+[data-remove-icon] {
   display: block;
   width: 0.875rem;
   height: 0.875rem;
