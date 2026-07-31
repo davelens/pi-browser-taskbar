@@ -41,7 +41,9 @@ OTP patch; newest Phoenix is also run on newest stable Elixir and OTP. Every row
 conventional application, installs `pi_browser_taskbar_phoenix-0.1.0.tar` through an isolated signed
 Hex repository, and rejects path or source-workspace fallback before recording evidence. Controller
 HEEx and LiveView render checks accompany the packaged Phoenix source-annotation provider; LiveView
-0.17.14 is the compatible evidence boundary on the fixed Elixir 1.11 floor.
+0.17.14 is the compatible evidence boundary on the fixed Elixir 1.11 floor. Because current hosted
+Ubuntu runners have no setup-beam build for OTP 23, that row runs in a digest-pinned standard
+Erlang/Elixir Debian Linux image; the Phoenix 1.8 rows continue to use setup-beam directly.
 
 Pull requests run the floor and newest rows (`Phoenix 1.7.24 / Elixir 1.11.4 / OTP 23.3.4.20` and
 `Phoenix 1.8.9 / Elixir 1.20.2 / OTP 29.0.4`). Pushes to `main` and manual dispatches run all three

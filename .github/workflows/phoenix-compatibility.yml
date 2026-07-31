@@ -26,7 +26,7 @@ jobs:
 
   verify:
     needs: matrix
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.rows) }}
@@ -34,18 +34,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: beam
+        if: matrix.setup == 'setup-beam'
         uses: erlef/setup-beam@v1
         with:
           otp-version: ${{ matrix.otp }}
           elixir-version: ${{ matrix.elixir }}
       - name: Install Hex
+        if: matrix.setup == 'setup-beam'
         run: mix local.hex --force
       - name: Build Phoenix artifact
+        if: matrix.setup == 'setup-beam'
         run: |
           mkdir -p build
           cd packages/phoenix
           mix hex.build --output "../../build/pi_browser_taskbar_phoenix-$(<../../VERSION).tar"
       - name: Verify clean generated application
+        if: matrix.setup == 'setup-beam'
         env:
           PI_BROWSER_TASKBAR_MATRIX_ROW: ${{ matrix.id }}
           PI_BROWSER_TASKBAR_TEST_PHOENIX_VERSION: ${{ matrix.phoenix }}
@@ -54,7 +58,33 @@ jobs:
           PI_BROWSER_TASKBAR_TEST_LIVE_VIEW_VERSION: ${{ matrix.live_view }}
         run: tooling/test/phoenix_clean_app_conformance.sh
       - name: Validate compatibility evidence
+        if: matrix.setup == 'setup-beam'
         run: ruby tooling/verify_phoenix_evidence.rb "build/compatibility/${{ matrix.id }}.json"
+      - name: Verify pinned floor container
+        if: matrix.setup == 'container'
+        env:
+          CONTAINER_IMAGE: ${{ matrix.container }}
+          PI_BROWSER_TASKBAR_MATRIX_ROW: ${{ matrix.id }}
+          PI_BROWSER_TASKBAR_TEST_PHOENIX_VERSION: ${{ matrix.phoenix }}
+          PI_BROWSER_TASKBAR_TEST_ELIXIR_VERSION: ${{ matrix.elixir }}
+          PI_BROWSER_TASKBAR_TEST_OTP_VERSION: ${{ matrix.otp }}
+          PI_BROWSER_TASKBAR_TEST_LIVE_VIEW_VERSION: ${{ matrix.live_view }}
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/work" -w /work \
+            -e PI_BROWSER_TASKBAR_MATRIX_ROW \
+            -e PI_BROWSER_TASKBAR_TEST_PHOENIX_VERSION \
+            -e PI_BROWSER_TASKBAR_TEST_ELIXIR_VERSION \
+            -e PI_BROWSER_TASKBAR_TEST_OTP_VERSION \
+            -e PI_BROWSER_TASKBAR_TEST_LIVE_VIEW_VERSION \
+            "$CONTAINER_IMAGE" bash -lc '
+              apt-get update -qq
+              apt-get install -y -qq ruby curl openssl python3 git build-essential ca-certificates >/dev/null
+              mix local.hex --force >/dev/null
+              mkdir -p build
+              (cd packages/phoenix && mix hex.build --output "../../build/pi_browser_taskbar_phoenix-$(<../../VERSION).tar")
+              tooling/test/phoenix_clean_app_conformance.sh
+              ruby tooling/verify_phoenix_evidence.rb "build/compatibility/$PI_BROWSER_TASKBAR_MATRIX_ROW.json"
+            '
       - uses: actions/upload-artifact@v4
         with:
           name: phoenix-compatibility-${{ matrix.id }}
