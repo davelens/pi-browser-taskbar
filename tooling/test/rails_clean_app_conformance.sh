@@ -12,6 +12,7 @@ broker_root="$runtime_root/pi-browser-taskbar"
 gem_home="$tmp/gems"
 app="$tmp/demo"
 puma_pid="$tmp/puma.pid"
+bootstrap_gemfile="$tmp/Gemfile.bootstrap"
 original_gem_path=$(ruby -e 'puts Gem.path.join(":")')
 cleanup() {
   [[ -f "$puma_pid" ]] && kill "$(<"$puma_pid")" 2>/dev/null || true
@@ -23,14 +24,21 @@ cleanup() {
 trap cleanup EXIT
 
 [[ -f "$artifact" ]] || { echo "missing built Rails gem: $artifact" >&2; exit 1; }
-if ! gem list -i rails -v "$rails_version" >/dev/null; then
-  gem install rails -v "$rails_version" --no-document
-fi
-if ! gem list -i puma >/dev/null; then
-  gem install puma --no-document
-fi
+cat >"$bootstrap_gemfile" <<RUBY
+source "https://rubygems.org"
+gem "rails", "= $rails_version"
+gem "puma"
+RUBY
+BUNDLE_GEMFILE="$bootstrap_gemfile" bundle install
+PI_BROWSER_TASKBAR_TEST_RAILS_VERSION="$rails_version" BUNDLE_GEMFILE="$bootstrap_gemfile" bundle exec ruby -rbundler -e '
+  incompatible = Bundler.load.specs.reject { |spec| spec.required_ruby_version.satisfied_by?(Gem.ruby_version) }
+  abort "resolved gems require a different Ruby: #{incompatible.map(&:full_name).join(", ")}" unless incompatible.empty?
+  require "rails"
+  abort "resolved Rails version differs" unless Rails::VERSION::STRING == ENV.fetch("PI_BROWSER_TASKBAR_TEST_RAILS_VERSION")
+  puts "resolved newest Ruby-compatible Rails dependencies"
+'
 printf 'rails new: generating conventional Rails %s ERB application\n' "$rails_version"
-ruby -S rails "_${rails_version}_" new "$app" --skip-bundle --skip-active-record --skip-action-mailer \
+BUNDLE_GEMFILE="$bootstrap_gemfile" bundle exec rails "_${rails_version}_" new "$app" --skip-bundle --skip-active-record --skip-action-mailer \
   --skip-active-storage --skip-action-cable --skip-asset-pipeline --skip-javascript --skip-hotwire --skip-jbuilder \
   --skip-test --skip-system-test --skip-bootsnap
 

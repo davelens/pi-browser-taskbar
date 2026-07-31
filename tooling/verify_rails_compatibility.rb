@@ -52,8 +52,10 @@ check.call(workflow.include?("rails_compatibility_matrix.rb") && workflow.includ
 harness = File.read(File.join(root, "tooling/test/rails_clean_app_conformance.sh"))
 [
   "rails new", "pi-browser-taskbar-rails-$version.gem", "loaded Rails gem", "Rails::VERSION::STRING",
-  "rails_puma_conformance", "production isolation", "uninstall conformance"
+  "BUNDLE_GEMFILE", "required_ruby_version.satisfied_by?", "rails_puma_conformance",
+  "production isolation", "uninstall conformance"
 ].each { |seam| check.call(harness.include?(seam), "clean Rails harness omits #{seam}") }
+check.call(!harness.include?("gem install rails"), "clean Rails harness bypasses Ruby-aware dependency resolution")
 
 doc = File.read(File.join(root, "docs/compatibility.md"))
 rows.each do |row|
