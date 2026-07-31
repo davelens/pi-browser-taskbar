@@ -67,7 +67,7 @@ defmodule PiBrowserTaskbarPhoenix.ConfigTest do
 
     Application.put_env(@otp_app, :pi_browser_taskbar,
       enabled: true,
-      allowed_hosts: ["DEVBOX.localhost."],
+      allowed_hosts: ["DEVBOX.localhost.", "2001:0DB8:0:0:0:0:0:1"],
       executable: "explicit-pi",
       project_root: File.cwd!(),
       task_timeout: 120
@@ -75,7 +75,7 @@ defmodule PiBrowserTaskbarPhoenix.ConfigTest do
 
     assert %{
              enabled: true,
-             allowed_hosts: ["devbox.localhost"],
+             allowed_hosts: ["devbox.localhost", "2001:db8::1"],
              executable: "explicit-pi",
              task_timeout: 120_000
            } = Config.load!(@otp_app)
@@ -96,10 +96,29 @@ defmodule PiBrowserTaskbarPhoenix.ConfigTest do
     assert config.task_timeout == 90_000
   end
 
-  test "rejects scoped IPv6 allowed hosts" do
-    Application.put_env(@otp_app, :pi_browser_taskbar, allowed_hosts: ["fe80::1%lo"])
+  test "rejects invalid allowed host entries" do
+    for host <- [
+          "",
+          " ",
+          "https://devbox.test",
+          "devbox.test:3000",
+          "devbox.test/path",
+          "*.example.test",
+          ".example.test",
+          "192.0.2.0/24",
+          "[2001:db8::1]",
+          "fe80::1%lo"
+        ] do
+      Application.put_env(@otp_app, :pi_browser_taskbar, allowed_hosts: [host])
+      assert_raise ArgumentError, ~r/allowed_hosts/, fn -> Config.load!(@otp_app) end
+    end
+  end
 
-    assert_raise ArgumentError, ~r/allowed_hosts/, fn -> Config.load!(@otp_app) end
+  test "rejects empty environment host entries" do
+    for hosts <- [",", "devbox.test,", ",devbox.test", "devbox.test,,other.test"] do
+      System.put_env("PI_BROWSER_TASKBAR_ALLOWED_HOSTS", hosts)
+      assert_raise ArgumentError, ~r/allowed_hosts/, fn -> Config.load!(@otp_app) end
+    end
   end
 
   test "rejects malformed active settings precisely" do

@@ -55,7 +55,7 @@ module Pi
           end
 
           def parse_allowed_hosts(value)
-            hosts = value.is_a?(String) ? value.split(",").map(&:strip).reject(&:empty?) : value
+            hosts = value.is_a?(String) ? (value.empty? ? [] : value.split(",", -1)) : value
             unless hosts.is_a?(Array)
               raise ArgumentError, "pi_browser_taskbar allowed_hosts must be a list or comma-separated string"
             end
@@ -65,16 +65,22 @@ module Pi
               unless valid_host?(normalized)
                 raise ArgumentError, "pi_browser_taskbar allowed_hosts entries must be bare exact DNS names or IP addresses"
               end
-              normalized
+              normalize_ip(normalized)
             end
           end
 
           def valid_host?(host)
-            return false if host.include?("%")
+            return false if host.match?(/[%\/\[\]]/)
             IPAddr.new(host)
             true
           rescue IPAddr::InvalidAddressError
             host.bytesize <= 253 && host.match?(/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/)
+          end
+
+          def normalize_ip(host)
+            IPAddr.new(host).to_s
+          rescue IPAddr::InvalidAddressError
+            host
           end
 
           def canonical_root(value)
@@ -158,7 +164,7 @@ module Pi
             token = view.form_authenticity_token
             html = [
               %(<link rel="stylesheet" href="#{escape.call(mount)}/assets/pi_browser_taskbar.css">),
-              %(<div data-pi-browser-taskbar-bootstrap data-mount-base="#{escape.call(mount)}" data-contract-version="1" data-csrf-token="#{escape.call(token)}"></div>),
+              %(<div data-pi-browser-taskbar-bootstrap data-mount-base="#{escape.call(mount)}" data-contract-version="1" data-csrf-token="#{escape.call(token)}" data-remote-access="#{!allowed_hosts.empty?}"></div>),
               %(<script defer src="#{escape.call(mount)}/assets/pi_browser_taskbar.js"></script>)
             ].join
             html.respond_to?(:html_safe) ? html.html_safe : html

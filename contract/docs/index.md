@@ -46,6 +46,43 @@ inherits the development server environment unchanged. A missing or non-executab
 only the sanitized unavailable session state; the optional adapter failure does not prevent either
 host application from booting.
 
+## Remote development access and diagnostics
+
+Every route and asset request must pass both the framework-normalized request host and client peer
+checks. A loopback peer may use `localhost`, a syntactically valid subdomain of `.localhost`,
+`127.0.0.1`, `::1`, or an explicitly configured exact allowed host. A non-loopback peer is denied
+unless the normalized host exactly matches an entry in a non-empty `allowed_hosts` list. Host
+normalization lowercases DNS names, removes their optional final dot, and canonicalizes IP literal
+spelling before exact comparison.
+
+Allowed-host entries are bare exact DNS names or IPv4/IPv6 literals only. Schemes, ports, paths,
+wildcards, suffix patterns, scoped IP literals, empty list entries, and empty comma-separated entries
+are startup errors naming `allowed_hosts`. The empty list is the safe default and enables no remote
+access. There is no CIDR, wildcard, remote-access boolean, or suffix matching.
+
+Rails uses only `request.host` and `request.remote_ip`; Phoenix uses only `conn.host` and
+`conn.remote_ip`. Those values already reflect the host application's framework and trusted-proxy
+configuration. Neither adapter reads `Forwarded`, `X-Forwarded-Host`, `X-Forwarded-For`, or similar
+headers itself. Proxy deployments must configure the host framework's trusted proxies rather than
+expecting a second taskbar-specific forwarding model.
+
+Mutations remain protected by each framework's native session-bound CSRF check and return the stable
+`invalid_csrf` code with a safe message when rejected. Adapter responses add no permissive CORS
+headers. Browser validation failures return `invalid_task` and a fixed safe message rather than
+copying attacker-controlled fields or local details.
+
+A non-empty allowlist causes the server bootstrap to expose only a boolean remote-access warning
+state, never the host list. When that state is active on an HTTP page, the taskbar persistently warns
+that remote HTTP is unencrypted and is suitable only on a trusted network. HTTPS does not show the
+unencrypted-transport warning. This development mode provides neither transport encryption nor host
+user authentication.
+
+Adapters do not log browser context, prompts, commands, inherited environment, absolute paths, raw
+Pi/provider errors, stderr, or protocol records. Rails additionally registers host parameter filters
+for `prompt` and `context`; Phoenix's forwarded Plug reads the body without controller parameter
+logging. Browser-visible task/session diagnostics and adapter-generated errors use bounded fixed
+messages and stable codes only.
+
 ## Initial task request
 
 A task request has exactly two fields:

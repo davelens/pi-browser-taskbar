@@ -34,6 +34,7 @@
         clear: shadow.querySelector("[data-clear]"),
         error: shadow.querySelector("[data-error]"),
         hoverOutline: shadow.querySelector("[data-hover-outline]"),
+        insecureRemoteWarning: shadow.querySelector("[data-insecure-remote-warning]"),
         mark: shadow.querySelector("[data-mark]"),
         marks: shadow.querySelector("[data-marks]"),
         output: shadow.querySelector("[data-output]"),
@@ -263,6 +264,7 @@
         setControlText(controls.error, task?.error || session.error || "");
         controls.error.hidden = !controls.error.textContent;
         controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
+        controls.insecureRemoteWarning.hidden = !unencryptedRemoteAccess(currentBootstrap, pageLocation);
         renderMarks();
         renderControls();
       }
@@ -443,6 +445,7 @@
         fetchRequest = nextBootstrap.fetch || fetchRequest;
         pageLocation = nextBootstrap.location || pageLocation;
         reconcileMarks();
+        render();
         if (nextBootstrap.autoRefresh !== false) refresh().catch(() => {});
       }
 
@@ -1048,11 +1051,22 @@
     return "";
   }
 
+  function unencryptedRemoteAccess(bootstrap, location) {
+    if (!bootstrap?.remoteAccess) return false;
+
+    try {
+      return new URL(location?.href || location?.origin).protocol === "http:";
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function markup() {
     return `
       <style>${taskbarStyles}</style>
       <section data-panel hidden aria-label="Pi browser task">
         <header><strong>PI / PAGE TASK</strong><span data-status aria-live="polite">Connecting</span></header>
+        <p data-insecure-remote-warning hidden role="status">Remote HTTP access is unencrypted. Use only on a trusted network.</p>
         <div data-focus-row>
           <p data-scope>Whole page · bounded structural context</p>
           <button data-mark type="button" aria-pressed="false">Mark element</button>
@@ -1074,7 +1088,7 @@
     `;
   }
 
-  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run],\n[data-reset] {\n  width: 100%;\n}\n\n[data-run] {\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-reset] {\n  margin-top: 8px;\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
+  const taskbarStyles = ":host {\n  --pi-bg: #15171b;\n  --pi-border: #343841;\n  --pi-muted: #a5abb7;\n  --pi-text: #f7f8fa;\n  --pi-accent: #b8f26b;\n  color: var(--pi-text);\n  font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\n* {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\nsection {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 64px;\n  left: 16px;\n  width: min(360px, calc(100vw - 32px));\n  padding: 16px;\n  border: 1px solid var(--pi-border);\n  border-radius: 12px;\n  background: var(--pi-bg);\n  box-shadow: 0 18px 50px rgb(0 0 0 / 35%);\n}\n\nheader {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  font-size: 12px;\n  letter-spacing: 0.06em;\n}\n\nheader span,\n[data-scope],\n[data-activity] {\n  color: var(--pi-muted);\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n}\n\n[data-focus-row] p {\n  margin: 12px 0;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 32px;\n  padding: 0 10px;\n  white-space: nowrap;\n}\n\n[data-mark][aria-pressed=\"true\"] {\n  border-style: dashed;\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-marks] {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 6px;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  max-width: 100%;\n  align-items: center;\n  gap: 4px;\n  padding-left: 9px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  color: var(--pi-muted);\n  font-size: 12px;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  min-width: 32px;\n  min-height: 32px;\n  border: 0;\n}\n\n[data-clear] {\n  margin: 8px 0;\n}\n\nlabel,\ntextarea {\n  display: block;\n  width: 100%;\n}\n\ntextarea {\n  margin-top: 6px;\n  padding: 10px;\n  resize: vertical;\n  border: 1px solid var(--pi-border);\n  border-radius: 8px;\n  background: #0d0f12;\n  color: var(--pi-text);\n  font: inherit;\n}\n\npre {\n  max-height: 180px;\n  overflow: auto;\n  padding: 10px;\n  white-space: pre-wrap;\n  border-radius: 8px;\n  background: #0d0f12;\n}\n\n[data-error] {\n  color: #ff9b9b;\n}\n\n[data-insecure-remote-warning] {\n  padding: 8px 10px;\n  border: 1px solid #ffcc66;\n  border-radius: 8px;\n  color: #ffdd94;\n}\n\nbutton {\n  min-height: 40px;\n  border: 1px solid var(--pi-border);\n  border-radius: 999px;\n  background: var(--pi-bg);\n  color: var(--pi-text);\n  cursor: pointer;\n  font: inherit;\n}\n\nbutton:focus-visible,\ntextarea:focus-visible {\n  outline: 3px solid var(--pi-accent);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-run],\n[data-reset] {\n  width: 100%;\n}\n\n[data-run] {\n  border-color: var(--pi-accent);\n  color: var(--pi-accent);\n}\n\n[data-reset] {\n  margin-top: 8px;\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 3px dashed #ffcc66;\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 3px solid var(--pi-accent);\n  color: #15171b;\n  font: bold 12px/1 system-ui, sans-serif;\n  outline: 2px solid #15171b;\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-accent);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  align-items: center;\n  gap: 8px;\n  padding: 0 14px;\n}\n\n@media (max-width: 420px) {\n  section {\n    right: 8px;\n    bottom: 60px;\n    left: 8px;\n    width: auto;\n  }\n\n  [data-toggle] {\n    bottom: 8px;\n    left: 8px;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    transition: none !important;\n  }\n}";
   const contextProvider = ({
   framework: "phoenix",
   sourceHint(element, { projectApp } = {}) {
@@ -1217,6 +1231,7 @@ function reference(role, path, line, symbol) {
       csrfToken: bootstrap.dataset.csrfToken,
       mountBase: bootstrap.dataset.mountBase,
       projectApp: bootstrap.dataset.projectApp,
+      remoteAccess: bootstrap.dataset.remoteAccess === "true",
     });
   }
 })();

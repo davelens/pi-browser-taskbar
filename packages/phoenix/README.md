@@ -77,8 +77,14 @@ Outside `Mix.env() == :dev` the generated dependency-free branch stays absent re
 configuration. The executable and fixed `--mode rpc` arguments are spawned directly in the canonical
 project root with the development server environment. Browser requests cannot override process,
 timeout, route, protocol, or security configuration. A missing executable reports sanitized
-unavailable state without preventing the host endpoint from booting. Exact remote hosts must be
-explicitly listed in `allowed_hosts`; loopback host/client access is the default.
+unavailable state without preventing the host endpoint from booting.
+
+Remote access requires a non-empty list of bare exact DNS names or IP literals. Every request uses
+Plug's normalized `conn.host` and `conn.remote_ip`; configure trusted proxies in the host endpoint and
+do not add taskbar-specific forwarding-header handling. Plain HTTP remote access is only for a
+trusted network and keeps a persistent unencrypted-access warning in the taskbar. The adapter retains
+native session CSRF, adds no permissive CORS headers, and returns fixed safe browser errors without
+logging request bodies or Pi records. See the shared [security guide](../../docs/security.md).
 
 ## Build and verify
 

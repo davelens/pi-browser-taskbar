@@ -63,8 +63,15 @@ Outside Rails development the adapter stays absent regardless of configuration. 
 fixed `--mode rpc` arguments are spawned directly in the canonical project root with the development
 server environment. Browser requests cannot override process, timeout, route, protocol, or security
 configuration. A missing executable reports sanitized unavailable state without preventing Rails
-from booting. Exact remote hosts must be explicitly listed; loopback host/client access is the
-default.
+from booting.
+
+Remote access requires a non-empty list of bare exact DNS names or IP literals. Every request uses
+Rails' normalized `request.host` and `request.remote_ip`; configure Rails' trusted proxies in the host
+application and do not add taskbar-specific forwarding-header handling. Plain HTTP remote access is
+only for a trusted network and keeps a persistent unencrypted-access warning in the taskbar. The
+adapter retains native session CSRF, adds no permissive CORS headers, filters logged `prompt` and
+`context` parameters, and returns fixed safe browser errors. See the shared
+[security guide](../../docs/security.md).
 
 ## Build and verify
 

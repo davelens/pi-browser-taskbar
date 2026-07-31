@@ -14,3 +14,4 @@
 - Preserve one verified checkout-scoped broker across Rails reload, forked/clustered/phased Puma processes, and concurrent servers, with idle-only grace and graceful process-tree cleanup.
 - Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across full and Turbo navigation without stale marks.
 - Enforce startup-fixed server configuration and fail-closed native development activation.
+- Secure exact remote-host access, native CSRF responses, filtered diagnostics, and persistent trusted-network HTTP warnings.

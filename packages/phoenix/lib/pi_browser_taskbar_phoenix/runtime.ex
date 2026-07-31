@@ -5,8 +5,6 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
 
   use GenServer
 
-  require Logger
-
   alias PiBrowserTaskbarPhoenix.Task, as: BrowserTask
 
   @max_record_bytes 1_000_000

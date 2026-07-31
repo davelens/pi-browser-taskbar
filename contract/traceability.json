@@ -30,6 +30,11 @@
       "issue": "https://github.com/davelens/pi-browser-taskbar/issues/31",
       "sections": ["security-configuration", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
       "acceptance_seam": "Equivalent native configuration precedence, startup validation, fail-closed activation, canonical spawn, inherited-environment, and unavailable-executable tests"
+    },
+    {
+      "issue": "https://github.com/davelens/pi-browser-taskbar/issues/32",
+      "sections": ["security-configuration", "browser-interaction", "rails-adapter", "phoenix-adapter", "rails-integration-tests", "phoenix-integration-tests"],
+      "acceptance_seam": "Exact normalized host/peer access, native session CSRF, safe responses and logging, absent CORS, persistent remote HTTP warnings, and trusted-network documentation"
     }
   ],
   "sections": [

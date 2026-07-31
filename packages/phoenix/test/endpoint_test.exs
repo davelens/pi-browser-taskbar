@@ -163,9 +163,21 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
   end
 
   test "returns stable validation and busy errors", %{runtime: runtime} do
-    invalid = call(:post, "/tasks", %{"prompt" => "missing context"}, runtime)
+    invalid =
+      call(
+        :post,
+        "/tasks",
+        %{"prompt" => "missing context", "credential=/absolute/secret" => true},
+        runtime
+      )
+
     assert invalid.status == 422
-    assert %{"error" => %{"code" => "invalid_task"}} = json(invalid)
+
+    assert %{"error" => %{"code" => "invalid_task", "message" => "Task request is invalid"}} =
+             json(invalid)
+
+    refute invalid.resp_body =~ "credential"
+    refute invalid.resp_body =~ "/absolute/secret"
 
     params = @fixture |> File.read!() |> Jason.decode!() |> Map.put("prompt", "hold this task")
     assert call(:post, "/tasks", params, runtime).status == 202
@@ -192,13 +204,53 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
     assert %{"error" => %{"code" => "oversized_payload"}} = json(conn)
   end
 
-  test "rejects non-loopback hosts and clients before state access", %{runtime: runtime} do
-    bad_host = call(:get, "/state", nil, runtime, host: "attacker.example")
-    assert bad_host.status == 403
-    assert %{"error" => %{"code" => "forbidden"}} = json(bad_host)
+  test "uses normalized host and peer with exact remote opt-in and no forwarding parsing" do
+    runtime = String.to_atom("access_runtime_#{System.unique_integer([:positive])}")
+    executable = Path.expand("support/fake_pi_rpc", __DIR__)
 
-    remote = call(:get, "/state", nil, runtime, remote_ip: {192, 0, 2, 4})
-    assert remote.status == 403
+    opts = [
+      name: runtime,
+      executable: executable,
+      project_root: File.cwd!(),
+      task_timeout: 60_000,
+      allowed_hosts: ["devbox.test", "2001:db8::1"]
+    ]
+
+    start_supervised!(%{id: runtime, start: {Runtime, :start_link, [opts]}})
+
+    wait_until(fn -> Runtime.snapshot(runtime).session.status == "ready" end)
+
+    for host <- ["localhost", "tools.localhost", "127.0.0.1", "::1", "DEVBOX.TEST."] do
+      assert call(:get, "/state", nil, runtime, host: host).status == 200
+    end
+
+    assert call(:get, "/state", nil, runtime,
+             host: "devbox.test",
+             remote_ip: {192, 0, 2, 4}
+           ).status == 200
+
+    assert call(:get, "/state", nil, runtime,
+             host: "2001:0DB8:0:0:0:0:0:1",
+             remote_ip: {192, 0, 2, 4}
+           ).status == 200
+
+    assert call(:get, "/state", nil, runtime,
+             host: "localhost",
+             remote_ip: {192, 0, 2, 4}
+           ).status == 403
+
+    assert call(:get, "/state", nil, runtime, host: "devbox.test", remote_ip: nil).status ==
+             403
+
+    forwarded =
+      call(:get, "/state", nil, runtime,
+        host: "attacker.example",
+        request_headers: [{"x-forwarded-host", "devbox.test"}, {"x-forwarded-for", "127.0.0.1"}]
+      )
+
+    assert forwarded.status == 403
+    assert %{"error" => %{"code" => "forbidden"}} = json(forwarded)
+    assert get_resp_header(forwarded, "access-control-allow-origin") == []
   end
 
   defp call(method, path, params, runtime, overrides \\ []) do
@@ -208,8 +260,15 @@ defmodule PiBrowserTaskbarPhoenix.EndpointTest do
     |> Map.put(:host, Keyword.get(overrides, :host, "localhost"))
     |> Map.put(:remote_ip, Keyword.get(overrides, :remote_ip, {127, 0, 0, 1}))
     |> put_req_header("accept", "application/json")
+    |> put_request_headers(Keyword.get(overrides, :request_headers, []))
     |> maybe_content_type(params)
     |> Endpoint.call(Endpoint.init(runtime: runtime))
+  end
+
+  defp put_request_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {name, value}, current ->
+      put_req_header(current, name, value)
+    end)
   end
 
   defp maybe_content_type(conn, nil), do: conn

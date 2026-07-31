@@ -114,6 +114,7 @@ defmodule PiBrowserTaskbarPhoenix.Installer do
       if Mix.env() == :dev and PiBrowserTaskbarPhoenix.Config.enabled?(#{inspect(otp_app)}) do
         @otp_app #{inspect(otp_app)}
         @mount #{inspect(mount)}
+        @remote_access PiBrowserTaskbarPhoenix.Config.load!(@otp_app).allowed_hosts != []
 
         @doc false
         def child_spec(_opts) do
@@ -133,7 +134,12 @@ defmodule PiBrowserTaskbarPhoenix.Installer do
 
         @doc false
         def layout_bootstrap,
-          do: PiBrowserTaskbarPhoenix.Layout.render(mount: @mount, otp_app: @otp_app)
+          do:
+            PiBrowserTaskbarPhoenix.Layout.render(
+              mount: @mount,
+              otp_app: @otp_app,
+              remote_access: @remote_access
+            )
       else
         @doc false
         def child_spec(_opts), do: %{id: __MODULE__, start: {__MODULE__, :ignore, []}}

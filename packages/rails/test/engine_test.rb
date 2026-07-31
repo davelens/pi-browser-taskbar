@@ -14,6 +14,10 @@ class TaskbarTestApplication < Rails::Application
   config.action_controller.allow_forgery_protection = true
 end
 
+Pi::Browser::Taskbar::Rails.configure do |config|
+  config.allowed_hosts = ["devbox.test", "2001:db8::1"]
+end
+
 class TaskbarHostController < ActionController::Base
   protect_from_forgery with: :exception
 
@@ -116,11 +120,13 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "data-pi-browser-taskbar-bootstrap"
     assert_includes response.body, "data-contract-version=\"1\""
     assert_match(/data-csrf-token="[^"]+"/, response.body)
+    assert_includes response.body, 'data-remote-access="true"'
 
     get "/dev/pi-browser-taskbar/state"
     assert_response :ok
     assert_equal "no-store", response.headers["Cache-Control"]
     assert_equal "ready", JSON.parse(response.body).dig("session", "status")
+    assert_nil response.headers["Access-Control-Allow-Origin"]
 
     get "/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js"
     assert_response :ok
@@ -181,7 +187,25 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     assert_equal "task_not_found", JSON.parse(response.body).dig("error", "code")
   end
 
-  def test_rejects_disallowed_host_and_non_loopback_client_before_broker
+  def test_access_uses_framework_normalized_host_and_peer_with_exact_remote_opt_in
+    ["localhost", "tools.localhost", "127.0.0.1", "DEVBOX.TEST."].each do |host|
+      host! host
+      get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "127.0.0.1"}
+      assert_response :ok, "expected loopback access for #{host}"
+    end
+
+    get "/dev/pi-browser-taskbar/state", headers: {"HTTP_HOST" => "[::1]", "REMOTE_ADDR" => "::1"}
+    assert_response :ok
+
+    host! "devbox.test"
+    get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "192.0.2.10"}
+    assert_response :ok
+
+    get "/dev/pi-browser-taskbar/state",
+      headers: {"HTTP_HOST" => "[2001:0DB8:0:0:0:0:0:1]", "REMOTE_ADDR" => "192.0.2.10"}
+    assert_response :ok
+
+    host! "localhost"
     get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "192.0.2.10"}
     assert_response :forbidden
     assert_equal "no-store", response.headers["Cache-Control"]
@@ -190,5 +214,33 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     get "/dev/pi-browser-taskbar/state", headers: {"REMOTE_ADDR" => "127.0.0.1"}
     assert_response :forbidden
     assert_equal "forbidden", JSON.parse(response.body).dig("error", "code")
+
+    host! "localhost"
+    get "/dev/pi-browser-taskbar/state",
+      headers: {"REMOTE_ADDR" => "127.0.0.1", "X-Forwarded-For" => "192.0.2.10"}
+    assert_response :forbidden
+  end
+
+  def test_invalid_browser_input_returns_only_a_stable_safe_error
+    get "/"
+    token = response.body[/data-csrf-token="([^"]+)"/, 1]
+    task = JSON.parse(File.read(File.expand_path("../../../contract/fixtures/tasks/minimal-task.json", __dir__)))
+    task["credential=/absolute/secret"] = true
+
+    post "/dev/pi-browser-taskbar/tasks", params: JSON.generate(task),
+      headers: {"CONTENT_TYPE" => "application/json", "X-CSRF-Token" => token}
+
+    assert_response :unprocessable_entity
+    assert_equal({"code" => "invalid_task", "message" => "Task request is invalid"}, JSON.parse(response.body)["error"])
+    refute_includes response.body, "credential"
+    refute_includes response.body, "/absolute/secret"
+  end
+
+  def test_host_parameter_logging_filters_prompt_and_browser_context
+    filter = ActiveSupport::ParameterFilter.new(TaskbarTestApplication.config.filter_parameters)
+    filtered = filter.filter("prompt" => "secret command", "context" => {"path" => "/private"})
+
+    assert_equal "[FILTERED]", filtered["prompt"]
+    assert_equal "[FILTERED]", filtered["context"]
   end
 end

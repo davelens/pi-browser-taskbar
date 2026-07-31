@@ -23,7 +23,9 @@ cancelling-to-cancelled lifecycle after Pi settles. Rails uses one external chec
 Phoenix uses one supervised runtime.
 
 The [canonical contract](contract/docs/index.md) owns shared normative behavior. The
-[architecture guide](docs/architecture.md) explains package ownership and dependency direction.
+[architecture guide](docs/architecture.md) explains package ownership and dependency direction, and
+the [security guide](docs/security.md) explains the local boundary and deliberate trusted-network
+remote access.
 
 ## Verify a clean checkout
 

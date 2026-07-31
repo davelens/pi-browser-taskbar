@@ -12,7 +12,7 @@ defmodule PiBrowserTaskbarPhoenix.Router do
     quote do
       pipeline :pi_browser_taskbar_v1 do
         plug(:fetch_session)
-        plug(:protect_from_forgery)
+        plug(PiBrowserTaskbarPhoenix.CSRF)
       end
 
       scope unquote(mount), alias: false, as: :pi_browser_taskbar do

@@ -34,6 +34,30 @@ for (const [framework, relativePath] of Object.entries(assets)) {
 }
 
 for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client keeps remote HTTP access visibly warned`, () => {
+    const source = fs.readFileSync(path.join(root, assets[framework]), "utf8");
+
+    for (const [remoteAccess, href, warned] of [
+      [true, "http://devbox.test:4000/cards", true],
+      [true, "https://devbox.test/cards", false],
+      [false, "http://localhost:4000/cards", false],
+    ]) {
+      const document = fakeDocument();
+      const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+      vm.runInNewContext(source, sandbox);
+      const mounted = sandbox.PiBrowserTaskbar.mount({
+        autoRefresh: false,
+        document,
+        location: { href, origin: new URL(href).origin, pathname: "/cards", search: "" },
+        remoteAccess,
+      });
+
+      const warning = mounted.element.shadowRoot.querySelector("[data-insecure-remote-warning]");
+      assert.equal(warning.hidden, !warned);
+      if (warned) assert.match(source, /unencrypted.*trusted network/iu);
+    }
+  });
+
   test(`${framework} Browser Client submits bounded whole-page context and renders completed output`, async () => {
   const document = fakeDocument();
   const visible = document.createElement("a");
@@ -1254,7 +1278,7 @@ function fakeDocument() {
         "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]",
         "[data-run]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
-        "[data-cancel-warning]", "[data-reset]",
+        "[data-cancel-warning]", "[data-insecure-remote-warning]", "[data-reset]",
       ]) {
         this.elements.set(selector, new FakeElement());
       }

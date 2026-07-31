@@ -66,6 +66,7 @@ ${client
       csrfToken: bootstrap.dataset.csrfToken,
       mountBase: bootstrap.dataset.mountBase,
       projectApp: bootstrap.dataset.projectApp,
+      remoteAccess: bootstrap.dataset.remoteAccess === "true",
     });
   }
 })();

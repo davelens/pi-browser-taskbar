@@ -16,20 +16,36 @@ defmodule PiBrowserTaskbarPhoenix.Access do
     configured? = host in allowed_hosts
 
     allowed? =
-      if conn.remote_ip in @loopback_addresses do
-        local_host?(host) or configured?
-      else
-        allowed_hosts != [] and configured?
+      cond do
+        conn.remote_ip in @loopback_addresses -> local_host?(host) or configured?
+        valid_peer?(conn.remote_ip) -> allowed_hosts != [] and configured?
+        true -> false
       end
 
     if allowed?, do: conn, else: reject(conn)
   end
 
   defp local_host?(host) do
-    host in ["localhost", "127.0.0.1", "::1"] or String.ends_with?(host, ".localhost")
+    host in ["localhost", "127.0.0.1", "::1"] or
+      (String.ends_with?(host, ".localhost") and
+         Regex.match?(
+           ~r/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/,
+           host
+         ))
   end
 
-  defp normalize_host(host), do: host |> String.downcase() |> String.trim_trailing(".")
+  defp valid_peer?(address), do: :inet.ntoa(address) != {:error, :einval}
+
+  defp normalize_host(host) when is_binary(host) do
+    host = host |> String.downcase() |> String.trim_trailing(".")
+
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} -> address |> :inet.ntoa() |> to_string()
+      {:error, :einval} -> host
+    end
+  end
+
+  defp normalize_host(_host), do: ""
 
   defp reject(conn) do
     payload = %{

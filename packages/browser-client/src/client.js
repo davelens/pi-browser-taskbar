@@ -30,6 +30,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       clear: shadow.querySelector("[data-clear]"),
       error: shadow.querySelector("[data-error]"),
       hoverOutline: shadow.querySelector("[data-hover-outline]"),
+      insecureRemoteWarning: shadow.querySelector("[data-insecure-remote-warning]"),
       mark: shadow.querySelector("[data-mark]"),
       marks: shadow.querySelector("[data-marks]"),
       output: shadow.querySelector("[data-output]"),
@@ -259,6 +260,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       setControlText(controls.error, task?.error || session.error || "");
       controls.error.hidden = !controls.error.textContent;
       controls.cancelWarning.hidden = !["running", "cancelling", "cancelled"].includes(task?.status);
+      controls.insecureRemoteWarning.hidden = !unencryptedRemoteAccess(currentBootstrap, pageLocation);
       renderMarks();
       renderControls();
     }
@@ -439,6 +441,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       fetchRequest = nextBootstrap.fetch || fetchRequest;
       pageLocation = nextBootstrap.location || pageLocation;
       reconcileMarks();
+      render();
       if (nextBootstrap.autoRefresh !== false) refresh().catch(() => {});
     }
 
@@ -1044,11 +1047,22 @@ function connectingActivity(session) {
   return "";
 }
 
+function unencryptedRemoteAccess(bootstrap, location) {
+  if (!bootstrap?.remoteAccess) return false;
+
+  try {
+    return new URL(location?.href || location?.origin).protocol === "http:";
+  } catch (_error) {
+    return false;
+  }
+}
+
 function markup() {
   return `
     <style>${taskbarStyles}</style>
     <section data-panel hidden aria-label="Pi browser task">
       <header><strong>PI / PAGE TASK</strong><span data-status aria-live="polite">Connecting</span></header>
+      <p data-insecure-remote-warning hidden role="status">Remote HTTP access is unencrypted. Use only on a trusted network.</p>
       <div data-focus-row>
         <p data-scope>Whole page · bounded structural context</p>
         <button data-mark type="button" aria-pressed="false">Mark element</button>

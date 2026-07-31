@@ -14,6 +14,13 @@ module Pi
           isolate_namespace Pi::Browser::Taskbar::Rails
           config.paths["config/routes.rb"] = File.expand_path("routes.rb", __dir__)
 
+          initializer "pi_browser_taskbar.filter_browser_context",
+            after: "pi_browser_taskbar.enable_erb_annotations" do |app|
+            next unless Pi::Browser::Taskbar::Rails.active?
+
+            app.config.filter_parameters += %i[prompt context]
+          end
+
           initializer "pi_browser_taskbar.enable_erb_annotations",
             after: :load_config_initializers do |app|
             next unless ::Rails.env.development?
@@ -47,9 +54,18 @@ module Pi
           def require_taskbar_access
             response.set_header("Cache-Control", "no-store")
             host = request.host.to_s.downcase.sub(/\.+\z/, "")
+            host = host[1...-1] if host.start_with?("[") && host.end_with?("]")
+            unless host.match?(/[%\/\[\]]/)
+              begin
+                host = IPAddr.new(host).to_s
+              rescue IPAddr::InvalidAddressError
+                nil
+              end
+            end
             allowed_hosts = Pi::Browser::Taskbar::Rails.allowed_hosts
             loopback = IPAddr.new(request.remote_ip).loopback?
-            local_host = host == "localhost" || host.end_with?(".localhost") || host == "127.0.0.1" || host == "::1"
+            local_name = host == "localhost" || (host.end_with?(".localhost") && host.match?(/\A[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/))
+            local_host = local_name || host == "127.0.0.1" || host == "::1"
             return if (loopback && (local_host || allowed_hosts.include?(host))) || (!loopback && !allowed_hosts.empty? && allowed_hosts.include?(host))
 
             render json: {error: {code: "forbidden", message: "Pi Browser Taskbar is not allowed from this host or client address"}}, status: :forbidden
@@ -83,14 +99,14 @@ module Pi
             when "unavailable"
               render_error(:service_unavailable, "unavailable", "Pi is not ready", response["snapshot"])
             when "invalid"
-              render_error(:unprocessable_entity, "invalid_task", response["message"])
+              render_error(:unprocessable_entity, "invalid_task", "Task request is invalid")
             else
               render_unavailable
             end
           rescue JSON::ParserError
             render_error(:bad_request, "malformed_json", "Request body must be valid JSON")
-          rescue Task::Invalid => error
-            render_error(:unprocessable_entity, "invalid_task", error.message)
+          rescue Task::Invalid
+            render_error(:unprocessable_entity, "invalid_task", "Task request is invalid")
           rescue Broker::Unavailable
             render_unavailable
           end

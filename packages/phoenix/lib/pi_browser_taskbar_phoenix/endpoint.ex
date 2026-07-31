@@ -40,8 +40,8 @@ defmodule PiBrowserTaskbarPhoenix.Endpoint do
       {:error, :oversized_payload, conn} ->
         error(conn, 413, "oversized_payload", "Request body exceeds 128 KiB")
 
-      {:error, :invalid_task, message} ->
-        error(conn, 422, "invalid_task", message)
+      {:error, :invalid_task, _message} ->
+        error(conn, 422, "invalid_task", "Task request is invalid")
 
       {:error, :busy, snapshot} ->
         error(conn, 409, "busy", "Another Pi task is active", snapshot)

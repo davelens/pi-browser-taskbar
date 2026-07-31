@@ -58,9 +58,11 @@ defmodule PiBrowserTaskbarPhoenix.Config do
   defp boolean!(_value, key),
     do: raise(ArgumentError, "pi_browser_taskbar #{key} must be true or false")
 
+  defp allowed_hosts!(""), do: []
+
   defp allowed_hosts!(value) when is_binary(value) do
     value
-    |> String.split(",", trim: true)
+    |> String.split(",", trim: false)
     |> allowed_hosts!()
   end
 
@@ -79,7 +81,7 @@ defmodule PiBrowserTaskbarPhoenix.Config do
               "pi_browser_taskbar allowed_hosts entries must be bare exact DNS names or IP addresses"
       end
 
-      normalized
+      normalize_ip(normalized)
     end)
   end
 
@@ -107,6 +109,13 @@ defmodule PiBrowserTaskbarPhoenix.Config do
     case :inet.parse_address(String.to_charlist(host)) do
       {:ok, _address} -> true
       {:error, :einval} -> false
+    end
+  end
+
+  defp normalize_ip(host) do
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, address} -> address |> :inet.ntoa() |> to_string()
+      {:error, :einval} -> host
     end
   end
 

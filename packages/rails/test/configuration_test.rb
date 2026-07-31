@@ -51,13 +51,13 @@ class RailsConfigurationTest < Minitest::Test
 
     config = Pi::Browser::Taskbar::Rails::Configuration.new
     config.enabled = true
-    config.allowed_hosts = ["DEVBOX.localhost.", "192.0.2.5"]
+    config.allowed_hosts = ["DEVBOX.localhost.", "192.0.2.5", "2001:0DB8:0:0:0:0:0:1"]
     config.executable = "pi-explicit"
     config.project_root = Dir.pwd
     config.task_timeout = 120
     config.finalize!(default_project_root: "/missing-default")
 
-    assert_equal ["devbox.localhost", "192.0.2.5"], config.allowed_hosts
+    assert_equal ["devbox.localhost", "192.0.2.5", "2001:db8::1"], config.allowed_hosts
     assert_equal "pi-explicit", config.executable
     assert_equal File.realpath(Dir.pwd), config.project_root
     assert_equal 120, config.task_timeout
@@ -96,14 +96,33 @@ class RailsConfigurationTest < Minitest::Test
     assert_equal false, config.enabled
   end
 
-  def test_rejects_scoped_ipv6_allowed_hosts
-    config = Pi::Browser::Taskbar::Rails::Configuration.new
-    config.allowed_hosts = ["fe80::1%lo"]
+  def test_rejects_invalid_allowed_host_entries
+    invalid_hosts = [
+      "", " ", "https://devbox.test", "devbox.test:3000", "devbox.test/path",
+      "*.example.test", ".example.test", "192.0.2.0/24", "[2001:db8::1]", "fe80::1%lo"
+    ]
 
-    error = assert_raises(ArgumentError) do
-      config.finalize!(default_project_root: Dir.pwd)
+    invalid_hosts.each do |host|
+      config = Pi::Browser::Taskbar::Rails::Configuration.new
+      config.allowed_hosts = [host]
+
+      error = assert_raises(ArgumentError) do
+        config.finalize!(default_project_root: Dir.pwd)
+      end
+      assert_includes error.message, "allowed_hosts"
     end
-    assert_includes error.message, "allowed_hosts"
+  end
+
+  def test_rejects_empty_environment_host_entries
+    [",", "devbox.test,", ",devbox.test", "devbox.test,,other.test"].each do |hosts|
+      ENV["PI_BROWSER_TASKBAR_ALLOWED_HOSTS"] = hosts
+      config = Pi::Browser::Taskbar::Rails::Configuration.new
+
+      error = assert_raises(ArgumentError) do
+        config.finalize!(default_project_root: Dir.pwd)
+      end
+      assert_includes error.message, "allowed_hosts"
+    end
   end
 
   def test_rejects_malformed_active_settings_with_the_setting_name

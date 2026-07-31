@@ -1,6 +1,7 @@
 defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Plug.Test
 
   alias PiBrowserTaskbarPhoenix.{Layout, Names, Router, Runtime}
@@ -44,7 +45,7 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
     :ok
   end
 
-  test "router mount serves state and native CSRF rejects an unprotected mutation" do
+  test "router mount serves state and native CSRF returns a stable safe mutation error" do
     state =
       request(:get, "/dev/pi-browser-taskbar/state")
       |> Plug.Conn.put_req_header("accept", "application/json")
@@ -52,17 +53,46 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
 
     assert state.status == 200
 
-    assert_raise Plug.Conn.WrapperError, ~r/invalid CSRF/, fn ->
-      HostRouter.call(
-        request(:post, "/dev/pi-browser-taskbar/tasks", Jason.encode!(%{}))
-        |> Plug.Conn.put_req_header("content-type", "application/json"),
-        HostRouter.init([])
-      )
-    end
+    log =
+      capture_log(fn ->
+        rejected =
+          HostRouter.call(
+            request(
+              :post,
+              "/dev/pi-browser-taskbar/tasks",
+              Jason.encode!(%{"context" => "credential=/absolute/secret"})
+            )
+            |> Plug.Conn.put_req_header("content-type", "application/json"),
+            HostRouter.init([])
+          )
+
+        send(self(), {:csrf_rejected, rejected})
+      end)
+
+    assert_receive {:csrf_rejected, rejected}
+    refute log =~ "credential"
+    refute log =~ "/absolute/secret"
+    assert rejected.status == 422
+
+    assert Jason.decode!(rejected.resp_body) == %{
+             "error" => %{
+               "code" => "invalid_csrf",
+               "message" => "The session CSRF token is invalid"
+             }
+           }
+
+    assert Plug.Conn.get_resp_header(rejected, "cache-control") == ["no-store"]
+    assert Plug.Conn.get_resp_header(rejected, "access-control-allow-origin") == []
   end
 
-  test "layout bootstrap uses package routes and the native CSRF token" do
-    {:safe, safe_html} = Layout.render(mount: "/dev/pi-browser-taskbar", otp_app: :demo)
+  test "layout bootstrap uses package routes, native CSRF, and remote-access warning state" do
+    {:safe, safe_html} =
+      Layout.render(
+        mount: "/dev/pi-browser-taskbar",
+        otp_app: :demo,
+        remote_access: true
+      )
+
     html = IO.iodata_to_binary(safe_html)
 
     assert html =~ ~s(data-pi-browser-taskbar-bootstrap)
@@ -70,6 +100,7 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
     assert html =~ ~s(/dev/pi-browser-taskbar/assets/pi_browser_taskbar.js)
     assert html =~ ~s(data-project-app="demo")
     assert html =~ ~s(data-csrf-token=")
+    assert html =~ ~s(data-remote-access="true")
   end
 
   defp request(method, path, body \\ "") do

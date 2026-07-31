@@ -133,6 +133,13 @@ pre {
   color: #ff9b9b;
 }
 
+[data-insecure-remote-warning] {
+  padding: 8px 10px;
+  border: 1px solid #ffcc66;
+  border-radius: 8px;
+  color: #ffdd94;
+}
+
 button {
   min-height: 40px;
   border: 1px solid var(--pi-border);
