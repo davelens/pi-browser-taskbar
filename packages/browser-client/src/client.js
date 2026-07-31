@@ -42,7 +42,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       overlays: shadow.querySelector("[data-overlays]"),
       panel: shadow.querySelector("[data-panel]"),
       prompt: shadow.querySelector("[data-prompt]"),
-      reset: shadow.querySelector("[data-reset]"),
       run: shadow.querySelector("[data-run]"),
       scope: shadow.querySelector("[data-scope]"),
       selectionHelp: shadow.querySelector("[data-selection-help]"),
@@ -59,8 +58,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     let pollTimer = null;
     let snapshotGeneration = 0;
     let pollFailures = 0;
-    let confirmingReset = false;
-    let resetPending = false;
     let mutationObserver = null;
     let themeObserver = null;
 
@@ -69,7 +66,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     controls.mark.addEventListener("click", () => setSelecting(!selecting));
     controls.clear.addEventListener("click", () => clearMarks(true));
     controls.run.addEventListener("click", () => primaryAction().catch(() => {}));
-    controls.reset.addEventListener("click", () => resetAction().catch(() => {}));
     controls.prompt.addEventListener("input", renderControls);
     document.addEventListener?.("pointermove", hoverSelection, true);
     document.addEventListener?.("focusin", hoverSelection, true);
@@ -87,13 +83,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       }
       if (event.key === "Escape" && !controls.panel.hidden && taskbarEvent(event, host)) {
         event.preventDefault?.();
-        if (confirmingReset) {
-          confirmingReset = false;
-          renderControls();
-          controls.reset.focus?.();
-        } else {
-          closePanel();
-        }
+        closePanel();
       }
     }, true);
     document.defaultView?.addEventListener?.("resize", positionMarkOutlines);
@@ -117,7 +107,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
     function closePanel() {
       setSelecting(false);
-      confirmingReset = false;
       controls.panel.hidden = true;
       controls.toggle.hidden = false;
       controls.toggle.setAttribute("aria-expanded", "false");
@@ -180,36 +169,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
     function primaryAction() {
       return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
-    }
-
-    async function resetAction() {
-      if (!confirmingReset) {
-        confirmingReset = true;
-        renderControls();
-        return snapshot;
-      }
-
-      confirmingReset = false;
-      resetPending = true;
-      render();
-      ++snapshotGeneration;
-      let resetError = null;
-
-      try {
-        const nextSnapshot = await request("/session/reset", { method: "POST" });
-        ++snapshotGeneration;
-        acceptSnapshot(nextSnapshot);
-      } catch (error) {
-        resetError = error;
-      } finally {
-        resetPending = false;
-        render();
-      }
-      if (resetError) {
-        await reconcileMutationFailure(resetError);
-        throw resetError;
-      }
-      return snapshot;
     }
 
     async function refresh() {
@@ -284,17 +243,14 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     function render() {
       const session = snapshot?.session || { status: "starting" };
       const task = snapshot?.task;
-      const renderedSession = resetPending ? { ...session, status: "resetting" } : session;
-      const status = visibleStatus(renderedSession, task);
-      const activity = renderedSession.status === "resetting"
-        ? "Starting a fresh session"
-        : task?.activity || connectingActivity(renderedSession);
+      const status = visibleStatus(session, task);
+      const activity = task?.activity || connectingActivity(session);
       setControlText(controls.status, status);
-      controls.status.setAttribute("data-state", task?.status || renderedSession.status);
+      controls.status.setAttribute("data-state", task?.status || session.status);
       setControlText(controls.model, session.model ? `Model: ${session.model}` : "Local Pi session");
       setControlText(controls.activity, activity);
       controls.activity.hidden = !controls.activity.textContent;
-      controls.panel.setAttribute("aria-busy", String(resetPending || active(snapshot)));
+      controls.panel.setAttribute("aria-busy", String(active(snapshot)));
       controls.output.textContent = task?.output || "";
       controls.output.hidden = !controls.output.textContent;
       controls.outputTruncated.hidden = !task?.output_truncated;
@@ -309,18 +265,17 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         controls.cancelWarning,
       ].every((control) => control.hidden);
       controls.insecureRemoteWarning.hidden = !unencryptedRemoteAccess(currentBootstrap, pageLocation);
-      announce(lifecycleAnnouncement(status, activity, renderedSession, task));
+      announce(lifecycleAnnouncement(status, activity, session, task));
       renderMarks();
       renderControls();
     }
 
     function renderControls() {
-      const busy = resetPending || active(snapshot);
+      const busy = active(snapshot);
       const running = snapshot?.task?.status === "running";
       const cancelling = snapshot?.task?.status === "cancelling";
-      const resetting = resetPending || snapshot?.session?.status === "resetting";
+      const resetting = snapshot?.session?.status === "resetting";
       if (busy && selecting) setSelecting(false);
-      if (busy || snapshot?.session?.status !== "ready") confirmingReset = false;
       controls.prompt.disabled = busy;
       controls.mark.disabled = busy || (!selecting && marks.length >= 8);
       controls.clear.disabled = busy;
@@ -328,11 +283,6 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         snapshot?.session?.status !== "ready" || !String(controls.prompt.value || "").trim()
       ));
       controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
-      controls.reset.disabled = busy || snapshot?.session?.status !== "ready";
-      controls.reset.textContent = confirmingReset ? "Start fresh?" : resetting ? "Starting fresh…" : "New session";
-      controls.reset.setAttribute("aria-label", confirmingReset
-        ? "Confirm starting a fresh Pi session"
-        : "Start a new Pi session");
       controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.status.textContent}. ${scopeTitle(marks.length)}.`);
     }
 
@@ -400,9 +350,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     }
 
     function renderMarks() {
-      controls.scope.textContent = marks.length === 0
-        ? "Whole page · Pi receives a bounded structural snapshot"
-        : scopeTitle(marks.length);
+      controls.scope.textContent = marks.length === 0 ? "Whole page" : scopeTitle(marks.length);
       controls.toggleScope.textContent = marks.length ? `· ${scopeTitle(marks.length)}` : "";
       controls.toggleScope.hidden = marks.length === 0;
       controls.clear.hidden = marks.length === 0;
@@ -416,7 +364,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         remove.type = "button";
         remove.textContent = "×";
         remove.setAttribute("aria-label", `Remove marked element ${index + 1}`);
-        remove.disabled = resetPending || active(snapshot);
+        remove.disabled = active(snapshot);
         remove.addEventListener("click", () => removeMark(index));
         chip.appendChild(label);
         chip.appendChild(remove);
@@ -1191,7 +1139,7 @@ function markup() {
       <section data-focus aria-labelledby="pi-taskbar-focus-title">
         <h2 id="pi-taskbar-focus-title">Task focus</h2>
         <div data-focus-row>
-          <p data-scope>Whole page · Pi receives a bounded structural snapshot</p>
+          <p data-scope>Whole page</p>
           <button data-mark type="button" aria-pressed="false" aria-describedby="pi-taskbar-selection-help">Mark element</button>
         </div>
         <p id="pi-taskbar-selection-help" data-selection-help hidden>Use the pointer, or focus an element on the page and press Enter or Space. Escape cancels.</p>
@@ -1210,7 +1158,6 @@ function markup() {
         <p data-cancel-warning hidden>Stopping cannot roll back changes Pi already made.</p>
       </section>
       <footer>
-        <button data-reset type="button" disabled aria-label="Start a new Pi session">New session</button>
         <button data-run type="button" disabled>Run with Pi</button>
       </footer>
     </section>

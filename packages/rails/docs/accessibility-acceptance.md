@@ -17,8 +17,8 @@ bin/verify
 Browser Client from the built gem and Hex archive into an isolated temporary directory; it never
 loads Browser Client or committed adapter asset source. For both equivalent packaged-example
 surfaces it runs Chromium, Firefox, and WebKit through whole-page and focused submissions, mark
-removal and clear, progress/output, stop, reset confirmation, unavailable and network recovery,
-cross-tab reconciliation, every material lifecycle state, and framework navigation. Rails covers
+removal and clear, progress/output, stop, unavailable and network recovery, cross-tab reconciliation,
+every material lifecycle state, and framework navigation. Rails covers
 Turbo replacement and full navigation. Phoenix covers controller-to-LiveView navigation and a live
 DOM patch.
 
@@ -52,11 +52,9 @@ Do not use a workspace path dependency.
    without duplicate announcements.
 6. Stop an active task. Confirm **Stopping**/**Stopped** and the warning that file changes are not
    rolled back are announced.
-7. Choose **New session**, cancel the inline confirmation with Escape, then confirm it. Confirm focus
-   remains predictable and the browser-local draft and marks remain after success.
-8. Repeat one idle and one active navigation: Turbo in Rails; controller/LiveView navigation and a
+7. Repeat one idle and one active navigation: Turbo in Rails; controller/LiveView navigation and a
    LiveView patch in Phoenix. Confirm there is still one launcher and no stale marks.
-9. At a narrow viewport and 200% browser zoom, traverse and read every control without horizontal
+8. At a narrow viewport and 200% browser zoom, traverse and read every control without horizontal
    scrolling or obscured content. Repeat with reduced motion enabled.
 
 Record product version, artifact SHA-256 values, OS, assistive technology and version, browser and

@@ -25,7 +25,6 @@ package seam. Release acceptance replaces it with an extracted
 | `whole-page` | Submit from the controller page with no marks. | `[data-testid="scenario-whole-page"]` |
 | `focused-card` | Mark the nested component, then submit. | `[data-testid="focus-card"]` |
 | `cancellation` | Start a task, choose **Stop task**, and wait for **Stopped**. | `[data-testid="scenario-whole-page"]` |
-| `reset` | Confirm **New session** after terminal output. | `[data-testid="scenario-whole-page"]` |
 | `navigation` | Follow the LiveView link and patch during idle and active states. | `[data-testid="navigation-target"]` |
 | `fail-closed` | Compile with `MIX_ENV=prod`; no taskbar route, asset, or process exists. | `[data-testid="scenario-whole-page"]` |
 
@@ -35,7 +34,7 @@ remote allowlist, fake Pi peer, or taskbar runtime hook.
 ## Verify and uninstall
 
 The root `bin/verify` installs the built archive into a clean conventional host, exercises whole-page,
-focus, cancellation, reset, navigation reconciliation, and non-development isolation, and confirms
+focus, cancellation, navigation reconciliation, and non-development isolation, and confirms
 that the loaded package is outside the source workspace. Remove this example's generated seams while
 the development dependency is still available:
 

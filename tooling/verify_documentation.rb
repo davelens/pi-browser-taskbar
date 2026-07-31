@@ -99,7 +99,7 @@ scenario_rows = {}
   readme = root.join("examples", adapter, "README.md").read
   scenario_rows[adapter] = readme.scan(/^\| `([^`]+)` \|/).flatten
 end
-expected_scenarios = %w[whole-page focused-card cancellation reset navigation fail-closed]
+expected_scenarios = %w[whole-page focused-card cancellation navigation fail-closed]
 error.call("example scenarios differ") unless scenario_rows.values.uniq == [expected_scenarios]
 required_selectors = %w[scenario-whole-page scenario-focused-card scenario-navigation focus-card navigation-target]
 %w[rails phoenix].each do |adapter|

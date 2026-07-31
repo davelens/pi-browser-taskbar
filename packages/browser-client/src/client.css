@@ -520,12 +520,6 @@ button:disabled {
   background: var(--pi-run-hover);
 }
 
-[data-reset] {
-  border-color: transparent;
-  background: transparent;
-  color: var(--pi-muted);
-}
-
 [data-hover-outline],
 [data-mark-outline] {
   position: fixed;

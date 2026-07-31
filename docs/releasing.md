@@ -23,13 +23,13 @@ Automation cannot satisfy the first-release human gates. Before dispatch, record
 
 - `release/evidence/accessibility.json`, after completing the checklist in
   [Browser and accessibility acceptance](accessibility-acceptance.md); and
-- `release/evidence/real-pi.json`, after a real-Pi task, cancellation, and **New session** flow in each
-  clean artifact-installed example.
+- `release/evidence/real-pi.json`, after a real-Pi task and cancellation flow in each clean
+  artifact-installed example.
 
 Both records contain `product_version`, `result` (`passed`), `tester`, `date`, `examples` (`rails` and
 `phoenix`), and `artifacts`, mapping each adapter to the exact candidate SHA-256. Accessibility
 records also contain a non-empty `pairing` describing OS, assistive technology, and browser versions.
-Real-Pi records contain `flows` for each adapter with `task`, `cancellation`, and `new-session`.
+Real-Pi records contain `flows` for each adapter with `task` and `cancellation`.
 Sanitized observations may be added, but never prompts, page context, credentials, provider output,
 or absolute paths. Missing, stale, malformed, or non-passing evidence fails actionably; do not create
 a placeholder pass.

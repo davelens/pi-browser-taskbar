@@ -45,10 +45,6 @@ const server = http.createServer((request, response) => {
     snapshot = runningSnapshot("Stopping Pi", "partial output", "cancelling");
     return json(response, snapshot, 202);
   }
-  if (url.pathname === "/dev/pi-browser-taskbar/session/reset" && request.method === "POST") {
-    snapshot = readySnapshot("session-2");
-    return json(response, snapshot, 202);
-  }
   if (url.pathname === "/control") {
     const state = url.searchParams.get("state");
     if (url.searchParams.get("ambiguous") === "true") ambiguousSubmission = true;
@@ -94,7 +90,7 @@ try {
           version: browser.version(),
           result: "passed",
           checks: [
-            "whole-page", "focused", "mark-remove-clear", "progress-output", "stop", "reset-confirmation",
+            "whole-page", "focused", "mark-remove-clear", "progress-output", "stop",
             "unavailable-network-recovery", "cross-tab", framework === "rails" ? "turbo-navigation" : "liveview-navigation-patch",
             "lifecycle-states", "keyboard-focus", "taskbar-owned-axe", "host-theme-sync", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
           ],
@@ -138,7 +134,6 @@ async function runKeyboardFlow(page, framework) {
   const close = taskbar.locator("[data-close]");
   const mark = taskbar.locator("[data-mark]");
   const run = taskbar.locator("[data-run]");
-  const reset = taskbar.locator("[data-reset]");
 
   const toggleBeforeHover = await toggle.boundingBox();
   await toggle.hover();
@@ -193,16 +188,6 @@ async function runKeyboardFlow(page, framework) {
     await fetch("/control?state=cancelled");
     await globalThis.PiBrowserTaskbar.mount({ autoRefresh: false }).refresh();
   });
-
-  await reset.focus();
-  await page.keyboard.press("Enter");
-  assert.equal(await reset.textContent(), "Start fresh?", "keyboard exposes inline reset confirmation");
-  await page.keyboard.press("Escape");
-  assert.equal(await reset.textContent(), "New session", "Escape cancels reset confirmation");
-  await assertShadowFocus(page, "[data-reset]", "reset cancellation returns focus");
-  await page.keyboard.press("Enter");
-  await page.keyboard.press("Enter");
-  await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]").shadowRoot.querySelector("[data-status]").textContent === "Ready");
 }
 
 async function assertShadowFocus(page, selector, message) {
@@ -272,6 +257,8 @@ function harnessHtml(framework) {
     const panel = shadow.querySelector("[data-panel]");
     check(panel.getAttribute("aria-label") === "Pi browser task", "named panel");
     check(!panel.textContent.includes("Pi browser task"), "panel omits visible product title");
+    check(!shadow.querySelector("[data-reset]"), "panel omits session reset control");
+    check(!shadow.querySelector("[data-scope]").textContent.includes("bounded structural snapshot"), "concise scope label");
     check(shadow.querySelector("[data-status]").textContent === expectedStatus, "visible lifecycle status " + expectedStatus);
     check(shadow.querySelectorAll("[aria-live]").length === 1, "single live region");
     check(shadow.querySelector("[data-live]").textContent.trim().length > 0, "meaningful live message");
@@ -441,13 +428,8 @@ function harnessHtml(framework) {
     check(clientA.element.shadowRoot.querySelector("[data-status]").textContent === "Stopped", "terminal A");
     check(clientB.element.shadowRoot.querySelector("[data-output]").textContent === "Stopped output", "terminal output B");
 
-    const reset = clientB.element.shadowRoot.querySelector("[data-reset]");
-    reset.click();
-    check(reset.textContent === "Start fresh?", "inline reset confirmation");
-    reset.click();
-    await wait(() => clientB.element.shadowRoot.querySelector("[data-status]").textContent === "Ready" && !clientB.element.shadowRoot.querySelector("[data-output]").textContent, "reset B");
-    await clientA.refresh();
-    check(!clientA.element.shadowRoot.querySelector("[data-output]").textContent, "reset reconciliation A");
+    await fetch("/control?state=ready");
+    await Promise.all([clientA.refresh(), clientB.refresh()]);
 
     const oldDocument = winA.document;
     winA.location.href = "/frame?full-navigation";

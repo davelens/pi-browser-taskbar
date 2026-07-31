@@ -96,4 +96,27 @@ class ReleaseGateTest < Minitest::Test
       assert_match(/real Pi/, error.message)
     end
   end
+
+  def test_real_pi_evidence_requires_task_and_cancellation_flows
+    version = File.read(File.join(ROOT, "VERSION")).strip
+    artifacts = {
+      "rails" => Digest::SHA256.file(File.join(ROOT, "build/pi-browser-taskbar-rails-#{version}.gem")).hexdigest,
+      "phoenix" => Digest::SHA256.file(File.join(ROOT, "build/pi_browser_taskbar_phoenix-#{version}.tar")).hexdigest
+    }
+    common = {
+      "product_version" => version, "result" => "passed", "tester" => "Test User",
+      "date" => "2026-01-01", "examples" => %w[rails phoenix], "artifacts" => artifacts
+    }
+
+    Dir.mktmpdir("release-evidence") do |directory|
+      File.write(File.join(directory, "accessibility.json"), JSON.generate(common.merge("pairing" => "NVDA / Firefox")))
+      evidence = common.merge("flows" => {
+        "rails" => %w[task cancellation],
+        "phoenix" => %w[task cancellation]
+      })
+      File.write(File.join(directory, "real-pi.json"), JSON.generate(evidence))
+
+      assert ReleaseGate.new(ROOT).verify_manual_evidence(directory)
+    end
+  end
 end

@@ -112,9 +112,9 @@ class ReleaseGate
       if label == "accessibility"
         raise Failure, "accessibility evidence must identify the assistive-technology pairing" if evidence["pairing"].to_s.strip.empty?
       else
-        expected_flows = %w[cancellation new-session task]
+        expected_flows = %w[cancellation task]
         valid_flows = %w[rails phoenix].all? { |adapter| evidence.dig("flows", adapter)&.sort == expected_flows }
-        raise Failure, "real Pi evidence must cover task, cancellation, and new-session in both examples" unless valid_flows
+        raise Failure, "real Pi evidence must cover task and cancellation in both examples" unless valid_flows
       end
     rescue JSON::ParserError => error
       raise Failure, "#{label} evidence is invalid JSON: #{error.message}"

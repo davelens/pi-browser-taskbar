@@ -298,7 +298,7 @@ outlines; source hints are captured again from the current DOM at submission rat
 across patches. Draft text remains browser-local while a surviving partial-navigation host is reused.
 
 Current-browser acceptance exercises two tabs, ambiguous submission, shared busy,
-progress, cancellation, reset and output, plus idle/active partial navigation, live patching, and full
+progress, cancellation, and output, plus idle/active partial navigation, live patching, and full
 navigation remounts.
 
 ## Corner composer and taskbar accessibility
@@ -306,9 +306,8 @@ navigation remounts.
 The Browser Client owns one lower-left launcher and compact composer entirely inside its Shadow DOM.
 It uses only native controls, inline taskbar markup, system fonts, and taskbar styles. The open order is
 Pi identity/model and status, task focus and optional removable marks, task instruction, lifecycle
-feedback, then separate session and task actions. Zero marks says **Whole page** and describes the
-bounded structural snapshot; one through eight marks remain advisory focus points with whole-page
-surroundings.
+feedback, then the task action. Zero marks says **Whole page**; one through eight marks remain
+advisory focus points with whole-page surroundings.
 
 The stable visible states are **Connecting**, **Ready**, **Working**, **Finished**, **Stopped**, and
 **Unavailable**. They are exposed as text and programmatic state, not color alone. One atomic polite
@@ -321,15 +320,15 @@ Opening moves focus to the labelled instruction field; collapse or `Escape` retu
 launcher. **Mark element** exposes pressed state and visible pointer/focus guidance: a keyboard user
 may focus a host-page element and press Enter or Space, while `Escape` cancels and returns focus to
 **Mark element**. Removing or clearing marks returns focus to a surviving remove control or **Mark
-element**. Native buttons cover submission, stopping, and the two-step reset confirmation. Active
-work disables editing, marking, clearing, and reset while leaving **Stop task** available.
+element**. Native buttons cover submission and stopping. Active work disables editing, marking, and
+clearing while leaving **Stop task** available.
 
 The composer fits the available narrow viewport, caps its block size so content remains scrollable at
 200% zoom, and removes animation and transition effects under `prefers-reduced-motion: reduce`.
 Automated acceptance extracts each Browser Client from the built gem or Hex archive and runs both
 equivalent example surfaces in current Playwright Chromium, Firefox, and WebKit. It covers every
 material lifecycle state, whole-page and focused tasks, mark removal/clear, progress/output, stop,
-reset confirmation, unavailable/network recovery, cross-tab reconciliation, Turbo navigation,
+unavailable/network recovery, cross-tab reconciliation, Turbo navigation,
 LiveView navigation/patching, taskbar-owned axe results, names/states/live regions, keyboard focus,
 Shadow DOM isolation, desktop/narrow reflow, 200% CSS-zoom reflow emulation, and reduced motion. Artifact hashes, exact engine
 versions, scope, and scenarios form deterministic build evidence.
@@ -353,11 +352,6 @@ Adapters return `409 session_reset_rejected` and preserve the old session identi
 snapshot exactly. A failed RPC command, invalid confirmation, protocol failure, or process exit during
 the switch invokes process replacement as recovery; an ordinary accepted or rejected switch does not
 replace the healthy process.
-
-The Browser Client presents a persistent secondary **New session** button. It is disabled while work
-is running, cancelling, or resetting, changes inline to **Start fresh?** for confirmation, and shows
-**Starting a fresh session** while the mutation is pending. Successful reset removes server-retained
-feedback without changing the browser-local draft or focus marks.
 
 ## Fixture manifest
 
