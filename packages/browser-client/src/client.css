@@ -175,6 +175,7 @@ header {
 [data-output-truncated],
 [data-cancel-warning] {
   color: var(--pi-muted);
+  font-size: 0.66rem;
 }
 
 [data-identity] small {
