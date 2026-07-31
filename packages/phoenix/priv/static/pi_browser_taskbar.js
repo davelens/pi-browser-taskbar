@@ -1187,7 +1187,7 @@
         <header>
           <span data-identity><span data-pi-glyph aria-hidden="true">π</span><span><span data-kicker aria-hidden="true">PI / PAGE TASK</span><small data-model>Local Pi session</small></span></span>
           <span data-status data-state="starting">Connecting</span>
-          <button data-close type="button" aria-controls="pi-taskbar-panel" aria-expanded="true" aria-label="Collapse Pi browser taskbar">−</button>
+          <button data-close type="button" aria-controls="pi-taskbar-panel" aria-expanded="true" aria-label="Close Pi browser taskbar">×</button>
         </header>
         <p data-insecure-remote-warning hidden>Remote HTTP access is unencrypted. Use only on a trusted network.</p>
         <section data-focus aria-labelledby="pi-taskbar-focus-title">
