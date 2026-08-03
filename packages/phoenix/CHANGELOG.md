@@ -1,6 +1,10 @@
 # Phoenix adapter changelog
 
-## 0.1.0 - Unreleased
+## 0.2.0 - Unreleased
+
+- Ship the lockstep Browser Client and package version while keeping completion refresh Rails-specific.
+
+## 0.1.0 - 2026-08-03
 
 - Establish the package skeleton and bundled private Browser Client bootstrap.
 - Add the conventional Phoenix installer and dependency-free non-development host stub.
