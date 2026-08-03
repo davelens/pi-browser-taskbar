@@ -24,6 +24,7 @@ class PackageTest < Minitest::Test
       ActionView::Base.annotate_rendered_view_with_filenames = false
       class DisabledTaskbarApplication < Rails::Application
         config.eager_load = false
+        config.logger = Logger.new(File::NULL)
         config.secret_key_base = "disabled-taskbar-secret-key-base-" * 8
       end
       DisabledTaskbarApplication.initialize!
@@ -47,6 +48,7 @@ class PackageTest < Minitest::Test
       ActionView::Base.annotate_rendered_view_with_filenames = false
       class DisabledDevelopmentTaskbarApplication < Rails::Application
         config.eager_load = false
+        config.logger = Logger.new(File::NULL)
         config.secret_key_base = "disabled-development-taskbar-secret-key-base-" * 8
       end
       DisabledDevelopmentTaskbarApplication.initialize!
@@ -70,6 +72,7 @@ class PackageTest < Minitest::Test
       require "pi/browser/taskbar/rails"
       class MalformedTaskbarApplication < Rails::Application
         config.eager_load = false
+        config.logger = Logger.new(File::NULL)
         config.secret_key_base = "malformed-taskbar-secret-key-base-" * 8
       end
       MalformedTaskbarApplication.initialize!
@@ -89,6 +92,7 @@ class PackageTest < Minitest::Test
       require "pi/browser/taskbar/rails"
       class ConflictingTaskbarApplication < Rails::Application
         config.eager_load = false
+        config.logger = Logger.new(File::NULL)
         config.secret_key_base = "conflicting-taskbar-secret-key-base-" * 8
         initializer "host.disable_annotations", after: "pi_browser_taskbar.enable_erb_annotations" do |app|
           app.config.action_view.annotate_rendered_view_with_filenames = false
