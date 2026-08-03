@@ -1,5 +1,12 @@
 # Pi Browser Taskbar
 
+> [!WARNING]
+> If you do not like using AI generated packages, turn back now. This repository was made entirely
+> as an elaborate test of Matt Pocock's wayfinder skill. Its intent was to create a local Pi-driven
+> (mini) version of Tidewave's pay-to-use built-in taskbar. If you're curious, you can look at
+> [issue #17](https://github.com/davelens/pi-browser-taskbar/issues/17) for the decision tree used
+> to generate the code in this repo.
+
 Pi Browser Taskbar is a development-only bridge from a rendered Rails or Phoenix page to one local,
 project-scoped Pi coding session. Choose the
 [`pi-browser-taskbar-rails`](packages/rails/README.md) gem for Rails ERB/Turbo applications or the
