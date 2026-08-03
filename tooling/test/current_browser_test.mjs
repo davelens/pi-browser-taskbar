@@ -92,7 +92,8 @@ try {
           result: "passed",
           checks: [
             "whole-page", "focused", "mark-remove-clear", "progress-output", "stop",
-            "unavailable-network-recovery", "cross-tab", framework === "rails" ? "turbo-navigation" : "liveview-navigation-patch",
+            "unavailable-network-recovery", "cross-tab", framework === "rails" ? "completion-refresh" : "completion-preserves-page",
+            framework === "rails" ? "turbo-navigation" : "liveview-navigation-patch",
             "lifecycle-states", "keyboard-focus", "taskbar-owned-axe", "host-theme-sync", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
           ],
         });
@@ -306,7 +307,7 @@ function harnessHtml(framework) {
     await Promise.all([clientA.refresh(), clientB.refresh()]);
     check(winA.document.querySelectorAll("[data-pi-browser-taskbar-host]").length === 1, "duplicate initial host");
 
-    const shadowA = clientA.element.shadowRoot;
+    let shadowA = clientA.element.shadowRoot;
     const toggle = shadowA.querySelector("[data-toggle]");
     check(!clientA.element.hasAttribute("data-light-theme"), "dark theme default");
     check(winA.getComputedStyle(shadowA.querySelector("[data-panel]")).backgroundColor === "rgb(18, 24, 32)", "dark theme surface");
@@ -326,7 +327,7 @@ function harnessHtml(framework) {
     toggle.click();
     check(!shadowA.querySelector("[data-panel]").hidden && toggle.hidden, "open composer");
     check(shadowA.activeElement === shadowA.querySelector("[data-prompt]"), "open focus movement");
-    const markButton = shadowA.querySelector("[data-mark]");
+    let markButton = shadowA.querySelector("[data-mark]");
     const focusedHostElement = winA.document.querySelector("[data-testid=focus-card]");
     markButton.click();
     focusedHostElement.focus();
@@ -350,13 +351,26 @@ function harnessHtml(framework) {
     await clientA.submit("Focused packaged example task");
     const focusedRequest = await winA.fetch("/submitted").then((response) => response.json());
     check(focusedRequest.context.focus_points.length === 1, "focused packaged request");
+    const documentBeforeCompletion = winA.document;
     await winA.fetch("/control?state=completed");
     await clientA.refresh();
+    if ("${framework}" === "rails") {
+      await wait(() => winA.document !== documentBeforeCompletion && winA.PiBrowserTaskbar, "Rails completion reload");
+      clientA = winA.PiBrowserTaskbar.mount({ autoRefresh: false });
+      await clientA.refresh();
+      shadowA = clientA.element.shadowRoot;
+      shadowA.querySelector("[data-toggle]").click();
+      markButton = shadowA.querySelector("[data-mark]");
+      markButton.click();
+      winA.document.querySelector("[data-testid=focus-card]").click();
+    } else {
+      check(winA.document === documentBeforeCompletion, "Phoenix completion preserves the page");
+    }
     shadowA.querySelector("[data-clear]").click();
     check(shadowA.querySelectorAll("[data-mark-chip]").length === 0, "clear all marks");
     check(shadowA.activeElement === markButton, "clear focus return");
 
-    for (const [state, status] of [["starting", "Connecting"], ["ready", "Ready"], ["resetting", "Connecting"], ["progress", "Working"], ["completed", "Finished"], ["failed", "Finished"], ["cancelled", "Stopped"], ["unavailable", "Unavailable"], ["ready", "Ready"]]) {
+    for (const [state, status] of [["starting", "Connecting"], ["ready", "Ready"], ["resetting", "Connecting"], ["completed", "Finished"], ["progress", "Working"], ["failed", "Finished"], ["cancelled", "Stopped"], ["unavailable", "Unavailable"], ["ready", "Ready"]]) {
       await winA.fetch("/control?state=" + state);
       await clientA.refresh();
       await auditTaskbar(winA, clientA, status);

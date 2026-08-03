@@ -121,6 +121,16 @@ class RailsEngineTest < ActionDispatch::IntegrationTest
     assert_includes response.body, 'data-mount-base="/dev/pi-browser-taskbar"'
   end
 
+  def test_public_layout_helper_emits_nothing_when_inactive
+    taskbar = Pi::Browser::Taskbar::Rails
+    active = taskbar.method(:active?)
+    taskbar.define_singleton_method(:active?) { false }
+
+    assert_equal "", Object.new.extend(taskbar::LayoutHelper).pi_browser_taskbar_tags
+  ensure
+    taskbar.define_singleton_method(:active?, active)
+  end
+
   def test_engine_routes_assets_layout_and_no_store_snapshot
     get "/"
     assert_response :ok

@@ -13,6 +13,8 @@ module Pi
       module Rails
         module LayoutHelper
           def pi_browser_taskbar_tags
+            return "" unless Pi::Browser::Taskbar::Rails.active?
+
             Pi::Browser::Taskbar::Rails.layout_bootstrap(self)
           end
         end

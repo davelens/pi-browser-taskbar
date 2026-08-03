@@ -30,6 +30,7 @@ class PackageTest < Minitest::Test
       DisabledTaskbarApplication.initialize!
       abort unless Pi::Browser::Taskbar::Rails::Engine.routes.routes.empty?
       abort unless Pi::Browser::Taskbar::Rails.layout_bootstrap(Object.new) == ""
+      abort if ActionView::Base < Pi::Browser::Taskbar::Rails::LayoutHelper
       abort if ActionView::Base.annotate_rendered_view_with_filenames
       abort if Pi::Browser::Taskbar::Rails.instance_variable_get(:@broker_client)
     RUBY
@@ -55,6 +56,8 @@ class PackageTest < Minitest::Test
       abort unless Pi::Browser::Taskbar::Rails.configuration.enabled == false
       abort unless Pi::Browser::Taskbar::Rails::Engine.routes.routes.empty?
       abort unless Pi::Browser::Taskbar::Rails.layout_bootstrap(Object.new) == ""
+      abort unless ActionView::Base < Pi::Browser::Taskbar::Rails::LayoutHelper
+      abort unless Object.new.extend(Pi::Browser::Taskbar::Rails::LayoutHelper).pi_browser_taskbar_tags == ""
       abort if ActionView::Base.annotate_rendered_view_with_filenames
       abort if Pi::Browser::Taskbar::Rails.instance_variable_get(:@broker_client)
     RUBY
