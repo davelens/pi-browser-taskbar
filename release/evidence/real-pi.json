@@ -8,8 +8,8 @@
     "phoenix"
   ],
   "artifacts": {
-    "rails": "51cefaf1c45f62c0fca9d7423a1cf98e2c2597185b794ed50587027d3fb2387b",
-    "phoenix": "36799e02ca4492eea5abc69599162c8cc18b16be7061088b96bfee2da1fec039"
+    "rails": "4f13a317ffeea0b33afb937eb10e7f8e079e9b9f68758daa26c0b28f8ca0f6af",
+    "phoenix": "4aa7ee6c890b3206604048468af781ae16f5122e94d7cb86634b52be4c81065b"
   },
   "flows": {
     "rails": [
