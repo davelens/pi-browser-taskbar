@@ -56,8 +56,10 @@ these bytes and this manifest.
 Configure a protected `coordinated-release` GitHub environment with required reviewers. Store one
 Hex API key limited to package and documentation publication as its `HEX_API_KEY` secret, and register
 the **Publish, resume, or verify coordinated release** workflow as the RubyGems Trusted Publisher for
-`pi-browser-taskbar-rails`. Permit that workflow to create protected annotated `v*` tags while keeping
-other tag creation blocked. The workflow receives its RubyGems credential through GitHub OIDC; do not
+`pi-browser-taskbar-rails`. Add a dedicated write deploy key whose private half is stored only as the
+environment secret `RELEASE_TAG_DEPLOY_KEY`; grant deploy keys the sole bypass in an active `v*` tag
+ruleset that restricts tag creation, updates, and deletion. The workflow uses that key only for
+protected publication operations. It receives its RubyGems credential through GitHub OIDC; do not
 store a RubyGems API key.
 
 Dispatch the workflow with the prepared source commit and `publish-resume`. It validates the draft and

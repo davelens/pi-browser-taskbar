@@ -296,6 +296,7 @@ class ReleaseWorkflowTest < Minitest::Test
     assert_includes source, "environment: coordinated-release"
     assert_includes source, "id-token: write"
     assert_match(%r{rubygems/configure-rubygems-credentials@[0-9a-f]{40}}, source)
+    assert_includes source, "ssh-key: \${{ inputs.operation != 'verify' && secrets.RELEASE_TAG_DEPLOY_KEY || '' }}"
     assert_includes source, "HEX_API_KEY: \${{ inputs.operation != 'verify' && secrets.HEX_API_KEY || '' }}"
     assert_includes source, "ruby tooling/coordinated_release.rb"
     refute_includes File.read(File.join(ROOT, ".github/workflows/verify.yml")), "coordinated_release.rb"
