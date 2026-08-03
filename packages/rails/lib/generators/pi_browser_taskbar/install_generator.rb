@@ -170,7 +170,7 @@ module PiBrowserTaskbar
             # pi-browser-taskbar:metadata #{JSON.generate(metadata)}
             # pi-browser-taskbar:checksum #{"0" * 64}
             # pi-browser-taskbar:start configuration
-            if Rails.env.development? && defined?(Pi::Browser::Taskbar::Rails)
+            if Rails.env.development?
               Pi::Browser::Taskbar::Rails.configure do |config|
                 config.mount_path = #{metadata.fetch("mount").inspect}
                 config.project_root = Rails.root.to_s
@@ -207,7 +207,7 @@ module PiBrowserTaskbar
         end
 
         def route_block(mount)
-          body = "  mount Pi::Browser::Taskbar::Rails::Engine => #{mount.inspect} if Rails.env.development? && defined?(Pi::Browser::Taskbar::Rails::Engine) && Pi::Browser::Taskbar::Rails.active?\n"
+          body = "  mount Pi::Browser::Taskbar::Rails::Engine => #{mount.inspect} if Rails.env.development? && Pi::Browser::Taskbar::Rails.active?\n"
           marked_block("routes", :ruby, body)
         end
 
@@ -255,7 +255,7 @@ module PiBrowserTaskbar
         end
 
         def layout_block
-          body = "<%= pi_browser_taskbar_tags if Rails.env.development? && defined?(Pi::Browser::Taskbar::Rails) && Pi::Browser::Taskbar::Rails.active? %>\n"
+          body = "<%= pi_browser_taskbar_tags if Rails.env.development? %>\n"
           marked_block("layout", :erb, body)
         end
 

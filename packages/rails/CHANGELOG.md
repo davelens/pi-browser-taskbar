@@ -12,10 +12,10 @@
 - Report Pi progress, bounded UTF-8 output, cancelled extension dialogs, and safe recoverable protocol failures.
 - Recover from task and abort deadlines, startup failures, and process exits with bounded process-tree replacement.
 - Preserve one verified checkout-scoped broker across Rails reload, forked/clustered/phased Puma processes, and concurrent servers, with idle-only grace and graceful process-tree cleanup.
-- Reconcile canonical state across tabs with bounded polling recovery and preserve one taskbar host across full and Turbo navigation without stale marks.
+- Reconcile canonical state across tabs with bounded polling recovery, refresh the active Rails page after successful task completion, and preserve one taskbar host across full and Turbo navigation without stale marks.
 - Enforce startup-fixed server configuration and fail-closed native development activation.
 - Secure exact remote-host access, native CSRF responses, filtered diagnostics, and persistent trusted-network HTTP warnings.
-- Make Rails installation atomically preflighted, checksummed, explicitly selectable, mounted before host fallbacks, idempotently updatable, and all-or-nothing reversible through Rails' native inverse generator.
+- Make Rails installation atomically preflighted, checksummed, explicitly selectable, mounted before host fallbacks, quiet in ERB layouts, idempotently updatable, and all-or-nothing reversible through Rails' native inverse generator.
 - Complete the Shadow DOM Corner composer with stable lifecycle text, native accessible controls, one live region, keyboard marking and focus return, narrow/200% reflow, and reduced-motion behavior.
 - Verify every stable Rails minor from 7.1 through 8.1 at its minimum Ruby, plus newest Rails on newest MRI, in generated artifact-installed applications and supported Puma modes.
 - Run artifact-isolated Chromium, Firefox, and WebKit Turbo/lifecycle/keyboard flows with taskbar-owned automated accessibility evidence.

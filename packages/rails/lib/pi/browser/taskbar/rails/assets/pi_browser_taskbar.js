@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  function createBrowserClient({ framework, contextProvider, productVersion, contractVersion }) {
+  function createBrowserClient({ framework, contextProvider, productVersion, contractVersion, refreshOnCompletion }) {
     if (!framework || !contextProvider || typeof contextProvider.sourceHint !== "function") {
       throw new TypeError("A framework and ContextProvider are required");
     }
@@ -226,10 +226,13 @@
       }
 
       function acceptSnapshot(nextSnapshot) {
+        const completed = snapshot?.task?.id === nextSnapshot?.task?.id &&
+          snapshot?.task?.status === "running" && nextSnapshot?.task?.status === "completed";
         snapshot = nextSnapshot;
         pollFailures = 0;
         render();
         schedulePoll(rapid(snapshot) ? 500 : 30000);
+        if (completed && refreshOnCompletion) pageLocation?.reload?.();
       }
 
       async function reconcileMutationFailure(error) {
@@ -1274,6 +1277,7 @@ function hint(status, references = []) {
     contextProvider,
     framework: "rails",
     productVersion: "0.1.0",
+    refreshOnCompletion: true,
   });
 
   globalThis.PiBrowserTaskbar = Object.freeze({

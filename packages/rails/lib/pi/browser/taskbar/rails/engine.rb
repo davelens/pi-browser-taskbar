@@ -25,12 +25,12 @@ module Pi
             after: :load_config_initializers do |app|
             next unless ::Rails.env.development?
 
+            ActionView::Base.include(Pi::Browser::Taskbar::Rails::LayoutHelper) unless ActionView::Base < Pi::Browser::Taskbar::Rails::LayoutHelper
             Pi::Browser::Taskbar::Rails.finalize_configuration!(default_project_root: app.root.to_s)
             next unless Pi::Browser::Taskbar::Rails.active?
 
             app.config.action_view.annotate_rendered_view_with_filenames = true
             ActionView::Base.annotate_rendered_view_with_filenames = true
-            ActionView::Base.include(Pi::Browser::Taskbar::Rails::LayoutHelper) unless ActionView::Base < Pi::Browser::Taskbar::Rails::LayoutHelper
           end
 
           config.after_initialize do |_app|

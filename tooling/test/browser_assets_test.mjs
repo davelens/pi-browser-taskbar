@@ -35,6 +35,30 @@ for (const [framework, relativePath] of Object.entries(assets)) {
       },
     );
   });
+
+  test(`${framework} refreshes the page only after an observed successful task`, async () => {
+    const document = fakeDocument();
+    const snapshots = [
+      { contract_version: 1, session: { id: "session", status: "busy" }, task: { id: "task", status: "running" } },
+      { contract_version: 1, session: { id: "session", status: "ready" }, task: { id: "task", status: "completed" } },
+      { contract_version: 1, session: { id: "session", status: "ready" }, task: { id: "task", status: "completed" } },
+    ];
+    let reloads = 0;
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    vm.runInNewContext(fs.readFileSync(path.join(root, relativePath), "utf8"), sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      document,
+      fetch: async () => ({ ok: true, status: 200, json: async () => snapshots.shift() }),
+      location: { href: "http://localhost/", origin: "http://localhost", pathname: "/", search: "", reload() { reloads += 1; } },
+    });
+
+    await mounted.refresh();
+    await mounted.refresh();
+    await mounted.refresh();
+
+    assert.equal(reloads, framework === "rails" ? 1 : 0);
+  });
 }
 
 for (const framework of Object.keys(assets)) {

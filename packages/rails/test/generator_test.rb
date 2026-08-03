@@ -19,11 +19,13 @@ class RailsGeneratorTest < Minitest::Test
       layout = File.read(File.join(root, "app/views/layouts/application.html.erb"))
       initializer = File.read(File.join(root, "config/initializers/pi_browser_taskbar.rb"))
       assert_includes routes, "pi-browser-taskbar:start routes"
-      assert_includes routes, "Rails.env.development?"
+      assert_includes routes, "Rails.env.development? && Pi::Browser::Taskbar::Rails.active?"
       assert_includes layout, "pi-browser-taskbar:start layout"
+      assert_includes layout, "<%= pi_browser_taskbar_tags if Rails.env.development? %>"
       assert_operator layout.index("pi_browser_taskbar_tags"), :<, layout.index("</head>")
       assert_includes initializer, "pi-browser-taskbar:start configuration"
       assert_includes initializer, 'config.mount_path = "/dev/pi-browser-taskbar"'
+      refute_includes [routes, layout, initializer].join, "defined?"
     end
   end
 

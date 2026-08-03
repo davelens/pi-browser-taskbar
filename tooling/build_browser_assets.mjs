@@ -21,12 +21,14 @@ const adapters = [
   {
     framework: "rails",
     provider: "packages/rails/browser/context_provider.js",
+    refreshOnCompletion: true,
     javascript: "packages/rails/lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.js",
     stylesheet: "packages/rails/lib/pi/browser/taskbar/rails/assets/pi_browser_taskbar.css",
   },
   {
     framework: "phoenix",
     provider: "packages/phoenix/browser/context_provider.js",
+    refreshOnCompletion: false,
     javascript: "packages/phoenix/priv/static/pi_browser_taskbar.js",
     stylesheet: "packages/phoenix/priv/static/pi_browser_taskbar.css",
   },
@@ -51,6 +53,7 @@ ${client
     contextProvider,
     framework: "${adapter.framework}",
     productVersion: "${version}",
+    refreshOnCompletion: ${adapter.refreshOnCompletion},
   });
 
   globalThis.PiBrowserTaskbar = Object.freeze({
