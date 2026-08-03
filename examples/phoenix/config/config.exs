@@ -1,6 +1,7 @@
 import Config
 
 config :taskbar_example, TaskbarExampleWeb.Endpoint,
+  adapter: Bandit.PhoenixAdapter,
   url: [host: "localhost"],
   render_errors: [formats: [html: TaskbarExampleWeb.ErrorHTML], layout: false],
   pubsub_server: TaskbarExample.PubSub,
