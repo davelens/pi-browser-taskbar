@@ -2,7 +2,13 @@ defmodule TaskbarExample.MixProject do
   use Mix.Project
 
   def project do
-    [app: :taskbar_example, version: "0.1.0", elixir: "~> 1.17", deps: deps()]
+    [
+      app: :taskbar_example,
+      version: "0.1.0",
+      elixir: "~> 1.17",
+      listeners: [Phoenix.CodeReloader],
+      deps: deps()
+    ]
   end
 
   def application do

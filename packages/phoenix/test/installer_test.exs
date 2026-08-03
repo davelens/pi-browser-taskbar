@@ -9,6 +9,26 @@ defmodule PiBrowserTaskbarPhoenix.InstallerTest do
     %{root: root}
   end
 
+  test "checked-in example remains installable" do
+    root = Path.expand("../../../examples/phoenix", __DIR__)
+
+    assert plan = Installer.plan!(root: root)
+
+    assert Map.has_key?(
+             plan,
+             Path.join(root, "lib/taskbar_example_web/components/layouts/root.html.heex")
+           )
+
+    assert File.read!(Path.join(root, "config/config.exs")) =~
+             "adapter: Bandit.PhoenixAdapter"
+
+    assert File.read!(Path.join(root, "lib/taskbar_example_web/endpoint.ex")) =~
+             "plug Phoenix.CodeReloader"
+
+    assert File.read!(Path.join(root, "mix.exs")) =~
+             "listeners: [Phoenix.CodeReloader]"
+  end
+
   test "discovers and idempotently installs every marked host seam", %{root: root} do
     assert :ok = Installer.run!(root: root)
     first = installed_files(root)
