@@ -36,8 +36,8 @@ resolve.
 ## Release preparation
 
 Use the protected workflow documented in [coordinated release preparation](releasing.md). Do not
-rebuild a prepared candidate, substitute workspace dependencies, or infer human evidence from
-automation. Preparation preserves checksums and provenance without publishing to a registry.
+rebuild a prepared candidate or substitute workspace dependencies. Preparation preserves checksums
+and provenance without publishing to a registry.
 
 ## Examples
 

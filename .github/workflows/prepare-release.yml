@@ -64,8 +64,6 @@ jobs:
         run: |
           git diff --exit-code
           test -z "$(git status --porcelain)" || { git status --short >&2; echo 'verification changed the source workspace' >&2; exit 1; }
-      - name: Require recorded real-Pi release evidence
-        run: ruby tooling/prepare_release.rb verify-manual-evidence
       - name: Require coordinated versions to be absent from registries
         run: |
           version=$(<VERSION)

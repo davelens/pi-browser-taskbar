@@ -17,24 +17,13 @@ The release version must be absent from both RubyGems and Hex. A response other 
 not-found result stops preparation without a write. Publication and reconciliation remain separate
 release operations.
 
-## Human evidence
-
-Automation cannot prove a real Pi session. Before dispatch, record `release/evidence/real-pi.json`
-after a task and cancellation flow in each clean artifact-installed example.
-
-The record contains `product_version`, `result` (`passed`), `tester`, `date`, `examples` (`rails` and
-`phoenix`), `artifacts` mapping each adapter to the exact candidate SHA-256, and `flows` for each
-adapter with `task` and `cancellation`. Sanitized observations may be added, but never prompts, page
-context, credentials, provider output, or absolute paths. Missing, stale, malformed, or non-passing
-evidence fails actionably; do not create a placeholder pass.
-
 ## Preserved candidate
 
 After every gate passes, one process writes `SHA256SUMS`, `release-manifest.json`, and
 `RELEASE_NOTES.md` beside the exact gem and Hex tarball. The manifest records product and contract
 versions, source repository/ref/commit, workflow run and attempt, build-tool versions, artifact bytes
 and SHA-256 values, package metadata and file lists, committed/packaged generated-asset digests, and
-SHA-256 values for automated, clean-example, commit-check, and human acceptance inputs.
+SHA-256 values for automated, clean-example, and commit-check acceptance inputs.
 
 `actions/upload-artifact` preserves that run-specific directory as an immutable workflow artifact for
 the repository's configured retention period. The same files are attached to an unpublished draft

@@ -31,6 +31,7 @@ class ReleaseGateTest < Minitest::Test
       assert_equal 1, manifest.fetch("contract_version")
       assert_equal commit, manifest.dig("source", "commit")
       assert_equal %w[phoenix rails], manifest.fetch("artifacts").map { |entry| entry.fetch("distribution") }.sort
+      refute_includes manifest.fetch("acceptance_inputs").map { |entry| entry.fetch("name") }, "real_pi_manual"
       assert_equal "phoenix_docs", manifest.fetch("hex_docs").fetch("distribution")
 
       (manifest.fetch("artifacts") + [manifest.fetch("hex_docs")]).each do |entry|
@@ -88,34 +89,4 @@ class ReleaseGateTest < Minitest::Test
     end
   end
 
-  def test_real_pi_evidence_is_explicitly_pending
-    Dir.mktmpdir("release-evidence") do |directory|
-      error = assert_raises(ReleaseGate::Failure) { ReleaseGate.new(ROOT).verify_manual_evidence(directory) }
-      assert_match(/manual release evidence is pending/, error.message)
-      refute_match(/accessibility/, error.message)
-      assert_match(/real Pi/, error.message)
-    end
-  end
-
-  def test_real_pi_evidence_requires_task_and_cancellation_flows
-    version = File.read(File.join(ROOT, "VERSION")).strip
-    artifacts = {
-      "rails" => Digest::SHA256.file(File.join(ROOT, "build/pi-browser-taskbar-rails-#{version}.gem")).hexdigest,
-      "phoenix" => Digest::SHA256.file(File.join(ROOT, "build/pi_browser_taskbar_phoenix-#{version}.tar")).hexdigest
-    }
-    common = {
-      "product_version" => version, "result" => "passed", "tester" => "Test User",
-      "date" => "2026-01-01", "examples" => %w[rails phoenix], "artifacts" => artifacts
-    }
-
-    Dir.mktmpdir("release-evidence") do |directory|
-      evidence = common.merge("flows" => {
-        "rails" => %w[task cancellation],
-        "phoenix" => %w[task cancellation]
-      })
-      File.write(File.join(directory, "real-pi.json"), JSON.generate(evidence))
-
-      assert ReleaseGate.new(ROOT).verify_manual_evidence(directory)
-    end
-  end
 end

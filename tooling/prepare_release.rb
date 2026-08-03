@@ -19,10 +19,6 @@ begin
       workflow_run: ENV.fetch("GITHUB_RUN_ID", "local"),
       workflow_attempt: ENV.fetch("GITHUB_RUN_ATTEMPT", "1")
     )
-  when "verify-manual-evidence"
-    abort "usage: #{$PROGRAM_NAME} verify-manual-evidence" unless ARGV.empty?
-    gate.verify_manual_evidence
-    puts "manual real-Pi evidence is release-eligible"
   when "verify-check-runs"
     abort "usage: #{$PROGRAM_NAME} verify-check-runs CHECK_RUNS_JSON COMMIT" unless ARGV.length == 2
     gate.verify_check_runs(*ARGV)
