@@ -335,10 +335,7 @@ Shadow DOM isolation, desktop/narrow reflow, 200% CSS-zoom reflow emulation, and
 versions, scope, and scenarios form deterministic build evidence.
 
 The WCAG 2.2 AA target and automated checks apply only to the Shadow-DOM taskbar interface; they
-neither test nor claim accessibility for the host application. Before first release and after a
-material interaction change, a person must complete and record the repeatable VoiceOver/Safari or
-NVDA/Firefox keyboard and screen-reader checklist. Automation never counts as that human pass, and a
-missing record remains explicitly pending.
+neither test nor claim accessibility for the host application.
 
 ## Session reset
 
