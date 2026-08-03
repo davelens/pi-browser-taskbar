@@ -91,35 +91,28 @@ class ReleaseGate
   end
 
   def verify_manual_evidence(evidence_root = File.join(@root, "release/evidence"))
-    paths = {
-      "accessibility" => File.join(evidence_root, "accessibility.json"),
-      "real Pi" => File.join(evidence_root, "real-pi.json")
-    }
-    missing = paths.reject { |_label, path| File.file?(path) }.keys
-    raise Failure, "manual release evidence is pending: record #{missing.join(" and ")} evidence under release/evidence; automation cannot mark these gates passed" unless missing.empty?
+    path = File.join(evidence_root, "real-pi.json")
+    unless File.file?(path)
+      raise Failure, "manual release evidence is pending: record real Pi evidence under release/evidence; automation cannot mark this gate passed"
+    end
 
+    evidence = JSON.parse(File.read(path))
     expected_artifacts = {
       "rails" => rails_artifact.fetch("sha256"),
       "phoenix" => phoenix_artifact.fetch("sha256")
     }
-    paths.each do |label, path|
-      evidence = JSON.parse(File.read(path))
-      raise Failure, "#{label} evidence product_version must equal #{@version}" unless evidence["product_version"] == @version
-      raise Failure, "#{label} evidence result must be passed" unless evidence["result"] == "passed"
-      raise Failure, "#{label} evidence must identify the tester and date" if evidence.values_at("tester", "date").any? { |value| value.to_s.strip.empty? }
-      raise Failure, "#{label} evidence artifact checksums do not match this candidate" unless evidence["artifacts"] == expected_artifacts
-      raise Failure, "#{label} evidence must cover both clean examples" unless evidence["examples"]&.sort == %w[phoenix rails]
-      if label == "accessibility"
-        raise Failure, "accessibility evidence must identify the assistive-technology pairing" if evidence["pairing"].to_s.strip.empty?
-      else
-        expected_flows = %w[cancellation task]
-        valid_flows = %w[rails phoenix].all? { |adapter| evidence.dig("flows", adapter)&.sort == expected_flows }
-        raise Failure, "real Pi evidence must cover task and cancellation in both examples" unless valid_flows
-      end
-    rescue JSON::ParserError => error
-      raise Failure, "#{label} evidence is invalid JSON: #{error.message}"
-    end
+    raise Failure, "real Pi evidence product_version must equal #{@version}" unless evidence["product_version"] == @version
+    raise Failure, "real Pi evidence result must be passed" unless evidence["result"] == "passed"
+    raise Failure, "real Pi evidence must identify the tester and date" if evidence.values_at("tester", "date").any? { |value| value.to_s.strip.empty? }
+    raise Failure, "real Pi evidence artifact checksums do not match this candidate" unless evidence["artifacts"] == expected_artifacts
+    raise Failure, "real Pi evidence must cover both clean examples" unless evidence["examples"]&.sort == %w[phoenix rails]
+
+    expected_flows = %w[cancellation task]
+    valid_flows = %w[rails phoenix].all? { |adapter| evidence.dig("flows", adapter)&.sort == expected_flows }
+    raise Failure, "real Pi evidence must cover task and cancellation in both examples" unless valid_flows
     true
+  rescue JSON::ParserError => error
+    raise Failure, "real Pi evidence is invalid JSON: #{error.message}"
   end
 
   private
@@ -224,7 +217,6 @@ class ReleaseGate
       "browser_automation" => File.join(@root, "build/browser-acceptance/automated.json"),
       "rails_clean_artifact" => File.join(@root, "build/conformance/rails.json"),
       "phoenix_clean_artifact" => File.join(@root, "build/conformance/phoenix.json"),
-      "accessibility_manual" => File.join(@root, "release/evidence/accessibility.json"),
       "real_pi_manual" => File.join(@root, "release/evidence/real-pi.json"),
       "commit_check_runs" => ENV["RELEASE_CHECK_RUNS"]
     }

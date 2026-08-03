@@ -20,8 +20,8 @@ submitted visible page text and URL paths to the developer's configured Pi/model
 - [Compatibility](docs/compatibility.md) records claims checked against package metadata and CI
   configuration.
 - [Contributing](docs/contributing.md) defines source ownership, generated outputs, and verification.
-- [Browser and accessibility acceptance](docs/accessibility-acceptance.md) separates deterministic
-  packaged-browser evidence from the required human assistive-technology smoke pass.
+- [Browser and accessibility acceptance](docs/accessibility-acceptance.md) defines deterministic
+  packaged-browser accessibility evidence.
 - [Coordinated releases](docs/releasing.md) define protected preparation, preserved artifacts,
   resumable registry reconciliation, durable checkpoints, and announcement gates.
 - [Recollect migration](docs/recollect-migration.md) records the one-time install, proof, removal, and

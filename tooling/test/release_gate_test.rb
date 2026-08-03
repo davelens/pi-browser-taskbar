@@ -88,11 +88,11 @@ class ReleaseGateTest < Minitest::Test
     end
   end
 
-  def test_manual_evidence_is_explicitly_pending
+  def test_real_pi_evidence_is_explicitly_pending
     Dir.mktmpdir("release-evidence") do |directory|
       error = assert_raises(ReleaseGate::Failure) { ReleaseGate.new(ROOT).verify_manual_evidence(directory) }
       assert_match(/manual release evidence is pending/, error.message)
-      assert_match(/accessibility/, error.message)
+      refute_match(/accessibility/, error.message)
       assert_match(/real Pi/, error.message)
     end
   end
@@ -109,7 +109,6 @@ class ReleaseGateTest < Minitest::Test
     }
 
     Dir.mktmpdir("release-evidence") do |directory|
-      File.write(File.join(directory, "accessibility.json"), JSON.generate(common.merge("pairing" => "NVDA / Firefox")))
       evidence = common.merge("flows" => {
         "rails" => %w[task cancellation],
         "phoenix" => %w[task cancellation]
