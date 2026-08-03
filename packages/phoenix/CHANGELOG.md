@@ -3,6 +3,7 @@
 ## 0.2.0 - Unreleased
 
 - Ship the lockstep Browser Client and package version while keeping completion refresh Rails-specific.
+- Use automated clean-artifact, browser, and compatibility acceptance instead of manual real-Pi release attestation.
 
 ## 0.1.0 - 2026-08-03
 
