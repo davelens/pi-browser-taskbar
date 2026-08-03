@@ -11,7 +11,7 @@ Add the matching product version only in development. `runtime: false` leaves st
 generated host integration:
 
 ```elixir
-{:pi_browser_taskbar_phoenix, "~> 0.1.0", only: :dev, runtime: false}
+{:pi_browser_taskbar_phoenix, "~> 0.2.0", only: :dev, runtime: false}
 ```
 
 ## Installer
@@ -96,6 +96,6 @@ controller-HEEx/LiveView example.
 
 ## Matching-version contract
 
-This adapter version is `0.1.0`. Use the same product version shown by the Rails adapter and the root
+This adapter version is `0.2.0`. Use the same product version shown by the Rails adapter and the root
 `VERSION`; the packaged [Conformance Contract](contract/docs/index.md) is the offline normative
 reference for both adapters.
