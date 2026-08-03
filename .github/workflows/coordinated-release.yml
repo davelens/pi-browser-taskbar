@@ -40,6 +40,7 @@ jobs:
         with:
           ref: ${{ inputs.source_commit }}
           fetch-depth: 0
+          ssh-key: ${{ inputs.operation != 'verify' && secrets.RELEASE_TAG_DEPLOY_KEY || '' }}
       - name: Require the exact protected-main preparation source
         env:
           GH_TOKEN: ${{ github.token }}
