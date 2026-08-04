@@ -597,10 +597,17 @@
   const maximumContextBytes = 96 * 1024;
   const maximumFocusBytes = 48 * 1024;
   const maximumPageBytes = 48 * 1024;
+  const maximumMarkedContextBytes = 12 * 1024;
+  const maximumMarkedFocusBytes = 8 * 1024;
+  const maximumMarkedPageBytes = 2 * 1024;
 
   function browserContext(document, location, taskbarHost, route, marks, contextProvider, projectApp) {
+    const marked = marks.length > 0;
+    const contextBytes = marked ? maximumMarkedContextBytes : maximumContextBytes;
+    const focusBytes = marked ? maximumMarkedFocusBytes : maximumFocusBytes;
+    const pageBytes = marked ? maximumMarkedPageBytes : maximumPageBytes;
     const sharedState = { reasons: [] };
-    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp);
+    const focus = captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp, focusBytes);
     const pageState = { nodes: 0, reasons: sharedState.reasons };
     const snapshot = captureSnapshot(
       document.body,
@@ -613,7 +620,7 @@
       750,
       12,
     );
-    enforceSnapshotBytes(snapshot, pageState, maximumPageBytes);
+    enforceSnapshotBytes(snapshot, pageState, pageBytes);
     const context = {
       contract_version: 1,
       location: sanitizedLocation(location, sharedState) || {
@@ -628,17 +635,17 @@
     };
 
     context.truncation = truncationEntries(pageState, focus.states);
-    while (utf8Size(JSON.stringify(context)) > maximumContextBytes && trimSnapshot(snapshot)) {
+    while (utf8Size(JSON.stringify(context)) > contextBytes && trimSnapshot(snapshot)) {
       pageState.reasons.push("bytes");
       context.truncation = truncationEntries(pageState, focus.states);
     }
     return context;
   }
 
-  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp) {
+  function captureFocusPoints(marks, taskbarHost, document, location, contextProvider, projectApp, maximumBytes) {
     if (marks.length === 0) return { points: [], states: [] };
-    const baseAllocation = Math.floor((maximumFocusBytes - 2 - (marks.length - 1)) / marks.length);
-    const remainder = maximumFocusBytes - 2 - (marks.length - 1) - (baseAllocation * marks.length);
+    const baseAllocation = Math.floor((maximumBytes - 2 - (marks.length - 1)) / marks.length);
+    const remainder = maximumBytes - 2 - (marks.length - 1) - (baseAllocation * marks.length);
     const states = [];
     const points = marks.map((mark, index) => {
       const state = { nodes: 0, reasons: [] };

@@ -756,7 +756,7 @@ function comment(nodeValue) {
   return { nodeType: 8, nodeValue, previousSibling: null, parentNode: null };
 }
 
-test("Browser Client shares focus detail fairly before allocating the whole-page remainder", async () => {
+test("Browser Client keeps marked context compact and shares focus detail fairly", async () => {
   const document = fakeDocument();
   const focuses = [1, 2].map((number) => {
     const element = document.createElement("section");
@@ -769,7 +769,11 @@ test("Browser Client shares focus detail fairly before allocating the whole-page
     document.body.appendChild(element);
     return element;
   });
+  let copiedPrompt;
   let requestBody;
+  document.defaultView.navigator = {
+    clipboard: { writeText: async (value) => { copiedPrompt = value; } },
+  };
   const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
   vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
   const mounted = sandbox.PiBrowserTaskbar.mount({
@@ -796,13 +800,19 @@ test("Browser Client shares focus detail fairly before allocating the whole-page
   assert.ok(points.every((point) => point.subtree.children.length > 0));
   assert.ok(points.every((point) => point.subtree.children.length < 99));
   assert.ok(Math.abs(Buffer.byteLength(JSON.stringify(points[0])) - Buffer.byteLength(JSON.stringify(points[1]))) < 1100);
-  assert.ok(Buffer.byteLength(JSON.stringify(points), "utf8") <= 48 * 1024);
-  assert.ok(Buffer.byteLength(JSON.stringify(requestBody.context), "utf8") <= 96 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(points), "utf8") <= 8 * 1024);
+  assert.ok(Buffer.byteLength(JSON.stringify(requestBody.context), "utf8") <= 12 * 1024);
   assert.deepEqual(
     requestBody.context.truncation.filter((entry) => entry.section.startsWith("focus:")).map((entry) => entry.reasons),
     [["bytes"], ["bytes"]],
   );
   assert.equal(requestBody.context.snapshot.tag, "body");
+
+  const prompt = mounted.element.shadowRoot.querySelector("[data-prompt]");
+  prompt.value = "Add a red border.";
+  mounted.element.shadowRoot.querySelector("[data-copy]").dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(Buffer.byteLength(copiedPrompt, "utf8") <= 13 * 1024);
 });
 
 function select(markButton, document, element) {
