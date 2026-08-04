@@ -334,7 +334,9 @@ element**. Native buttons cover submission, stopping, and prompt copying. **Copy
 exact [prompt envelope](#prompt-envelope) for the current instruction and freshly captured context to
 the browser clipboard without creating, cancelling, or otherwise mutating a task or session; it shows
 brief **Copied** text and announces success or a failed clipboard write through the shared announcer.
-It is disabled while the instruction is empty or work is active and does not otherwise depend on Pi
+It first uses the modern browser Clipboard API and falls back to the browser's legacy user-gesture copy
+path when that API is unavailable or denied. It is disabled while the instruction is empty or work is
+active and does not otherwise depend on Pi
 readiness. Active work disables editing, marking, clearing, and copying while leaving **Stop task**
 available.
 
