@@ -169,6 +169,55 @@ defmodule PiBrowserTaskbarPhoenix.RuntimeTest do
     end
   end
 
+  test "spawns Pi directly in the canonical root with the one-shot execution policy" do
+    name = String.to_atom("runtime_spawn_#{System.unique_integer([:positive])}")
+
+    directory =
+      Path.join(
+        System.tmp_dir!(),
+        "pi-browser-taskbar-spawn-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(directory)
+    on_exit(fn -> File.rm_rf(directory) end)
+    executable = Path.join(directory, "fake-pi")
+
+    File.write!(executable, """
+    #!/usr/bin/env ruby
+    require "json"
+    File.write(File.join(Dir.pwd, "spawn-evidence.json"), JSON.generate("cwd" => Dir.pwd, "argv" => ARGV))
+    $stdin.each_line do |line|
+      command = JSON.parse(line)
+      next unless command.fetch("type") == "get_state"
+      puts JSON.generate(type: "response", id: command.fetch("id"), success: true,
+        data: {sessionId: "spawn-session", model: "fake"})
+      $stdout.flush
+    end
+    """)
+
+    File.chmod!(executable, 0o700)
+
+    start_supervised!(
+      Supervisor.child_spec(
+        {Runtime,
+         name: name, executable: executable, project_root: directory, task_timeout: 60_000},
+        id: name
+      )
+    )
+
+    wait_until(fn -> Runtime.snapshot(name).session.status == "ready" end)
+    evidence = directory |> Path.join("spawn-evidence.json") |> File.read!() |> Jason.decode!()
+
+    assert evidence["cwd"] == Path.expand(directory)
+
+    assert evidence["argv"] == [
+             "--mode",
+             "rpc",
+             "--append-system-prompt",
+             "You are handling a one-shot browser task with no reply channel. Complete the user's request autonomously without asking follow-up questions. Inspect the repository and use the supplied browser context. Resolve missing details with conservative assumptions. Act directly on implementation requests, but preserve explicit planning and read-only constraints. Do not repeat a failed approach unchanged. If safe completion is impossible, stop and report the exact blocker."
+           ]
+  end
+
   test "requires startup model state before accepting work" do
     name = String.to_atom("runtime_missing_model_#{System.unique_integer([:positive])}")
 

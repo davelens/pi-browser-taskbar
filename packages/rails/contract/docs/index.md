@@ -41,10 +41,17 @@ Browser requests cannot select or override the executable, `--mode rpc` argument
 environment, working directory, timeout, protocol bounds, route behavior, or security behavior.
 
 Adapters resolve the configured project root to an existing canonical directory and spawn the
-configured executable directly, without a shell, as `executable --mode rpc` in that directory. Pi
-inherits the development server environment unchanged. A missing or non-executable command produces
-only the sanitized unavailable session state; the optional adapter failure does not prevent either
-host application from booting.
+configured executable directly, without a shell, as `executable --mode rpc
+--append-system-prompt <one-shot policy>` in that directory. The fixed policy says:
+
+```text
+You are handling a one-shot browser task with no reply channel. Complete the user's request autonomously without asking follow-up questions. Inspect the repository and use the supplied browser context. Resolve missing details with conservative assumptions. Act directly on implementation requests, but preserve explicit planning and read-only constraints. Do not repeat a failed approach unchanged. If safe completion is impossible, stop and report the exact blocker.
+```
+
+This addition preserves Pi's normal project-root context, tools, skills, model, and settings while
+making the non-conversational execution boundary explicit. Pi inherits the development server
+environment unchanged. A missing or non-executable command produces only the sanitized unavailable
+session state; the optional adapter failure does not prevent either host application from booting.
 
 ## Remote development access and diagnostics
 

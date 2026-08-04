@@ -14,6 +14,7 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
   @default_termination_timeout 1_000
   @default_restart_attempts 3
   @default_restart_delay 100
+  @one_shot_system_prompt "You are handling a one-shot browser task with no reply channel. Complete the user's request autonomously without asking follow-up questions. Inspect the repository and use the supplied browser context. Resolve missing details with conservative assumptions. Act directly on implementation requests, but preserve explicit planning and read-only constraints. Do not repeat a failed approach unchanged. If safe completion is impossible, stop and report the exact blocker."
 
   defstruct [
     :name,
@@ -300,7 +301,13 @@ defmodule PiBrowserTaskbarPhoenix.Runtime do
     {:ok,
      Port.open(
        {:spawn_executable, state.executable},
-       [:binary, :exit_status, :use_stdio, args: ["--mode", "rpc"], cd: state.project_root]
+       [
+         :binary,
+         :exit_status,
+         :use_stdio,
+         args: ["--mode", "rpc", "--append-system-prompt", @one_shot_system_prompt],
+         cd: state.project_root
+       ]
      )}
   rescue
     _error in [ArgumentError, ErlangError] -> {:error, :open_failed}

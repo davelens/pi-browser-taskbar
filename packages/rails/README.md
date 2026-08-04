@@ -71,8 +71,9 @@ scenarios and stable selectors.
 ## Diagnosis
 
 If the launcher is absent, confirm Rails is in development, the generated route and layout markers
-remain intact, and the initializer has not disabled the adapter. If it is unavailable, run `pi
---mode rpc` from the configured project root and inspect only the adapter's safe diagnostics. For
+remain intact, and the initializer has not disabled the adapter. If it is unavailable, run
+`pi --mode rpc --append-system-prompt "one-shot probe"` from the configured project root and inspect
+only the adapter's safe diagnostics. For
 host, CSRF, source-hint, busy, and cancellation symptoms, use the packaged [troubleshooting guide](docs/troubleshooting.md).
 
 ## Updates

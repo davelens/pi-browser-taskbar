@@ -2,6 +2,7 @@
 
 ## 0.2.0 - Unreleased
 
+- Run Pi with a fixed one-shot policy that acts without a conversational reply channel.
 - Refresh the active Rails page once after observing a successful task completion.
 - Remove generated `defined?` guards and centralize taskbar activation in the ERB layout helper.
 - Use automated clean-artifact, browser, and compatibility acceptance instead of manual real-Pi release attestation.

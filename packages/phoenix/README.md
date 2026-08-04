@@ -61,8 +61,9 @@ the monorepo root; `examples/phoenix/` names the same scenarios and stable selec
 ## Diagnosis
 
 If the launcher is absent, confirm `MIX_ENV=dev`, the generated markers remain intact, and the
-integration is supervised before the endpoint. If it is unavailable, run `pi --mode rpc` from the
-configured project root and inspect only the adapter's safe diagnostics. For host, CSRF, source-hint,
+integration is supervised before the endpoint. If it is unavailable, run
+`pi --mode rpc --append-system-prompt "one-shot probe"` from the configured project root and inspect
+only the adapter's safe diagnostics. For host, CSRF, source-hint,
 busy, and cancellation symptoms, use the packaged [troubleshooting guide](docs/troubleshooting.md).
 
 ## Updates

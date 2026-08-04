@@ -2,6 +2,7 @@
 
 ## 0.2.0 - Unreleased
 
+- Run Pi with a fixed one-shot policy that acts without a conversational reply channel.
 - Ship the lockstep Browser Client and package version while keeping completion refresh Rails-specific.
 - Use automated clean-artifact, browser, and compatibility acceptance instead of manual real-Pi release attestation.
 
