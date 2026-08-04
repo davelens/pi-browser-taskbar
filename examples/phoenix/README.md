@@ -16,7 +16,7 @@ SECRET_KEY_BASE="$(mix phx.gen.secret)" MIX_ENV=dev mix phx.server
 
 Open `http://localhost:4000`. The checked-in dependency uses the local workspace through Mix's public
 package seam. Release acceptance replaces it with an extracted
-`build/pi_browser_taskbar_phoenix-0.4.1.tar` in a clean copy; no source-workspace path is permitted.
+`build/pi_browser_taskbar_phoenix-0.4.2.tar` in a clean copy; no source-workspace path is permitted.
 
 ## Equivalent named scenarios
 

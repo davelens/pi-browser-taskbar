@@ -1,6 +1,10 @@
 # Phoenix adapter changelog
 
-## 0.4.1 - Unreleased
+## 0.4.2 - Unreleased
+
+- Keep marked prompts compact by prioritizing selected element details over broad page surroundings.
+
+## 0.4.1 - 2026-08-04
 
 - Fall back to the browser's user-gesture copy path when the modern Clipboard API is unavailable or denied.
 
