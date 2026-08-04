@@ -4,7 +4,7 @@ defmodule PiBrowserTaskbarPhoenix.MixProject do
   def project do
     [
       app: :pi_browser_taskbar_phoenix,
-      version: "0.4.1",
+      version: "0.4.2",
       elixir: ">= 1.11.0",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
