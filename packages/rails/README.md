@@ -12,7 +12,7 @@ Add the matching product version to the development group:
 
 ```ruby
 group :development do
-  gem "pi-browser-taskbar-rails", "~> 0.3.0", require: "pi/browser/taskbar/rails"
+  gem "pi-browser-taskbar-rails", "~> 0.4.0", require: "pi/browser/taskbar/rails"
 end
 ```
 
@@ -106,6 +106,6 @@ ERB/Turbo example.
 
 ## Matching-version contract
 
-This adapter version is `0.3.0`. Use the same product version shown by the Phoenix adapter and the
+This adapter version is `0.4.0`. Use the same product version shown by the Phoenix adapter and the
 root `VERSION`; the packaged [Conformance Contract](contract/docs/index.md) is the offline normative
 reference for both adapters.

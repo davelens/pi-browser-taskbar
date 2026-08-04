@@ -18,7 +18,7 @@ SECRET_KEY_BASE="$(ruby -rsecurerandom -e 'print SecureRandom.hex(64)')" \
 
 Open `http://localhost:3000`. The checked-in dependency uses the local workspace through Bundler's
 public gem seam. Release acceptance replaces it with the installed
-`build/pi-browser-taskbar-rails-0.3.0.gem` in a clean copy; no source-workspace path is permitted.
+`build/pi-browser-taskbar-rails-0.4.0.gem` in a clean copy; no source-workspace path is permitted.
 
 ## Equivalent named scenarios
 
