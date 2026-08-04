@@ -188,11 +188,19 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         throw error;
       }
 
+      const value = promptEnvelope(body.prompt, body.context);
       const clipboard = document.defaultView?.navigator?.clipboard || globalThis.navigator?.clipboard;
+      let copied = false;
       try {
-        if (typeof clipboard?.writeText !== "function") throw new Error("Browser clipboard is unavailable");
-        await clipboard.writeText(promptEnvelope(body.prompt, body.context));
+        if (typeof clipboard?.writeText === "function") {
+          await clipboard.writeText(value);
+          copied = true;
+        }
       } catch (_error) {
+        // Fall through to the browser's legacy user-gesture copy path.
+      }
+      if (!copied) copied = legacyCopy(value);
+      if (!copied) {
         const error = new Error("The prompt could not be copied to the clipboard");
         showError(error);
         throw error;
@@ -206,6 +214,27 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       }, 2000);
       renderControls();
       announce("Prompt copied to the clipboard.");
+    }
+
+    function legacyCopy(value) {
+      if (typeof document.execCommand !== "function") return false;
+      const focused = shadow.activeElement;
+      const field = document.createElement("textarea");
+      field.value = value;
+      field.setAttribute("readonly", "");
+      field.setAttribute("aria-hidden", "true");
+      field.style.position = "fixed";
+      field.style.left = "-9999px";
+      document.body.appendChild(field);
+      field.select?.();
+      try {
+        return document.execCommand("copy") === true;
+      } catch (_error) {
+        return false;
+      } finally {
+        field.remove?.();
+        focused?.focus?.();
+      }
     }
 
     function resetCopyFeedback() {

@@ -1358,6 +1358,38 @@ test("Browser Client enables prompt copying independent of Pi readiness", async 
   assert.equal(copy.disabled, false);
 });
 
+test("Browser Client falls back to a legacy browser copy without executing anything", async () => {
+  const document = fakeDocument();
+  const requests = [];
+  const copies = [];
+  document.execCommand = (command) => {
+    assert.equal(command, "copy");
+    copies.push(document.body.children.at(-1).value);
+    return true;
+  };
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, status: 200, json: async () => null };
+    },
+  });
+  const shadow = mounted.element.shadowRoot;
+  shadow.querySelector("[data-prompt]").value = "Explain this page.";
+
+  shadow.querySelector("[data-copy]").dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(copies.length, 1);
+  assert.match(copies[0], /^Explain this page\.\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---/u);
+  assert.equal(shadow.querySelector("[data-copy]").textContent, "Copied");
+  assert.equal(requests.length, 0);
+  assert.equal(document.body.children.some((element) => element.localName === "textarea"), false);
+});
+
 test("Browser Client reports a failed clipboard write without executing anything", async () => {
   const document = fakeDocument();
   const requests = [];
@@ -1443,6 +1475,13 @@ function fakeDocument() {
     }
     focus() { this.focused = true; }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
+    remove() {
+      if (!this.parentNode) return;
+      this.parentNode.childNodes = this.parentNode.childNodes.filter((candidate) => candidate !== this);
+      this.parentNode.children = this.parentNode.children.filter((candidate) => candidate !== this);
+      this.parentNode = null;
+      this.parentElement = null;
+    }
     getBoundingClientRect() { return this.rectangle || { left: 10, top: 20, width: 100, height: 30 }; }
     hasAttribute(name) { return this.attributes.has(name); }
     removeAttribute(name) { this.attributes.delete(name); }
@@ -1455,6 +1494,7 @@ function fakeDocument() {
       this.children = [];
       children.forEach((child) => this.appendChild(child));
     }
+    select() { this.selected = true; }
     setAttribute(name, value) {
       this.attributes.set(name, String(value));
       if (name === "class") this.classList = String(value).split(/\s+/u).filter(Boolean);

@@ -191,13 +191,22 @@ async function runKeyboardFlow(page, framework) {
     globalThis.__copiedPrompt = null;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: async (value) => { globalThis.__copiedPrompt = value; } },
+      value: { writeText: async () => { throw new Error("clipboard permission denied"); } },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: (command) => {
+        if (command !== "copy") return false;
+        globalThis.__copiedPrompt = Array.from(document.body.children).at(-1)?.value;
+        return true;
+      },
     });
   });
   await copy.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]").shadowRoot.querySelector("[data-copy]").textContent === "Copied");
   const copiedPrompt = await page.evaluate(() => globalThis.__copiedPrompt);
+  assert.equal(await page.locator("body > textarea").count(), 0, "legacy copy field is removed");
   assert.match(copiedPrompt, /^Keyboard task\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n.*\n--- END UNTRUSTED BROWSER CONTEXT ---$/su, "copy action writes the composed prompt");
   assert.deepEqual(
     await page.evaluate(async () => fetch("/submitted").then((response) => response.json())),
