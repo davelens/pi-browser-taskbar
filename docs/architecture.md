@@ -40,8 +40,10 @@ by canonical checkout and OS user. The broker alone owns Pi and shared state; OS
 versioned Unix-socket identity handshake converge Puma workers, phased replacements, and concurrent
 servers without a process-local fallback. Phoenix retains its separate OTP-supervised ownership.
 Both adapters resolve shared server-owned settings at startup and compile or boot all routes, assets,
-and Pi ownership out unless native framework development mode is active. The exact fields and
-semantics remain in the canonical contract.
+and Pi ownership out unless native framework development mode is active. They append the same fixed
+one-shot system policy because the browser task has no reply channel, while retaining Pi's normal
+project-root context and configuration. The exact fields and semantics remain in the canonical
+contract.
 
 ## Version ownership
 

@@ -1304,7 +1304,7 @@ function reference(role, path, line, symbol) {
     contractVersion: 1,
     contextProvider,
     framework: "phoenix",
-    productVersion: "0.2.0",
+    productVersion: "0.3.0",
     refreshOnCompletion: false,
   });
 
@@ -1312,7 +1312,7 @@ function reference(role, path, line, symbol) {
     contractVersion: 1,
     framework: "phoenix",
     mount: client.mount,
-    productVersion: "0.2.0",
+    productVersion: "0.3.0",
   });
 
   const bootstrap = globalThis.document?.querySelector?.("[data-pi-browser-taskbar-bootstrap]");

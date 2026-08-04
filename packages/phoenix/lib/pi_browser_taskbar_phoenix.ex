@@ -3,7 +3,7 @@ defmodule PiBrowserTaskbarPhoenix do
   Development-only Phoenix adapter package seam.
   """
 
-  @version "0.2.0"
+  @version "0.3.0"
 
   @doc "Returns the lockstep product version."
   @spec version() :: String.t()

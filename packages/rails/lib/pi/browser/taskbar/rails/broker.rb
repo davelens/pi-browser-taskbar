@@ -24,6 +24,7 @@ module Pi
           DEFAULT_TERMINATION_TIMEOUT = 1
           DEFAULT_RESTART_ATTEMPTS = 3
           DEFAULT_RESTART_DELAY = 0.1
+          ONE_SHOT_SYSTEM_PROMPT = "You are handling a one-shot browser task with no reply channel. Complete the user's request autonomously without asking follow-up questions. Inspect the repository and use the supplied browser context. Resolve missing details with conservative assumptions. Act directly on implementation requests, but preserve explicit planning and read-only constraints. Do not repeat a failed approach unchanged. If safe completion is impossible, stop and report the exact blocker.".freeze
 
           class Unavailable < StandardError; end
 
@@ -229,7 +230,8 @@ module Pi
 
               @restart_attempts += 1
               @stdin, @stdout, @stderr, @wait_thread = Open3.popen3(
-                @executable, "--mode", "rpc", chdir: @project_root, pgroup: true
+                @executable, "--mode", "rpc", "--append-system-prompt", ONE_SHOT_SYSTEM_PROMPT,
+                chdir: @project_root, pgroup: true
               )
               stdout = @stdout
               stderr = @stderr

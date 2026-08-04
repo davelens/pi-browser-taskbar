@@ -13,7 +13,8 @@ and supervise its generated integration immediately before the endpoint.
 
 ## Launcher says Unavailable
 
-From the configured project root, confirm the configured executable can start as `pi --mode rpc`.
+From the configured project root, confirm the configured executable can start as
+`pi --mode rpc --append-system-prompt "one-shot probe"`.
 Restart or recompile after correcting startup-fixed configuration. A missing executable is expected
 to leave the host application running while the taskbar remains unavailable.
 

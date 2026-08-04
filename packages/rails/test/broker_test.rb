@@ -378,7 +378,9 @@ class RailsBrokerTest < Minitest::Test
 
         evidence = JSON.parse(File.read(File.join(project, "spawn-evidence.json")))
         assert_equal File.realpath(project), evidence["cwd"]
-        assert_equal ["--mode", "rpc"], evidence["argv"]
+        assert_equal [
+          "--mode", "rpc", "--append-system-prompt", Broker::ONE_SHOT_SYSTEM_PROMPT
+        ], evidence["argv"]
         assert_equal "server-environment-value", evidence["environment"]
       ensure
         client.close if client
