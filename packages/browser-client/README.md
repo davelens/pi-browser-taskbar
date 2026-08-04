@@ -28,7 +28,11 @@ The single Shadow DOM host survives partial host navigation, remounts after full
 removes marks whose elements or unique selectors no longer belong to the current DOM.
 
 The lower-left Corner composer uses native controls and one nonduplicative live region across
-Connecting, Ready, Working, Finished, Stopped, and Unavailable. Opening, collapse/Escape, selection
+Connecting, Ready, Working, Finished, Stopped, and Unavailable. An outline-styled **Copy prompt**
+action beside **Run with Pi** writes the exact canonical prompt envelope (instruction plus untrusted
+context) to the clipboard without submitting; it shares the submission capture path, is disabled
+while the instruction is empty or work is active, and reports clipboard failures through the shared
+announcer. Opening, collapse/Escape, selection
 mode, mark removal/clear, and submission/stop have explicit focus paths; focused host elements can be
 marked with Enter or Space. The composer reflows within narrow and 200%-zoom
 equivalent viewports and disables motion under the reduced-motion preference. Automated semantics

@@ -29,6 +29,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       cancelWarning: shadow.querySelector("[data-cancel-warning]"),
       clear: shadow.querySelector("[data-clear]"),
       close: shadow.querySelector("[data-close]"),
+      copy: shadow.querySelector("[data-copy]"),
       error: shadow.querySelector("[data-error]"),
       feedback: shadow.querySelector("[data-feedback]"),
       hoverOutline: shadow.querySelector("[data-hover-outline]"),
@@ -60,13 +61,19 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     let pollFailures = 0;
     let mutationObserver = null;
     let themeObserver = null;
+    let promptCopied = false;
+    let copyResetTimer = null;
 
     controls.toggle.addEventListener("click", openPanel);
     controls.close.addEventListener("click", closePanel);
     controls.mark.addEventListener("click", () => setSelecting(!selecting));
     controls.clear.addEventListener("click", () => clearMarks(true));
     controls.run.addEventListener("click", () => primaryAction().catch(() => {}));
-    controls.prompt.addEventListener("input", renderControls);
+    controls.copy.addEventListener("click", () => copyPrompt().catch(() => {}));
+    controls.prompt.addEventListener("input", () => {
+      resetCopyFeedback();
+      renderControls();
+    });
     document.addEventListener?.("pointermove", hoverSelection, true);
     document.addEventListener?.("focusin", hoverSelection, true);
     document.addEventListener?.("click", selectElement, true);
@@ -113,35 +120,36 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       controls.toggle.focus?.();
     }
 
-    async function submit(prompt) {
-      const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
-      if (!normalizedPrompt) {
-        const error = new TypeError("A prompt is required");
-        showError(error);
-        throw error;
-      }
-      if (utf8Size(normalizedPrompt) > 4000) {
-        const error = new TypeError("The prompt must be at most 4000 bytes");
-        showError(error);
-        throw error;
-      }
+    function taskRequest(prompt) {
+      const normalized = normalizedPrompt(prompt);
+      if (!normalized) throw new TypeError("A prompt is required");
+      if (utf8Size(normalized) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
+      return {
+        prompt: normalized,
+        context: browserContext(
+          document,
+          pageLocation,
+          host,
+          currentBootstrap.route,
+          marks,
+          contextProvider,
+          currentBootstrap.projectApp,
+        ),
+      };
+    }
 
-      const context = browserContext(
-        document,
-        pageLocation,
-        host,
-        currentBootstrap.route,
-        marks,
-        contextProvider,
-        currentBootstrap.projectApp,
-      );
+    async function submit(prompt) {
+      let body;
+      try {
+        body = taskRequest(prompt);
+      } catch (error) {
+        showError(error);
+        throw error;
+      }
       ++snapshotGeneration;
 
       try {
-        const nextSnapshot = await request("/tasks", {
-          method: "POST",
-          body: { prompt: normalizedPrompt, context },
-        });
+        const nextSnapshot = await request("/tasks", { method: "POST", body });
         ++snapshotGeneration;
         acceptSnapshot(nextSnapshot);
         return snapshot;
@@ -169,6 +177,41 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
     function primaryAction() {
       return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
+    }
+
+    async function copyPrompt() {
+      let body;
+      try {
+        body = taskRequest(controls.prompt.value);
+      } catch (error) {
+        showError(error);
+        throw error;
+      }
+
+      const clipboard = document.defaultView?.navigator?.clipboard || globalThis.navigator?.clipboard;
+      try {
+        if (typeof clipboard?.writeText !== "function") throw new Error("Browser clipboard is unavailable");
+        await clipboard.writeText(promptEnvelope(body.prompt, body.context));
+      } catch (_error) {
+        const error = new Error("The prompt could not be copied to the clipboard");
+        showError(error);
+        throw error;
+      }
+
+      promptCopied = true;
+      globalThis.clearTimeout?.(copyResetTimer);
+      copyResetTimer = globalThis.setTimeout?.(() => {
+        resetCopyFeedback();
+        renderControls();
+      }, 2000);
+      renderControls();
+      announce("Prompt copied to the clipboard.");
+    }
+
+    function resetCopyFeedback() {
+      globalThis.clearTimeout?.(copyResetTimer);
+      copyResetTimer = null;
+      promptCopied = false;
     }
 
     async function refresh() {
@@ -278,14 +321,17 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       const running = snapshot?.task?.status === "running";
       const cancelling = snapshot?.task?.status === "cancelling";
       const resetting = snapshot?.session?.status === "resetting";
+      const hasPrompt = Boolean(normalizedPrompt(controls.prompt.value));
       if (busy && selecting) setSelecting(false);
       controls.prompt.disabled = busy;
       controls.mark.disabled = busy || (!selecting && marks.length >= 8);
       controls.clear.disabled = busy;
       controls.run.disabled = cancelling || resetting || (!running && (
-        snapshot?.session?.status !== "ready" || !String(controls.prompt.value || "").trim()
+        snapshot?.session?.status !== "ready" || !hasPrompt
       ));
       controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
+      controls.copy.disabled = busy || !hasPrompt;
+      controls.copy.textContent = promptCopied ? "Copied" : "Copy prompt";
       controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.status.textContent}. ${scopeTitle(marks.length)}.`);
     }
 
@@ -327,6 +373,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       }
       if (!marks.some((mark) => mark.element === element || mark.selector === selector)) {
         marks.push({ element, selector });
+        resetCopyFeedback();
       }
       setSelecting(false);
       renderMarks();
@@ -336,6 +383,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
 
     function clearMarks(returnFocus = false) {
       if (active(snapshot)) return;
+      if (marks.length > 0) resetCopyFeedback();
       marks.splice(0);
       setSelecting(false);
       renderMarks();
@@ -346,6 +394,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
     function removeMark(index) {
       if (active(snapshot)) return;
       marks.splice(index, 1);
+      resetCopyFeedback();
       renderMarks();
       announce(marks.length ? `${scopeTitle(marks.length)} remain.` : "Mark removed. Whole page selected.");
       const nextRemove = controls.marks.children?.[Math.min(index, marks.length - 1)]?.children?.[1];
@@ -392,6 +441,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         return;
       }
       marks.splice(0, marks.length, ...retained);
+      resetCopyFeedback();
       setSelecting(false);
       renderMarks();
     }
@@ -470,6 +520,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
         : `${error?.message || "Pi Browser Taskbar is unavailable"} Retrying…`;
       setControlText(controls.error, message);
       controls.error.hidden = false;
+      controls.feedback.hidden = false;
       announce(message);
     }
 
@@ -477,6 +528,7 @@ function createBrowserClient({ framework, contextProvider, productVersion, contr
       const message = error?.message || "Pi Browser Taskbar is unavailable";
       setControlText(controls.error, message);
       controls.error.hidden = false;
+      controls.feedback.hidden = false;
       announce(`Error. ${message}`);
     }
 
@@ -992,6 +1044,32 @@ function utf8Size(value) {
   return new TextEncoder().encode(value).byteLength;
 }
 
+function normalizedPrompt(value) {
+  return String(value || "").normalize("NFC")
+    .replace(/\r\n?/gu, "\n")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, "")
+    .trim();
+}
+
+function promptEnvelope(prompt, context) {
+  return `${prompt}\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n${safeContextJson(context)}\n--- END UNTRUSTED BROWSER CONTEXT ---`;
+}
+
+function safeContextJson(value) {
+  return canonicalJson(value).replace(/</gu, "\\u003c").replace(/>/gu, "\\u003e").replace(/&/gu, "\\u0026");
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    const contents = Object.keys(value).sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",");
+    return `{${contents}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function selectionTarget(target, taskbarHost, document) {
   if (!target?.localName || target === taskbarHost || taskbarHost.contains?.(target)) return null;
   return excluded(target, document) ? null : target;
@@ -1161,7 +1239,10 @@ function markup() {
       </section>
       <footer>
         <span data-status data-state="starting">Connecting</span>
-        <button data-run type="button" disabled>Run with Pi</button>
+        <span data-actions>
+          <button data-copy type="button" disabled>Copy prompt</button>
+          <button data-run type="button" disabled>Run with Pi</button>
+        </span>
       </footer>
     </section>
     <p class="sr-only" data-live aria-live="polite" aria-atomic="true">Connecting to the local Pi session</p>

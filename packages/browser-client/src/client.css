@@ -507,6 +507,24 @@ button:disabled {
   stroke-width: 1.5;
 }
 
+[data-actions] {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+[data-copy] {
+  border-color: var(--pi-signal);
+  background: transparent;
+  color: var(--pi-signal);
+  font-weight: 700;
+  padding: 0 0.65rem;
+}
+
+[data-copy]:hover {
+  background: color-mix(in srgb, var(--pi-signal) 14%, transparent);
+}
+
 [data-run] {
   min-width: 112px;
   border-color: var(--pi-signal);
@@ -618,11 +636,16 @@ button:disabled {
 
   footer {
     align-items: stretch;
-    flex-direction: column-reverse;
+    flex-direction: column;
   }
 
-  footer button {
-    width: 100%;
+  [data-actions] {
+    margin-left: 0;
+  }
+
+  [data-actions] button {
+    min-width: 0;
+    flex: 1 1 0;
   }
 
   [data-toggle] {

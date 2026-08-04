@@ -94,7 +94,7 @@ try {
             "whole-page", "focused", "mark-remove-clear", "progress-output", "stop",
             "unavailable-network-recovery", "cross-tab", framework === "rails" ? "completion-refresh" : "completion-preserves-page",
             framework === "rails" ? "turbo-navigation" : "liveview-navigation-patch",
-            "lifecycle-states", "keyboard-focus", "taskbar-owned-axe", "host-theme-sync", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
+            "lifecycle-states", "keyboard-focus", "copy-prompt", "taskbar-owned-axe", "host-theme-sync", "narrow-reflow", "200%-css-zoom-reflow", "reduced-motion",
           ],
         });
         console.log(`${framework} packaged browser/accessibility passed (${name} ${browser.version()})`);
@@ -135,6 +135,7 @@ async function runKeyboardFlow(page, framework) {
   const prompt = taskbar.locator("[data-prompt]");
   const close = taskbar.locator("[data-close]");
   const mark = taskbar.locator("[data-mark]");
+  const copy = taskbar.locator("[data-copy]");
   const run = taskbar.locator("[data-run]");
 
   const toggleBeforeHover = await toggle.boundingBox();
@@ -185,6 +186,25 @@ async function runKeyboardFlow(page, framework) {
   assert.notEqual(await mark.evaluate((element) => getComputedStyle(element).outlineStyle), "none", "focused control has a visible outline");
 
   await prompt.fill("Keyboard task");
+  const taskBeforeCopy = await page.evaluate(async () => fetch("/submitted").then((response) => response.json()));
+  await page.evaluate(() => {
+    globalThis.__copiedPrompt = null;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value) => { globalThis.__copiedPrompt = value; } },
+    });
+  });
+  await copy.focus();
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]").shadowRoot.querySelector("[data-copy]").textContent === "Copied");
+  const copiedPrompt = await page.evaluate(() => globalThis.__copiedPrompt);
+  assert.match(copiedPrompt, /^Keyboard task\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n.*\n--- END UNTRUSTED BROWSER CONTEXT ---$/su, "copy action writes the composed prompt");
+  assert.deepEqual(
+    await page.evaluate(async () => fetch("/submitted").then((response) => response.json())),
+    taskBeforeCopy,
+    "copy action does not submit a task",
+  );
+
   await run.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => document.querySelector("[data-pi-browser-taskbar-host]").shadowRoot.querySelector("[data-run]").textContent === "Stop task");
@@ -292,6 +312,10 @@ function harnessHtml(framework) {
     }
     const prompt = shadow.querySelector("[data-prompt]");
     check(shadow.querySelector('label[for="' + prompt.id + '"]')?.textContent.trim() === "Task instruction", "named textarea");
+    const copyControl = shadow.querySelector("[data-copy]");
+    check(copyControl?.textContent === "Copy prompt" && copyControl.disabled, "clipboard copy control present and disabled without instruction");
+    check(copyControl.nextElementSibling === shadow.querySelector("[data-run]"), "copy control sits beside the task action");
+    check(win.getComputedStyle(copyControl).backgroundColor === "rgba(0, 0, 0, 0)", "copy control uses outline styling");
     check(["true", "false"].includes(shadow.querySelector("[data-toggle]").getAttribute("aria-expanded")), "expanded state");
     check(["true", "false"].includes(shadow.querySelector("[data-mark]").getAttribute("aria-pressed")), "pressed state");
     check(!win.getComputedStyle(shadow.querySelector("[data-toggle]")).fontFamily.includes("fantasy"), "host style isolation");
