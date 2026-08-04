@@ -23,7 +23,7 @@ for (const [framework, relativePath] of Object.entries(assets)) {
     vm.runInNewContext(source, sandbox);
 
     assert.equal(sandbox.PiBrowserTaskbar.framework, framework);
-    assert.equal(sandbox.PiBrowserTaskbar.productVersion, "0.4.0");
+    assert.equal(sandbox.PiBrowserTaskbar.productVersion, "0.4.1");
     assert.equal(sandbox.PiBrowserTaskbar.contractVersion, 1);
     assert.deepEqual(
       JSON.parse(JSON.stringify(sandbox.PiBrowserTaskbar.mount({ mountBase: "/custom" }))),
@@ -31,7 +31,7 @@ for (const [framework, relativePath] of Object.entries(assets)) {
         contractVersion: 1,
         framework,
         mountBase: "/custom",
-        productVersion: "0.4.0",
+        productVersion: "0.4.1",
       },
     );
   });

@@ -91,7 +91,7 @@ defmodule PiBrowserTaskbarPhoenix.IntegrationTest do
       |> HostRouter.call(HostRouter.init([]))
 
     assert response.status == 200
-    assert response.resp_body =~ ~s(productVersion: "0.4.0")
+    assert response.resp_body =~ ~s(productVersion: "0.4.1")
   end
 
   test "layout bootstrap uses package routes, native CSRF, and remote-access warning state" do

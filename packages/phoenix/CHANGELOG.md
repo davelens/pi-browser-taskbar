@@ -1,6 +1,10 @@
 # Phoenix adapter changelog
 
-## 0.4.0 - Unreleased
+## 0.4.1 - Unreleased
+
+- Fall back to the browser's user-gesture copy path when the modern Clipboard API is unavailable or denied.
+
+## 0.4.0 - 2026-08-04
 
 - Copy the canonical task instruction and browser context from an outline-styled taskbar action without submitting to Pi.
 

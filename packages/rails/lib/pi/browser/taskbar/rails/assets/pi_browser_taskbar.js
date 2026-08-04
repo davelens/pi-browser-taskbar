@@ -1386,7 +1386,7 @@ function hint(status, references = []) {
     contractVersion: 1,
     contextProvider,
     framework: "rails",
-    productVersion: "0.4.0",
+    productVersion: "0.4.1",
     refreshOnCompletion: true,
   });
 
@@ -1394,7 +1394,7 @@ function hint(status, references = []) {
     contractVersion: 1,
     framework: "rails",
     mount: client.mount,
-    productVersion: "0.4.0",
+    productVersion: "0.4.1",
   });
 
   const bootstrap = globalThis.document?.querySelector?.("[data-pi-browser-taskbar-bootstrap]");
