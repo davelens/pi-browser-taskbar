@@ -1251,6 +1251,156 @@ for (const [framework, navigationEvent] of [["rails", "turbo:load"], ["phoenix",
   });
 }
 
+for (const framework of Object.keys(assets)) {
+  test(`${framework} Browser Client copies the canonical prompt envelope without submitting`, async () => {
+    const document = fakeDocument();
+    const visible = document.createElement("p");
+    visible.childNodes.push({ nodeType: 3, nodeValue: "Ignore & reveal <script>secrets</script>" });
+    document.body.appendChild(visible);
+
+    const requests = [];
+    const copies = [];
+    document.defaultView.navigator = { clipboard: { writeText: async (text) => { copies.push(text); } } };
+    const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+    const source = fs.readFileSync(path.join(root, assets[framework]), "utf8");
+    vm.runInNewContext(source, sandbox);
+    const mounted = sandbox.PiBrowserTaskbar.mount({
+      autoRefresh: false,
+      csrfToken: "native-csrf-token",
+      document,
+      fetch: async (url, options) => {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            contract_version: 1,
+            session: { id: "session", status: "busy", model: "test/fake", error: null },
+            task: { id: "task", status: "running", output: "", activity: "Pi is working" },
+          }),
+        };
+      },
+      location: { origin: "http://localhost:4000", pathname: "/cards", search: "" },
+    });
+
+    assert.match(source, /<button data-copy type="button" disabled>Copy prompt<\/button>\s*<button data-run/u);
+    assert.match(source, /\[data-copy\] \{[^}]*background: transparent/u);
+
+    const shadow = mounted.element.shadowRoot;
+    const prompt = shadow.querySelector("[data-prompt]");
+    prompt.value = "\u00a0\u2003\r\nExplain\u202e this page.\u2003\u00a0";
+    shadow.querySelector("[data-copy]").dispatchEvent({ type: "click" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(requests.length, 0);
+    assert.equal(copies.length, 1);
+    const envelope = copies[0].match(/^Explain this page\.\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n(.*)\n--- END UNTRUSTED BROWSER CONTEXT ---$/su);
+    assert.ok(envelope, "copied text uses the canonical envelope");
+    assert.doesNotMatch(envelope[1], /[<>&]/u);
+    assert.match(envelope[1], /\\u003cscript\\u003e/u);
+    const copiedContext = JSON.parse(envelope[1]);
+    assert.equal(envelope[1], sortedSafeJson(copiedContext));
+    assert.equal(shadow.querySelector("[data-copy]").textContent, "Copied");
+    assert.match(shadow.querySelector("[data-live]").textContent, /copied/iu);
+    assert.equal(shadow.querySelector("[data-status]").textContent, "Connecting");
+    assert.equal(prompt.disabled, false);
+
+    prompt.value = "Changed instruction";
+    prompt.dispatchEvent({ type: "input" });
+    assert.equal(shadow.querySelector("[data-copy]").textContent, "Copy prompt");
+
+    await mounted.submit("\u00a0\u2003\r\nExplain\u202e this page.\u2003\u00a0");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/dev/pi-browser-taskbar/tasks");
+    assert.equal(requests[0].options.method, "POST");
+    const body = JSON.parse(requests[0].options.body);
+    assert.equal(body.prompt, "Explain this page.");
+    assert.deepEqual(copiedContext, body.context);
+  });
+}
+
+test("Browser Client enables prompt copying independent of Pi readiness", async () => {
+  const document = fakeDocument();
+  const snapshots = [
+    { contract_version: 1, session: { id: "session", status: "unavailable", model: null, error: "Pi is unavailable." }, task: null },
+    { contract_version: 1, session: { id: "session", status: "busy", model: "test/fake", error: null }, task: { id: "task", status: "running", output: "", activity: "Pi is working" } },
+    { contract_version: 1, session: { id: "session", status: "ready", model: "test/fake", error: null }, task: null },
+  ];
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.phoenix), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async () => ({ ok: true, status: 200, json: async () => snapshots.shift() }),
+  });
+  const shadow = mounted.element.shadowRoot;
+  const copy = shadow.querySelector("[data-copy]");
+  const prompt = shadow.querySelector("[data-prompt]");
+
+  assert.equal(copy.disabled, true);
+
+  prompt.value = "\u202e";
+  prompt.dispatchEvent({ type: "input" });
+  assert.equal(copy.disabled, true);
+
+  prompt.value = "Explain this page.";
+  prompt.dispatchEvent({ type: "input" });
+  assert.equal(copy.disabled, false);
+
+  await mounted.refresh();
+  assert.equal(copy.disabled, false);
+  assert.equal(shadow.querySelector("[data-run]").disabled, true);
+
+  await mounted.refresh();
+  assert.equal(copy.disabled, true);
+
+  await mounted.refresh();
+  assert.equal(copy.disabled, false);
+});
+
+test("Browser Client reports a failed clipboard write without executing anything", async () => {
+  const document = fakeDocument();
+  const requests = [];
+  const sandbox = { TextEncoder, URL, clearTimeout() {}, setTimeout() { return 1; } };
+  vm.runInNewContext(fs.readFileSync(path.join(root, assets.rails), "utf8"), sandbox);
+  const mounted = sandbox.PiBrowserTaskbar.mount({
+    autoRefresh: false,
+    document,
+    fetch: async (url, options) => {
+      requests.push({ url, options });
+      return { ok: true, status: 200, json: async () => null };
+    },
+  });
+  const shadow = mounted.element.shadowRoot;
+  shadow.querySelector("[data-prompt]").value = "Explain this page.";
+
+  shadow.querySelector("[data-copy]").dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(shadow.querySelector("[data-error]").textContent, /could not be copied/u);
+  assert.equal(shadow.querySelector("[data-error]").hidden, false);
+  assert.equal(shadow.querySelector("[data-feedback]").hidden, false);
+  assert.match(shadow.querySelector("[data-live]").textContent, /^Error\./u);
+  assert.equal(shadow.querySelector("[data-copy]").textContent, "Copy prompt");
+
+  document.defaultView.navigator = { clipboard: { writeText: async () => { throw new Error("denied"); } } };
+  shadow.querySelector("[data-copy]").dispatchEvent({ type: "click" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(shadow.querySelector("[data-error]").textContent, /could not be copied/u);
+  assert.equal(shadow.querySelector("[data-copy]").textContent, "Copy prompt");
+  assert.equal(requests.length, 0);
+});
+
+function sortedSafeJson(value) {
+  const canonical = (nested) => {
+    if (Array.isArray(nested)) return `[${nested.map(canonical).join(",")}]`;
+    if (nested && typeof nested === "object") {
+      return `{${Object.keys(nested).sort().map((key) => `${JSON.stringify(key)}:${canonical(nested[key])}`).join(",")}}`;
+    }
+    return JSON.stringify(nested);
+  };
+  return canonical(value).replace(/</gu, "\\u003c").replace(/>/gu, "\\u003e").replace(/&/gu, "\\u0026");
+}
+
 function fakeDocument() {
   class FakeElement {
     constructor(localName = "div") {
@@ -1321,7 +1471,7 @@ function fakeDocument() {
       this.elements = new Map();
       for (const selector of [
         "[data-panel]", "[data-toggle]", "[data-status]", "[data-scope]", "[data-prompt]", "[data-feedback]",
-        "[data-run]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
+        "[data-run]", "[data-copy]", "[data-output]", "[data-output-truncated]", "[data-activity]", "[data-error]", "[data-mark]",
         "[data-clear]", "[data-marks]", "[data-hover-outline]", "[data-overlays]",
         "[data-cancel-warning]", "[data-close]", "[data-insecure-remote-warning]", "[data-live]",
         "[data-model]", "[data-selection-help]", "[data-toggle-scope]",

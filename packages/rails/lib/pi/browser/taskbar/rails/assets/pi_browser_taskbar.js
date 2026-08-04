@@ -33,6 +33,7 @@
         cancelWarning: shadow.querySelector("[data-cancel-warning]"),
         clear: shadow.querySelector("[data-clear]"),
         close: shadow.querySelector("[data-close]"),
+        copy: shadow.querySelector("[data-copy]"),
         error: shadow.querySelector("[data-error]"),
         feedback: shadow.querySelector("[data-feedback]"),
         hoverOutline: shadow.querySelector("[data-hover-outline]"),
@@ -64,13 +65,19 @@
       let pollFailures = 0;
       let mutationObserver = null;
       let themeObserver = null;
+      let promptCopied = false;
+      let copyResetTimer = null;
 
       controls.toggle.addEventListener("click", openPanel);
       controls.close.addEventListener("click", closePanel);
       controls.mark.addEventListener("click", () => setSelecting(!selecting));
       controls.clear.addEventListener("click", () => clearMarks(true));
       controls.run.addEventListener("click", () => primaryAction().catch(() => {}));
-      controls.prompt.addEventListener("input", renderControls);
+      controls.copy.addEventListener("click", () => copyPrompt().catch(() => {}));
+      controls.prompt.addEventListener("input", () => {
+        resetCopyFeedback();
+        renderControls();
+      });
       document.addEventListener?.("pointermove", hoverSelection, true);
       document.addEventListener?.("focusin", hoverSelection, true);
       document.addEventListener?.("click", selectElement, true);
@@ -117,35 +124,36 @@
         controls.toggle.focus?.();
       }
 
-      async function submit(prompt) {
-        const normalizedPrompt = String(prompt || "").normalize("NFC").trim();
-        if (!normalizedPrompt) {
-          const error = new TypeError("A prompt is required");
-          showError(error);
-          throw error;
-        }
-        if (utf8Size(normalizedPrompt) > 4000) {
-          const error = new TypeError("The prompt must be at most 4000 bytes");
-          showError(error);
-          throw error;
-        }
+      function taskRequest(prompt) {
+        const normalized = normalizedPrompt(prompt);
+        if (!normalized) throw new TypeError("A prompt is required");
+        if (utf8Size(normalized) > 4000) throw new TypeError("The prompt must be at most 4000 bytes");
+        return {
+          prompt: normalized,
+          context: browserContext(
+            document,
+            pageLocation,
+            host,
+            currentBootstrap.route,
+            marks,
+            contextProvider,
+            currentBootstrap.projectApp,
+          ),
+        };
+      }
 
-        const context = browserContext(
-          document,
-          pageLocation,
-          host,
-          currentBootstrap.route,
-          marks,
-          contextProvider,
-          currentBootstrap.projectApp,
-        );
+      async function submit(prompt) {
+        let body;
+        try {
+          body = taskRequest(prompt);
+        } catch (error) {
+          showError(error);
+          throw error;
+        }
         ++snapshotGeneration;
 
         try {
-          const nextSnapshot = await request("/tasks", {
-            method: "POST",
-            body: { prompt: normalizedPrompt, context },
-          });
+          const nextSnapshot = await request("/tasks", { method: "POST", body });
           ++snapshotGeneration;
           acceptSnapshot(nextSnapshot);
           return snapshot;
@@ -173,6 +181,41 @@
 
       function primaryAction() {
         return snapshot?.task?.status === "running" ? cancel() : submit(controls.prompt.value);
+      }
+
+      async function copyPrompt() {
+        let body;
+        try {
+          body = taskRequest(controls.prompt.value);
+        } catch (error) {
+          showError(error);
+          throw error;
+        }
+
+        const clipboard = document.defaultView?.navigator?.clipboard || globalThis.navigator?.clipboard;
+        try {
+          if (typeof clipboard?.writeText !== "function") throw new Error("Browser clipboard is unavailable");
+          await clipboard.writeText(promptEnvelope(body.prompt, body.context));
+        } catch (_error) {
+          const error = new Error("The prompt could not be copied to the clipboard");
+          showError(error);
+          throw error;
+        }
+
+        promptCopied = true;
+        globalThis.clearTimeout?.(copyResetTimer);
+        copyResetTimer = globalThis.setTimeout?.(() => {
+          resetCopyFeedback();
+          renderControls();
+        }, 2000);
+        renderControls();
+        announce("Prompt copied to the clipboard.");
+      }
+
+      function resetCopyFeedback() {
+        globalThis.clearTimeout?.(copyResetTimer);
+        copyResetTimer = null;
+        promptCopied = false;
       }
 
       async function refresh() {
@@ -282,14 +325,17 @@
         const running = snapshot?.task?.status === "running";
         const cancelling = snapshot?.task?.status === "cancelling";
         const resetting = snapshot?.session?.status === "resetting";
+        const hasPrompt = Boolean(normalizedPrompt(controls.prompt.value));
         if (busy && selecting) setSelecting(false);
         controls.prompt.disabled = busy;
         controls.mark.disabled = busy || (!selecting && marks.length >= 8);
         controls.clear.disabled = busy;
         controls.run.disabled = cancelling || resetting || (!running && (
-          snapshot?.session?.status !== "ready" || !String(controls.prompt.value || "").trim()
+          snapshot?.session?.status !== "ready" || !hasPrompt
         ));
         controls.run.textContent = running ? "Stop task" : cancelling ? "Stopping…" : "Run with Pi";
+        controls.copy.disabled = busy || !hasPrompt;
+        controls.copy.textContent = promptCopied ? "Copied" : "Copy prompt";
         controls.toggle.setAttribute("aria-label", `Open Pi browser taskbar. ${controls.status.textContent}. ${scopeTitle(marks.length)}.`);
       }
 
@@ -331,6 +377,7 @@
         }
         if (!marks.some((mark) => mark.element === element || mark.selector === selector)) {
           marks.push({ element, selector });
+          resetCopyFeedback();
         }
         setSelecting(false);
         renderMarks();
@@ -340,6 +387,7 @@
 
       function clearMarks(returnFocus = false) {
         if (active(snapshot)) return;
+        if (marks.length > 0) resetCopyFeedback();
         marks.splice(0);
         setSelecting(false);
         renderMarks();
@@ -350,6 +398,7 @@
       function removeMark(index) {
         if (active(snapshot)) return;
         marks.splice(index, 1);
+        resetCopyFeedback();
         renderMarks();
         announce(marks.length ? `${scopeTitle(marks.length)} remain.` : "Mark removed. Whole page selected.");
         const nextRemove = controls.marks.children?.[Math.min(index, marks.length - 1)]?.children?.[1];
@@ -396,6 +445,7 @@
           return;
         }
         marks.splice(0, marks.length, ...retained);
+        resetCopyFeedback();
         setSelecting(false);
         renderMarks();
       }
@@ -474,6 +524,7 @@
           : `${error?.message || "Pi Browser Taskbar is unavailable"} Retrying…`;
         setControlText(controls.error, message);
         controls.error.hidden = false;
+        controls.feedback.hidden = false;
         announce(message);
       }
 
@@ -481,6 +532,7 @@
         const message = error?.message || "Pi Browser Taskbar is unavailable";
         setControlText(controls.error, message);
         controls.error.hidden = false;
+        controls.feedback.hidden = false;
         announce(`Error. ${message}`);
       }
 
@@ -996,6 +1048,32 @@
     return new TextEncoder().encode(value).byteLength;
   }
 
+  function normalizedPrompt(value) {
+    return String(value || "").normalize("NFC")
+      .replace(/\r\n?/gu, "\n")
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, "")
+      .trim();
+  }
+
+  function promptEnvelope(prompt, context) {
+    return `${prompt}\n\n--- BEGIN UNTRUSTED BROWSER CONTEXT ---\n${safeContextJson(context)}\n--- END UNTRUSTED BROWSER CONTEXT ---`;
+  }
+
+  function safeContextJson(value) {
+    return canonicalJson(value).replace(/</gu, "\\u003c").replace(/>/gu, "\\u003e").replace(/&/gu, "\\u0026");
+  }
+
+  function canonicalJson(value) {
+    if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    if (value && typeof value === "object") {
+      const contents = Object.keys(value).sort()
+        .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+        .join(",");
+      return `{${contents}}`;
+    }
+    return JSON.stringify(value);
+  }
+
   function selectionTarget(target, taskbarHost, document) {
     if (!target?.localName || target === taskbarHost || taskbarHost.contains?.(target)) return null;
     return excluded(target, document) ? null : target;
@@ -1165,7 +1243,10 @@
         </section>
         <footer>
           <span data-status data-state="starting">Connecting</span>
-          <button data-run type="button" disabled>Run with Pi</button>
+          <span data-actions>
+            <button data-copy type="button" disabled>Copy prompt</button>
+            <button data-run type="button" disabled>Run with Pi</button>
+          </span>
         </footer>
       </section>
       <p class="sr-only" data-live aria-live="polite" aria-atomic="true">Connecting to the local Pi session</p>
@@ -1177,7 +1258,7 @@
     `;
   }
 
-  const taskbarStyles = ":host {\n  --pi-ink: #eef4fa;\n  --pi-paper: #121820;\n  --pi-paper-strong: #19222c;\n  --pi-line: #435263;\n  --pi-muted: #aab7c5;\n  --pi-signal: #55c3e6;\n  --pi-mark: #f2b84b;\n  --pi-danger: #ff8f9a;\n  --pi-panel-border: #536274;\n  --pi-header: rgb(25 34 44 / 94%);\n  --pi-shadow: 0 18px 48px rgb(0 0 0 / 42%), 0 3px 10px rgb(0 0 0 / 28%);\n  --pi-status-muted: #8492a5;\n  --pi-success: #4dd09a;\n  --pi-on-signal: #062b38;\n  --pi-on-mark: #241700;\n  --pi-mark-border: #b77b24;\n  --pi-mark-bg: #382b16;\n  --pi-mark-ink: #ffd994;\n  --pi-mark-separator: #78531f;\n  --pi-mark-hover: #49371c;\n  --pi-input-border: #7d8da0;\n  --pi-output-bg: #0d131a;\n  --pi-output-ink: #dce5ef;\n  --pi-error-bg: #3b1d24;\n  --pi-error-ink: #ffb3ba;\n  --pi-footer: rgb(10 15 21 / 56%);\n  --pi-button-border: #607084;\n  --pi-button-bg: #202b37;\n  --pi-button-hover: #2a3745;\n  --pi-run-hover: #2fa8cf;\n  --pi-toggle-border: #435263;\n  --pi-toggle-bg: #0b1118;\n  --pi-toggle-hover: #16212c;\n  --pi-toggle-muted: #b5c1ce;\n  --pi-toggle-shadow: 0 6px 18px rgb(0 0 0 / 32%);\n  --pi-overlay-dark: #101827;\n  --pi-overlay-light: #ffffff;\n  --pi-color-scheme: dark;\n}\n\n:host([data-light-theme]) {\n  --pi-ink: #101827;\n  --pi-paper: #f6f8fb;\n  --pi-paper-strong: #ffffff;\n  --pi-line: #cbd5e1;\n  --pi-muted: #5b6878;\n  --pi-signal: #087fa4;\n  --pi-mark: #f2a93b;\n  --pi-danger: #c53a47;\n  --pi-panel-border: #aeb9c8;\n  --pi-header: rgb(255 255 255 / 88%);\n  --pi-shadow: 0 18px 48px rgb(15 23 42 / 24%), 0 3px 10px rgb(15 23 42 / 14%);\n  --pi-status-muted: #8b98a9;\n  --pi-success: #16845b;\n  --pi-on-signal: #ffffff;\n  --pi-on-mark: #4b3308;\n  --pi-mark-border: #d79832;\n  --pi-mark-bg: #fff8e8;\n  --pi-mark-ink: #664711;\n  --pi-mark-separator: #e6bd78;\n  --pi-mark-hover: #f9e7c4;\n  --pi-input-border: #6d7888;\n  --pi-output-bg: #e9eef5;\n  --pi-output-ink: #273448;\n  --pi-error-bg: #fff0f1;\n  --pi-error-ink: #8f1e2a;\n  --pi-footer: rgb(255 255 255 / 72%);\n  --pi-button-border: #aeb9c8;\n  --pi-button-bg: #ffffff;\n  --pi-button-hover: #edf1f6;\n  --pi-run-hover: #066987;\n  --pi-toggle-border: #263449;\n  --pi-toggle-bg: #101827;\n  --pi-toggle-hover: #1b2940;\n  --pi-toggle-muted: #cbd5e1;\n  --pi-toggle-shadow: 0 6px 18px rgb(15 23 42 / 24%);\n  --pi-color-scheme: light;\n}\n\n*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\n.sr-only {\n  position: fixed;\n  width: 1px;\n  height: 1px;\n  overflow: hidden;\n  clip-path: inset(50%);\n  white-space: nowrap;\n}\n\n[data-panel],\n[data-toggle] {\n  color: var(--pi-ink);\n  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n  line-height: 1.35;\n}\n\n[data-panel] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  width: min(410px, calc(100vw - 32px));\n  max-height: calc(100vh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: auto;\n  border: 1px solid var(--pi-panel-border);\n  color-scheme: var(--pi-color-scheme);\n  border-radius: 0.65rem;\n  background:\n    linear-gradient(90deg, color-mix(in srgb, var(--pi-signal) 8%, transparent) 1px, transparent 1px) 0 0 / 18px 18px,\n    var(--pi-paper);\n  box-shadow: var(--pi-shadow);\n}\n\nheader {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  gap: 10px;\n  border-bottom: 1px solid var(--pi-line);\n  background: var(--pi-header);\n  padding: 0.8rem 0.9rem 0.7rem;\n}\n\n[data-identity],\n[data-toggle] > span:last-child {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  gap: 9px;\n}\n\n[data-identity] > span:last-child {\n  display: flex;\n  min-width: 0;\n  flex-direction: column;\n}\n\n[data-identity] > [data-pi-glyph] {\n  display: none;\n}\n\n[data-kicker],\n[data-status],\n[data-scope],\n[data-selection-help],\n[data-activity],\n[data-output-truncated],\n[data-cancel-warning] {\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n}\n\n[data-kicker] {\n  margin-bottom: 0.15rem;\n  color: var(--pi-signal);\n  font-size: 0.65rem;\n  font-weight: 800;\n  letter-spacing: 0.13em;\n}\n\n[data-identity] small,\n[data-scope],\n[data-selection-help],\n[data-activity],\n[data-output-truncated],\n[data-cancel-warning] {\n  color: var(--pi-muted);\n  font-size: 0.66rem;\n}\n\n[data-identity] small {\n  overflow: hidden;\n  font-size: 0.68rem;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-pi-glyph] {\n  display: inline-grid;\n  width: 1.45rem;\n  height: 1.45rem;\n  flex: 0 0 auto;\n  border-radius: 50%;\n  text-align: center;\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n  font-size: 1rem;\n  font-weight: 700;\n  line-height: 1.3;\n}\n\n[data-status] {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  color: var(--pi-muted);\n  font-size: 0.64rem;\n  font-weight: 700;\n  line-height: 1;\n  white-space: nowrap;\n}\n\n[data-status]::before {\n  width: 0.42rem;\n  height: 0.42rem;\n  flex: 0 0 auto;\n  border-radius: 50%;\n  background: var(--pi-status-muted);\n  content: \"\";\n}\n\n[data-status][data-state=\"ready\"]::before,\n[data-status][data-state=\"completed\"]::before {\n  background: var(--pi-success);\n}\n\n[data-status][data-state=\"running\"]::before,\n[data-status][data-state=\"cancelling\"]::before,\n[data-status][data-state=\"busy\"]::before,\n[data-status][data-state=\"resetting\"]::before {\n  background: var(--pi-mark);\n  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pi-mark) 18%, transparent);\n}\n\n[data-status][data-state=\"failed\"]::before,\n[data-status][data-state=\"unavailable\"]::before {\n  background: var(--pi-danger);\n}\n\n[data-focus],\n[data-instruction],\n[data-feedback] {\n  padding: 0.75rem 0.9rem;\n}\n\n[data-focus],\n[data-instruction] {\n  border-bottom: 1px solid var(--pi-line);\n}\n\nh2,\nlabel {\n  display: block;\n  margin: 0 0 0.4rem;\n  font-size: 0.73rem;\n  font-weight: 750;\n}\n\nh2 {\n  color: var(--pi-muted);\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  font-size: 0.65rem;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n}\n\n[data-focus-row] p {\n  margin: 0;\n}\n\n[data-scope] {\n  font-size: 0.68rem;\n}\n\n[data-selection-help] {\n  margin: 0.55rem 0 0;\n  font-size: 0.66rem;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 34px;\n  flex: 0 0 auto;\n  padding: 0 0.65rem;\n}\n\n[data-mark] {\n  position: relative;\n  margin-left: auto;\n  border-color: var(--pi-signal);\n  background: var(--pi-paper-strong);\n  color: var(--pi-signal);\n  font-weight: 650;\n}\n\n[data-mark]::before,\n[data-mark]::after {\n  position: absolute;\n  width: 0.38rem;\n  height: 0.38rem;\n  border-color: currentcolor;\n  content: \"\";\n}\n\n[data-mark]::before {\n  top: -0.22rem;\n  left: -0.22rem;\n  border-top: 2px solid;\n  border-left: 2px solid;\n}\n\n[data-mark]::after {\n  right: -0.22rem;\n  bottom: -0.22rem;\n  border-right: 2px solid;\n  border-bottom: 2px solid;\n}\n\n[data-mark]:hover,\n[data-mark][aria-pressed=\"true\"] {\n  border-color: var(--pi-signal);\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n}\n\n[data-marks] {\n  display: flex;\n  max-height: 7.5rem;\n  flex-wrap: wrap;\n  gap: 0.4rem;\n  overflow-y: auto;\n  margin: 0.55rem 0 0.4rem;\n  padding: 0;\n  list-style: none;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  min-width: 0;\n  max-width: 100%;\n  align-items: center;\n  border: 1px solid var(--pi-mark-border);\n  border-radius: 0.3rem;\n  background: var(--pi-mark-bg);\n  color: var(--pi-mark-ink);\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  font-size: 0.66rem;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  padding: 0.3rem 0.4rem;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  display: grid;\n  min-width: 34px;\n  min-height: 34px;\n  align-self: stretch;\n  place-items: center;\n  border: 0;\n  border-left: 1px solid var(--pi-mark-separator);\n  border-radius: 0;\n  background: transparent;\n  padding: 0 0.4rem;\n  color: inherit;\n}\n\n[data-mark-chip] button:hover {\n  background: var(--pi-mark-hover);\n}\n\n[data-clear] {\n  background: transparent;\n  color: var(--pi-muted);\n  font-size: 0.72rem;\n}\n\ntextarea {\n  display: block;\n  width: 100%;\n  min-height: 84px;\n  border: 1px solid var(--pi-input-border);\n  border-radius: 0.375rem;\n  background: var(--pi-paper-strong);\n  padding: 0.55rem;\n  color: var(--pi-ink);\n  font: 0.8rem/1.4 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n  resize: vertical;\n}\n\ntextarea::placeholder {\n  color: var(--pi-muted);\n}\n\ntextarea:focus {\n  border-color: var(--pi-signal);\n  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--pi-signal) 18%, transparent);\n}\n\n[data-feedback] {\n  display: grid;\n  gap: 0.5rem;\n}\n\n[data-feedback] > * {\n  margin: 0;\n}\n\n[data-activity],\n[data-error] {\n  font-size: 0.72rem;\n}\n\npre {\n  max-height: 9rem;\n  overflow: auto;\n  border: 1px solid var(--pi-line);\n  border-radius: 0.3rem;\n  background: var(--pi-output-bg);\n  padding: 0.55rem;\n  color: var(--pi-output-ink);\n  font: 0.68rem/1.5 \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n[data-error] {\n  border-left: 3px solid var(--pi-danger);\n  background: var(--pi-error-bg);\n  padding: 0.45rem 0.55rem;\n  color: var(--pi-error-ink);\n}\n\n[data-insecure-remote-warning] {\n  margin: 0.75rem 0.9rem 0;\n  border: 1px solid var(--pi-mark-border);\n  border-radius: 0.3rem;\n  background: var(--pi-mark-bg);\n  padding: 0.45rem 0.55rem;\n  color: var(--pi-mark-ink);\n  font-size: 0.72rem;\n}\n\nfooter {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 0.5rem;\n  border-top: 1px solid var(--pi-line);\n  background: var(--pi-footer);\n  padding: 0.75rem 0.9rem;\n}\n\nbutton {\n  min-height: 34px;\n  border: 1px solid var(--pi-button-border);\n  border-radius: 0.375rem;\n  background: var(--pi-button-bg);\n  color: var(--pi-ink);\n  cursor: pointer;\n  font: 650 0.74rem/1.35 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\nbutton:hover {\n  background: var(--pi-button-hover);\n}\n\nbutton:focus-visible,\ntextarea:focus-visible,\npre:focus-visible {\n  outline: 3px solid var(--pi-signal);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-close] {\n  display: grid;\n  width: 34px;\n  padding: 0;\n  place-items: center;\n  border-radius: 50%;\n  background: transparent;\n  color: var(--pi-muted);\n}\n\n[data-close-icon],\n[data-remove-icon] {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  fill: none;\n  stroke: currentcolor;\n  stroke-linecap: round;\n  stroke-width: 1.5;\n}\n\n[data-run] {\n  min-width: 112px;\n  border-color: var(--pi-signal);\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n  font-weight: 700;\n}\n\n[data-run]:hover {\n  border-color: var(--pi-run-hover);\n  background: var(--pi-run-hover);\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 2px solid var(--pi-signal);\n  box-shadow: 0 0 0 2px var(--pi-overlay-light), 0 0 0 4px var(--pi-overlay-dark);\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 2px solid var(--pi-mark);\n  color: var(--pi-on-mark);\n  font: bold 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;\n  box-shadow: 0 0 0 2px var(--pi-overlay-light), 0 0 0 4px var(--pi-overlay-dark);\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-mark);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  min-height: 40px;\n  max-width: calc(100% - 32px);\n  align-items: center;\n  gap: 0.45rem;\n  border: 1px solid var(--pi-toggle-border);\n  border-radius: 999px;\n  background: var(--pi-toggle-bg);\n  box-shadow: var(--pi-toggle-shadow);\n  padding: 0.38rem 0.72rem 0.38rem 0.4rem;\n  color: white;\n  text-align: left;\n}\n\n[data-toggle] strong {\n  display: inline-flex;\n  min-width: 0;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.35rem;\n  color: white;\n  font-size: 0.74rem;\n  font-weight: 700;\n  letter-spacing: 0.01em;\n}\n\n[data-toggle-scope] {\n  color: var(--pi-toggle-muted);\n  font-size: 0.68rem;\n  font-weight: 600;\n}\n\n[data-toggle]:hover {\n  background: var(--pi-toggle-hover);\n}\n\n[data-toggle]:focus-visible {\n  outline: 0;\n  box-shadow:\n    var(--pi-toggle-shadow),\n    0 0 0 2px var(--pi-overlay-light),\n    0 0 0 4px var(--pi-overlay-dark);\n}\n\n@media (max-width: 480px) {\n  [data-panel] {\n    right: 0.65rem;\n    bottom: 0.65rem;\n    left: 0.65rem;\n    width: auto;\n    max-height: calc(100vh - 1.3rem);\n    max-height: calc(100dvh - 1.3rem);\n  }\n\n  [data-focus-row] {\n    align-items: stretch;\n    flex-direction: column;\n  }\n\n  [data-mark] {\n    align-self: flex-start;\n    margin-left: 0;\n  }\n\n  footer {\n    align-items: stretch;\n    flex-direction: column-reverse;\n  }\n\n  footer button {\n    width: 100%;\n  }\n\n  [data-toggle] {\n    bottom: 0.65rem;\n    left: 0.65rem;\n  }\n}\n\n@media (prefers-reduced-motion: no-preference) {\n  [data-toggle] {\n    transition: background-color 120ms ease;\n  }\n\n  [data-status][data-state=\"running\"]::before {\n    animation: pi-taskbar-pulse 1.2s ease-in-out infinite;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    animation: none !important;\n    transition: none !important;\n  }\n}\n\n@keyframes pi-taskbar-pulse {\n  50% {\n    box-shadow: 0 0 0 7px color-mix(in srgb, var(--pi-mark) 8%, transparent);\n  }\n}";
+  const taskbarStyles = ":host {\n  --pi-ink: #eef4fa;\n  --pi-paper: #121820;\n  --pi-paper-strong: #19222c;\n  --pi-line: #435263;\n  --pi-muted: #aab7c5;\n  --pi-signal: #55c3e6;\n  --pi-mark: #f2b84b;\n  --pi-danger: #ff8f9a;\n  --pi-panel-border: #536274;\n  --pi-header: rgb(25 34 44 / 94%);\n  --pi-shadow: 0 18px 48px rgb(0 0 0 / 42%), 0 3px 10px rgb(0 0 0 / 28%);\n  --pi-status-muted: #8492a5;\n  --pi-success: #4dd09a;\n  --pi-on-signal: #062b38;\n  --pi-on-mark: #241700;\n  --pi-mark-border: #b77b24;\n  --pi-mark-bg: #382b16;\n  --pi-mark-ink: #ffd994;\n  --pi-mark-separator: #78531f;\n  --pi-mark-hover: #49371c;\n  --pi-input-border: #7d8da0;\n  --pi-output-bg: #0d131a;\n  --pi-output-ink: #dce5ef;\n  --pi-error-bg: #3b1d24;\n  --pi-error-ink: #ffb3ba;\n  --pi-footer: rgb(10 15 21 / 56%);\n  --pi-button-border: #607084;\n  --pi-button-bg: #202b37;\n  --pi-button-hover: #2a3745;\n  --pi-run-hover: #2fa8cf;\n  --pi-toggle-border: #435263;\n  --pi-toggle-bg: #0b1118;\n  --pi-toggle-hover: #16212c;\n  --pi-toggle-muted: #b5c1ce;\n  --pi-toggle-shadow: 0 6px 18px rgb(0 0 0 / 32%);\n  --pi-overlay-dark: #101827;\n  --pi-overlay-light: #ffffff;\n  --pi-color-scheme: dark;\n}\n\n:host([data-light-theme]) {\n  --pi-ink: #101827;\n  --pi-paper: #f6f8fb;\n  --pi-paper-strong: #ffffff;\n  --pi-line: #cbd5e1;\n  --pi-muted: #5b6878;\n  --pi-signal: #087fa4;\n  --pi-mark: #f2a93b;\n  --pi-danger: #c53a47;\n  --pi-panel-border: #aeb9c8;\n  --pi-header: rgb(255 255 255 / 88%);\n  --pi-shadow: 0 18px 48px rgb(15 23 42 / 24%), 0 3px 10px rgb(15 23 42 / 14%);\n  --pi-status-muted: #8b98a9;\n  --pi-success: #16845b;\n  --pi-on-signal: #ffffff;\n  --pi-on-mark: #4b3308;\n  --pi-mark-border: #d79832;\n  --pi-mark-bg: #fff8e8;\n  --pi-mark-ink: #664711;\n  --pi-mark-separator: #e6bd78;\n  --pi-mark-hover: #f9e7c4;\n  --pi-input-border: #6d7888;\n  --pi-output-bg: #e9eef5;\n  --pi-output-ink: #273448;\n  --pi-error-bg: #fff0f1;\n  --pi-error-ink: #8f1e2a;\n  --pi-footer: rgb(255 255 255 / 72%);\n  --pi-button-border: #aeb9c8;\n  --pi-button-bg: #ffffff;\n  --pi-button-hover: #edf1f6;\n  --pi-run-hover: #066987;\n  --pi-toggle-border: #263449;\n  --pi-toggle-bg: #101827;\n  --pi-toggle-hover: #1b2940;\n  --pi-toggle-muted: #cbd5e1;\n  --pi-toggle-shadow: 0 6px 18px rgb(15 23 42 / 24%);\n  --pi-color-scheme: light;\n}\n\n*,\n*::before,\n*::after {\n  box-sizing: border-box;\n}\n\n[hidden] {\n  display: none !important;\n}\n\n.sr-only {\n  position: fixed;\n  width: 1px;\n  height: 1px;\n  overflow: hidden;\n  clip-path: inset(50%);\n  white-space: nowrap;\n}\n\n[data-panel],\n[data-toggle] {\n  color: var(--pi-ink);\n  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n  line-height: 1.35;\n}\n\n[data-panel] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  width: min(410px, calc(100vw - 32px));\n  max-height: calc(100vh - 32px);\n  max-height: calc(100dvh - 32px);\n  overflow: auto;\n  border: 1px solid var(--pi-panel-border);\n  color-scheme: var(--pi-color-scheme);\n  border-radius: 0.65rem;\n  background:\n    linear-gradient(90deg, color-mix(in srgb, var(--pi-signal) 8%, transparent) 1px, transparent 1px) 0 0 / 18px 18px,\n    var(--pi-paper);\n  box-shadow: var(--pi-shadow);\n}\n\nheader {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  align-items: center;\n  gap: 10px;\n  border-bottom: 1px solid var(--pi-line);\n  background: var(--pi-header);\n  padding: 0.8rem 0.9rem 0.7rem;\n}\n\n[data-identity],\n[data-toggle] > span:last-child {\n  display: flex;\n  min-width: 0;\n  align-items: center;\n  gap: 9px;\n}\n\n[data-identity] > span:last-child {\n  display: flex;\n  min-width: 0;\n  flex-direction: column;\n}\n\n[data-identity] > [data-pi-glyph] {\n  display: none;\n}\n\n[data-kicker],\n[data-status],\n[data-scope],\n[data-selection-help],\n[data-activity],\n[data-output-truncated],\n[data-cancel-warning] {\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n}\n\n[data-kicker] {\n  margin-bottom: 0.15rem;\n  color: var(--pi-signal);\n  font-size: 0.65rem;\n  font-weight: 800;\n  letter-spacing: 0.13em;\n}\n\n[data-identity] small,\n[data-scope],\n[data-selection-help],\n[data-activity],\n[data-output-truncated],\n[data-cancel-warning] {\n  color: var(--pi-muted);\n  font-size: 0.66rem;\n}\n\n[data-identity] small {\n  overflow: hidden;\n  font-size: 0.68rem;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-pi-glyph] {\n  display: inline-grid;\n  width: 1.45rem;\n  height: 1.45rem;\n  flex: 0 0 auto;\n  border-radius: 50%;\n  text-align: center;\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n  font-size: 1rem;\n  font-weight: 700;\n  line-height: 1.3;\n}\n\n[data-status] {\n  display: flex;\n  align-items: center;\n  gap: 0.4rem;\n  color: var(--pi-muted);\n  font-size: 0.64rem;\n  font-weight: 700;\n  line-height: 1;\n  white-space: nowrap;\n}\n\n[data-status]::before {\n  width: 0.42rem;\n  height: 0.42rem;\n  flex: 0 0 auto;\n  border-radius: 50%;\n  background: var(--pi-status-muted);\n  content: \"\";\n}\n\n[data-status][data-state=\"ready\"]::before,\n[data-status][data-state=\"completed\"]::before {\n  background: var(--pi-success);\n}\n\n[data-status][data-state=\"running\"]::before,\n[data-status][data-state=\"cancelling\"]::before,\n[data-status][data-state=\"busy\"]::before,\n[data-status][data-state=\"resetting\"]::before {\n  background: var(--pi-mark);\n  box-shadow: 0 0 0 4px color-mix(in srgb, var(--pi-mark) 18%, transparent);\n}\n\n[data-status][data-state=\"failed\"]::before,\n[data-status][data-state=\"unavailable\"]::before {\n  background: var(--pi-danger);\n}\n\n[data-focus],\n[data-instruction],\n[data-feedback] {\n  padding: 0.75rem 0.9rem;\n}\n\n[data-focus],\n[data-instruction] {\n  border-bottom: 1px solid var(--pi-line);\n}\n\nh2,\nlabel {\n  display: block;\n  margin: 0 0 0.4rem;\n  font-size: 0.73rem;\n  font-weight: 750;\n}\n\nh2 {\n  color: var(--pi-muted);\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  font-size: 0.65rem;\n  letter-spacing: 0.08em;\n  text-transform: uppercase;\n}\n\n[data-focus-row] {\n  display: flex;\n  align-items: center;\n  gap: 0.5rem;\n}\n\n[data-focus-row] p {\n  margin: 0;\n}\n\n[data-scope] {\n  font-size: 0.68rem;\n}\n\n[data-selection-help] {\n  margin: 0.55rem 0 0;\n  font-size: 0.66rem;\n}\n\n[data-mark],\n[data-clear] {\n  min-height: 34px;\n  flex: 0 0 auto;\n  padding: 0 0.65rem;\n}\n\n[data-mark] {\n  position: relative;\n  margin-left: auto;\n  border-color: var(--pi-signal);\n  background: var(--pi-paper-strong);\n  color: var(--pi-signal);\n  font-weight: 650;\n}\n\n[data-mark]::before,\n[data-mark]::after {\n  position: absolute;\n  width: 0.38rem;\n  height: 0.38rem;\n  border-color: currentcolor;\n  content: \"\";\n}\n\n[data-mark]::before {\n  top: -0.22rem;\n  left: -0.22rem;\n  border-top: 2px solid;\n  border-left: 2px solid;\n}\n\n[data-mark]::after {\n  right: -0.22rem;\n  bottom: -0.22rem;\n  border-right: 2px solid;\n  border-bottom: 2px solid;\n}\n\n[data-mark]:hover,\n[data-mark][aria-pressed=\"true\"] {\n  border-color: var(--pi-signal);\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n}\n\n[data-marks] {\n  display: flex;\n  max-height: 7.5rem;\n  flex-wrap: wrap;\n  gap: 0.4rem;\n  overflow-y: auto;\n  margin: 0.55rem 0 0.4rem;\n  padding: 0;\n  list-style: none;\n}\n\n[data-mark-chip] {\n  display: inline-flex;\n  min-width: 0;\n  max-width: 100%;\n  align-items: center;\n  border: 1px solid var(--pi-mark-border);\n  border-radius: 0.3rem;\n  background: var(--pi-mark-bg);\n  color: var(--pi-mark-ink);\n  font-family: \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  font-size: 0.66rem;\n}\n\n[data-mark-chip] > span {\n  overflow: hidden;\n  padding: 0.3rem 0.4rem;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n}\n\n[data-mark-chip] button {\n  display: grid;\n  min-width: 34px;\n  min-height: 34px;\n  align-self: stretch;\n  place-items: center;\n  border: 0;\n  border-left: 1px solid var(--pi-mark-separator);\n  border-radius: 0;\n  background: transparent;\n  padding: 0 0.4rem;\n  color: inherit;\n}\n\n[data-mark-chip] button:hover {\n  background: var(--pi-mark-hover);\n}\n\n[data-clear] {\n  background: transparent;\n  color: var(--pi-muted);\n  font-size: 0.72rem;\n}\n\ntextarea {\n  display: block;\n  width: 100%;\n  min-height: 84px;\n  border: 1px solid var(--pi-input-border);\n  border-radius: 0.375rem;\n  background: var(--pi-paper-strong);\n  padding: 0.55rem;\n  color: var(--pi-ink);\n  font: 0.8rem/1.4 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n  resize: vertical;\n}\n\ntextarea::placeholder {\n  color: var(--pi-muted);\n}\n\ntextarea:focus {\n  border-color: var(--pi-signal);\n  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--pi-signal) 18%, transparent);\n}\n\n[data-feedback] {\n  display: grid;\n  gap: 0.5rem;\n}\n\n[data-feedback] > * {\n  margin: 0;\n}\n\n[data-activity],\n[data-error] {\n  font-size: 0.72rem;\n}\n\npre {\n  max-height: 9rem;\n  overflow: auto;\n  border: 1px solid var(--pi-line);\n  border-radius: 0.3rem;\n  background: var(--pi-output-bg);\n  padding: 0.55rem;\n  color: var(--pi-output-ink);\n  font: 0.68rem/1.5 \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace;\n  white-space: pre-wrap;\n  overflow-wrap: anywhere;\n}\n\n[data-error] {\n  border-left: 3px solid var(--pi-danger);\n  background: var(--pi-error-bg);\n  padding: 0.45rem 0.55rem;\n  color: var(--pi-error-ink);\n}\n\n[data-insecure-remote-warning] {\n  margin: 0.75rem 0.9rem 0;\n  border: 1px solid var(--pi-mark-border);\n  border-radius: 0.3rem;\n  background: var(--pi-mark-bg);\n  padding: 0.45rem 0.55rem;\n  color: var(--pi-mark-ink);\n  font-size: 0.72rem;\n}\n\nfooter {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 0.5rem;\n  border-top: 1px solid var(--pi-line);\n  background: var(--pi-footer);\n  padding: 0.75rem 0.9rem;\n}\n\nbutton {\n  min-height: 34px;\n  border: 1px solid var(--pi-button-border);\n  border-radius: 0.375rem;\n  background: var(--pi-button-bg);\n  color: var(--pi-ink);\n  cursor: pointer;\n  font: 650 0.74rem/1.35 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;\n}\n\nbutton:hover {\n  background: var(--pi-button-hover);\n}\n\nbutton:focus-visible,\ntextarea:focus-visible,\npre:focus-visible {\n  outline: 3px solid var(--pi-signal);\n  outline-offset: 2px;\n}\n\nbutton:disabled {\n  cursor: not-allowed;\n  opacity: 0.55;\n}\n\n[data-close] {\n  display: grid;\n  width: 34px;\n  padding: 0;\n  place-items: center;\n  border-radius: 50%;\n  background: transparent;\n  color: var(--pi-muted);\n}\n\n[data-close-icon],\n[data-remove-icon] {\n  display: block;\n  width: 0.875rem;\n  height: 0.875rem;\n  fill: none;\n  stroke: currentcolor;\n  stroke-linecap: round;\n  stroke-width: 1.5;\n}\n\n[data-actions] {\n  display: flex;\n  gap: 0.5rem;\n  margin-left: auto;\n}\n\n[data-copy] {\n  border-color: var(--pi-signal);\n  background: transparent;\n  color: var(--pi-signal);\n  font-weight: 700;\n  padding: 0 0.65rem;\n}\n\n[data-copy]:hover {\n  background: color-mix(in srgb, var(--pi-signal) 14%, transparent);\n}\n\n[data-run] {\n  min-width: 112px;\n  border-color: var(--pi-signal);\n  background: var(--pi-signal);\n  color: var(--pi-on-signal);\n  font-weight: 700;\n}\n\n[data-run]:hover {\n  border-color: var(--pi-run-hover);\n  background: var(--pi-run-hover);\n}\n\n[data-hover-outline],\n[data-mark-outline] {\n  position: fixed;\n  z-index: 2147483646;\n  pointer-events: none;\n}\n\n[data-hover-outline] {\n  border: 2px solid var(--pi-signal);\n  box-shadow: 0 0 0 2px var(--pi-overlay-light), 0 0 0 4px var(--pi-overlay-dark);\n}\n\n[data-mark-outline] {\n  display: grid;\n  place-items: start end;\n  border: 2px solid var(--pi-mark);\n  color: var(--pi-on-mark);\n  font: bold 12px/1 Inter, ui-sans-serif, system-ui, sans-serif;\n  box-shadow: 0 0 0 2px var(--pi-overlay-light), 0 0 0 4px var(--pi-overlay-dark);\n}\n\n[data-mark-outline]::after {\n  padding: 3px;\n  background: var(--pi-mark);\n  content: \"marked\";\n}\n\n[data-toggle] {\n  position: fixed;\n  z-index: 2147483647;\n  bottom: 16px;\n  left: 16px;\n  display: inline-flex;\n  min-height: 40px;\n  max-width: calc(100% - 32px);\n  align-items: center;\n  gap: 0.45rem;\n  border: 1px solid var(--pi-toggle-border);\n  border-radius: 999px;\n  background: var(--pi-toggle-bg);\n  box-shadow: var(--pi-toggle-shadow);\n  padding: 0.38rem 0.72rem 0.38rem 0.4rem;\n  color: white;\n  text-align: left;\n}\n\n[data-toggle] strong {\n  display: inline-flex;\n  min-width: 0;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 0.35rem;\n  color: white;\n  font-size: 0.74rem;\n  font-weight: 700;\n  letter-spacing: 0.01em;\n}\n\n[data-toggle-scope] {\n  color: var(--pi-toggle-muted);\n  font-size: 0.68rem;\n  font-weight: 600;\n}\n\n[data-toggle]:hover {\n  background: var(--pi-toggle-hover);\n}\n\n[data-toggle]:focus-visible {\n  outline: 0;\n  box-shadow:\n    var(--pi-toggle-shadow),\n    0 0 0 2px var(--pi-overlay-light),\n    0 0 0 4px var(--pi-overlay-dark);\n}\n\n@media (max-width: 480px) {\n  [data-panel] {\n    right: 0.65rem;\n    bottom: 0.65rem;\n    left: 0.65rem;\n    width: auto;\n    max-height: calc(100vh - 1.3rem);\n    max-height: calc(100dvh - 1.3rem);\n  }\n\n  [data-focus-row] {\n    align-items: stretch;\n    flex-direction: column;\n  }\n\n  [data-mark] {\n    align-self: flex-start;\n    margin-left: 0;\n  }\n\n  footer {\n    align-items: stretch;\n    flex-direction: column;\n  }\n\n  [data-actions] {\n    margin-left: 0;\n  }\n\n  [data-actions] button {\n    min-width: 0;\n    flex: 1 1 0;\n  }\n\n  [data-toggle] {\n    bottom: 0.65rem;\n    left: 0.65rem;\n  }\n}\n\n@media (prefers-reduced-motion: no-preference) {\n  [data-toggle] {\n    transition: background-color 120ms ease;\n  }\n\n  [data-status][data-state=\"running\"]::before {\n    animation: pi-taskbar-pulse 1.2s ease-in-out infinite;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  *,\n  *::before,\n  *::after {\n    scroll-behavior: auto !important;\n    animation: none !important;\n    transition: none !important;\n  }\n}\n\n@keyframes pi-taskbar-pulse {\n  50% {\n    box-shadow: 0 0 0 7px color-mix(in srgb, var(--pi-mark) 8%, transparent);\n  }\n}";
   const contextProvider = ({
   framework: "rails",
   sourceHint(element) {

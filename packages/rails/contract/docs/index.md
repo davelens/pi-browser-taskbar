@@ -191,7 +191,9 @@ exact separately delimited envelope:
 --- END UNTRUSTED BROWSER CONTEXT ---
 ```
 
-The delimiter, JSON serialization, and escaping are covered by prompt goldens. Text inside browser
+The delimiter, JSON serialization, and escaping are covered by prompt goldens. The Browser Client's
+**Copy prompt** control reproduces this exact envelope in the browser for clipboard export and never
+submits a task. Text inside browser
 context is untrusted reference data even when it resembles instructions. Visible text and URL paths
 may reach the configured Pi/model provider; no adapter claims automatic secret or PII detection.
 
@@ -314,7 +316,7 @@ navigation remounts.
 The Browser Client owns one lower-left launcher and compact composer entirely inside its Shadow DOM.
 It uses only native controls, inline taskbar markup, system fonts, and taskbar styles. The open order is
 Pi identity/model, task focus and optional removable marks, task instruction, lifecycle feedback, then
-footer status and the task action. Zero marks says **Whole page**; one through eight marks remain
+footer status, the prompt copy action, and the task action. Zero marks says **Whole page**; one through eight marks remain
 advisory focus points with whole-page surroundings.
 
 The stable visible states are **Connecting**, **Ready**, **Working**, **Finished**, **Stopped**, and
@@ -328,8 +330,13 @@ Opening moves focus to the labelled instruction field; collapse or `Escape` retu
 launcher. **Mark element** exposes pressed state and visible pointer/focus guidance: a keyboard user
 may focus a host-page element and press Enter or Space, while `Escape` cancels and returns focus to
 **Mark element**. Removing or clearing marks returns focus to a surviving remove control or **Mark
-element**. Native buttons cover submission and stopping. Active work disables editing, marking, and
-clearing while leaving **Stop task** available.
+element**. Native buttons cover submission, stopping, and prompt copying. **Copy prompt** writes the
+exact [prompt envelope](#prompt-envelope) for the current instruction and freshly captured context to
+the browser clipboard without creating, cancelling, or otherwise mutating a task or session; it shows
+brief **Copied** text and announces success or a failed clipboard write through the shared announcer.
+It is disabled while the instruction is empty or work is active and does not otherwise depend on Pi
+readiness. Active work disables editing, marking, clearing, and copying while leaving **Stop task**
+available.
 
 The composer fits the available narrow viewport, caps its block size so content remains scrollable at
 200% zoom, and removes animation and transition effects under `prefers-reduced-motion: reduce`.
