@@ -1,6 +1,10 @@
 # Phoenix adapter changelog
 
-## 0.3.0 - Unreleased
+## 0.4.0 - Unreleased
+
+- Copy the canonical task instruction and browser context from an outline-styled taskbar action without submitting to Pi.
+
+## 0.3.0 - 2026-08-04
 
 - Run Pi with a fixed one-shot policy that acts without a conversational reply channel.
 
