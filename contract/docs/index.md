@@ -164,12 +164,14 @@ with `template` precision and no line or element-origin claim. An invalid, overl
 missing, or browser-displaced inner boundary is classified rather than replaced with a surrounding
 layout hint. Cached and helper-generated markup may retain its enclosing template-level hint.
 
-Normalized lengths are measured in UTF-8 bytes: request 128 KiB, context 96 KiB, prompt 4,000,
-page snapshot 48 KiB/750 nodes/depth 12, and combined focus detail 48 KiB. Focus subtrees are
-limited to 100 nodes/depth 6. Focus selectors and complete source hints are reserved before detail;
-the remaining focus allocation is shared evenly in mark order, then the page receives the remaining
-context allocation up to its own bound. Strings use the bounds encoded by `x-maxUtf8Bytes` in the
-schema. Truncation occurs only at Unicode code-point boundaries, retains page and focused subtree
+Normalized adapter limits are measured in UTF-8 bytes: request 128 KiB, context 96 KiB, prompt 4,000,
+page snapshot 48 KiB/750 nodes/depth 12, and combined focus detail 48 KiB. The Browser Client uses
+those page limits only when no marks select the whole page. With one or more marks it targets at most
+12 KiB of context, shares 8 KiB across focused detail, and keeps at most 2 KiB of page surroundings.
+Focus subtrees are limited to 100 nodes/depth 6. Focus selectors and complete source hints are reserved
+before detail; the remaining focus allocation is shared evenly in mark order, then the page receives
+the remaining context allocation up to its active bound. Strings use the bounds encoded by
+`x-maxUtf8Bytes` in the schema. Truncation occurs only at Unicode code-point boundaries, retains page and focused subtree
 nodes breadth-first, and reports affected page or `focus:1` through `focus:8` sections with canonical
 `bytes`, `nodes`, `depth`, and `string` reasons.
 

@@ -17,8 +17,9 @@ Submission always captures a deterministic breadth-first whole-page structural s
 may add up to eight ordered advisory focus points; the client prefers unique `data-testid`/`id`
 anchors, otherwise builds a unique ancestry selector. Each focus includes a conservative provider
 hint, outer-to-inner ancestor summaries, and a bounded subtree. Confident provider hints may also
-appear on captured snapshot nodes. Focus detail is shared
-fairly before the page receives the remaining context allocation.
+appear on captured snapshot nodes. Focus detail is shared fairly before the page receives the
+remaining context allocation. Marked requests use a compact 12 KiB context target: 8 KiB shared
+across focus detail and 2 KiB for page surroundings; whole-page requests retain the broader limits.
 
 Each tab reconciles through canonical state polling: 500 ms while connecting or active, 30 seconds
 while stable, and bounded one-to-30-second backoff without clearing rendered state after failed reads.
@@ -32,8 +33,8 @@ Connecting, Ready, Working, Finished, Stopped, and Unavailable. An outline-style
 action beside **Run with Pi** writes the exact canonical prompt envelope (instruction plus untrusted
 context) to the clipboard without submitting; it shares the submission capture path, falls back to the
 browser's legacy user-gesture copy path when the modern Clipboard API is unavailable or denied, is
-disabled while the instruction is empty or work is active, and reports clipboard failures through the shared
-announcer. Opening, collapse/Escape, selection
+disabled while the instruction is empty or work is active, and reports clipboard failures through the
+shared announcer. Opening, collapse/Escape, selection
 mode, mark removal/clear, and submission/stop have explicit focus paths; focused host elements can be
 marked with Enter or Space. The composer reflows within narrow and 200%-zoom
 equivalent viewports and disables motion under the reduced-motion preference. Automated semantics
