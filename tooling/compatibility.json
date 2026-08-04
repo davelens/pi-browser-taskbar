@@ -1,5 +1,5 @@
 {
-  "product_version": "0.2.0",
+  "product_version": "0.3.0",
   "rails": {
     "framework_floor": "7.1",
     "language_floor": "2.7",
