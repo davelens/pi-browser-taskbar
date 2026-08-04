@@ -19,7 +19,7 @@ excluded.
 Rails 7.1 is the first-release floor even though its upstream maintenance status may change. Each
 Rails minor uses its newest stable patch and its upstream-declared minimum Ruby; newest Rails is also
 run on newest stable Ruby. Every row generates a fresh conventional application, installs the built
-`pi-browser-taskbar-rails-0.4.0.gem` into an isolated gem home, and rejects a source-workspace
+`pi-browser-taskbar-rails-0.4.1.gem` into an isolated gem home, and rejects a source-workspace
 fallback before writing evidence.
 
 Pull requests run the two boundary rows (`Rails 7.1.6 / Ruby 2.7.0` and `Rails 8.1.3.1 / Ruby 4.0.6`).
@@ -38,7 +38,7 @@ is not supported merely because it appears in prose.
 Phoenix 1.7 remains the first-release floor regardless of upstream maintenance status. Each Phoenix
 minor uses its newest stable patch at its upstream-declared minimum Elixir with a recorded compatible
 OTP patch; newest Phoenix is also run on newest stable Elixir and OTP. Every row generates a fresh
-conventional application, installs `pi_browser_taskbar_phoenix-0.4.0.tar` through an isolated signed
+conventional application, installs `pi_browser_taskbar_phoenix-0.4.1.tar` through an isolated signed
 Hex repository, and rejects path or source-workspace fallback before recording evidence. Controller
 HEEx and LiveView render checks accompany the packaged Phoenix source-annotation provider; LiveView
 0.17.14 is the compatible evidence boundary on the fixed Elixir 1.11 floor. Because current hosted
@@ -53,8 +53,8 @@ rows. The complete workflow is the acceptance and release-blocking Phoenix claim
 
 | Adapter | Product version | Framework floor | Language floor | Release-blocking platform |
 | --- | --- | --- | --- | --- |
-| Rails ERB/Turbo | 0.4.0 | Rails 7.1 | MRI Ruby 2.7 | MRI on Linux |
-| Phoenix controller-HEEx/LiveView | 0.4.0 | Phoenix 1.7 | Elixir 1.11 | standard Erlang/Elixir runtime on Linux |
+| Rails ERB/Turbo | 0.4.1 | Rails 7.1 | MRI Ruby 2.7 | MRI on Linux |
+| Phoenix controller-HEEx/LiveView | 0.4.1 | Phoenix 1.7 | Elixir 1.11 | standard Erlang/Elixir runtime on Linux |
 
 Other Ruby engines, nonstandard BEAM runtimes, operating systems, Rails template engines, and older
 framework versions are not claimed. The package is development-only on every row. A support expansion
